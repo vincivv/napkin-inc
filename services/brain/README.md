@@ -116,3 +116,53 @@ Real vs simulated: compiler, dry run, Z3 proofs, guards and the SSE route are re
 platform. Posting-rule synthesis from examples is not wired (reported `skipped`). The LLM copy step runs only with `ANTHROPIC_API_KEY`; without it defaults are
 used. Tests: `test/compiler.test.ts`, `test/compile-route.test.ts`, `test/guards.test.ts`, `test/z3-prover.test.ts` (TEST data in
 `test/fixtures/maya-spec.TEST.ts`: the fixture's placeholder costs, marked confirmed for tests only).
+
+## M3-K: phone line (`src/phone`, `POST /phone/tools/:name`)
+A **Cartesia Managed Agent** owns the voice and the LLM (a Claude model from Cartesia's catalog, billed by Cartesia).
+All logic is in brain **webhook tools**; the agent only talks and picks tools. Cartesia fills `caller_id` from
+`{{system__caller_id}}` and `conversation_id` from `{{system__conversation_id}}` (hidden from the model), and
+`business_id` is a constant, so the model cannot choose any of them. Cartesia has no SMS: pay links go by Twilio.
+
+| Tool | Mode | What it does |
+|---|---|---|
+| `menu_lookup` | customer | live catalog prices + availability (`floor(stock / stockUnits)`); never costs |
+| `order_status` | customer / owner | details only if the caller ID placed that phone order (or the owner is verified); otherwise one generic reply, identical for unknown orders |
+| `place_order` | customer | validates lines against the live catalog, then `createCheckout(..., {channel: "phone"})` (the storefront's path). Total = platform pricing. Pay link `BRAIN_URL/p/<orderId>` texted to the **caller ID** via the SMS outbox (key `paylink:<orderId>`). A retry (same conversation + caller + cart) returns the same order and never re-texts |
+| `escalate` | customer | `openInbox` with the conversation id, masked caller (`…0111`) and the summary marked `untrusted` (max 3 per call) |
+| `verify_owner` | customer | caller ID == `OWNER_PHONE` (E.164) **and** PIN == `OWNER_PIN`, both compared in constant time; 3 failures per conversation and per caller in 15 min lock it (even with the right PIN); either env var empty = everyone refused |
+| `owner_report` | owner | today (in the active config's `business.timezone`): orders, paid orders, sales, refunds, stock, open inbox, statements awaiting confirmation |
+| `owner_instruction` | owner | `submitOwnerStatement(..., "phone")`: LLM diff + `queueOwnerStatement`. **Never applied**; the owner confirms in the app Inbox (invariant 6). Needs `ANTHROPIC_API_KEY` and an intake spec, otherwise it refuses and nothing changes |
+
+**Security.** Every call needs `Authorization: Bearer $PHONE_TOOL_SECRET` (at least 24 chars; unset or short = every call 401).
+Inputs are zod-validated (unknown fields ignored). Owner mode exists only as server-side state: `OwnerSessions` is
+**in memory**, keyed by conversation id, bound to caller ID and business, TTL 30 min, set only by a successful
+`verify_owner`. A brain restart forgets it (the owner verifies again). No parameter or text can grant it. The platform's
+`customer_order` has no phone column, so `.data/phone-orders.json` maps orderId -> caller ID (plus the place_order
+idempotency index). Money and policy rules are enforced by the platform reducers the tools call.
+
+**SMS.** `TwilioSms` posts to `https://api.twilio.com/2010-04-01/Accounts/{SID}/Messages.json` (form `To/From/Body`,
+basic auth; the `twilio` SDK is not used). Without all three `TWILIO_*` vars the **SMS SIMULATOR** logs
+`[SMS SIMULATOR] NOT SENT ...`, keeps messages in memory, and the agent is told *no text was sent*. Texts go through
+`.data/sms-outbox.json` (one row per idempotency key, retried every 15 s on 5xx/429/network; 4xx is permanent; max 5
+attempts). Twilio has no idempotency key, so a crash between Twilio accepting and the row being marked done can
+duplicate a text (at-least-once). `SmsExecutor` also drains platform outbox rows of kind `sms` if the platform ever queues them.
+
+**Setup (real phone).**
+1. `.env`: `PHONE_TOOL_SECRET` (`openssl rand -hex 32`), `OWNER_PHONE=+1...`, `OWNER_PIN`, `TWILIO_ACCOUNT_SID`,
+   `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `CARTESIA_API_KEY`. Twilio trial: verify every phone that should get texts.
+2. Tunnel: `cloudflared tunnel --url http://localhost:4000`, set `BRAIN_URL` to the https URL, restart the brain.
+3. Model and voice: `pnpm --filter @napkin/brain exec tsx --env-file-if-exists=../../.env scripts/cartesia-setup.ts --list-models`
+   (pick a Claude id), and a voice id from the Cartesia Playground.
+4. `... scripts/cartesia-setup.ts https://<tunnel> --model <id> --voice <id> --dry-run` prints every request (secret
+   redacted, no network). Without `--dry-run` it creates or updates the 7 tools and the agent.
+5. Number: Cartesia Playground -> Phone Numbers -> Cartesia Number (free plan = 1 slot), assign it to the agent there or
+   pass `--phone-number-id <id>`. A new tunnel URL means re-running step 4.
+
+**Demo without a phone.** `... scripts/phone-sim.ts customer | owner | attack | call <tool> '<json>' [--brain URL]` sends
+exactly the bodies Cartesia would (needs `PHONE_TOOL_SECRET`; `owner` uses `OWNER_PHONE`/`OWNER_PIN`).
+
+**Real vs simulated.** Real: all 7 tools against the real platform; the Twilio REST adapter (unit-tested with a fake
+fetch, never called for real yet); the Cartesia setup script (only `--dry-run` has been run). Simulated when keys are
+missing: SMS (simulator) and payments (DEV SIMULATOR pay links). Tests: `test/phone.test.ts` (auth, privacy, lockout,
+injection, idempotent SMS, Twilio errors, and a fast-check property that no customer-mode call sequence reaches owner
+tools or changes policy).
