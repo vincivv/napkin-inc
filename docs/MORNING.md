@@ -35,6 +35,8 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
   - **Coupons.** Do coupons exist? There's no coupon list, so the Shopkeeper refuses all codes for now.
   - **Shopkeeper discounts.** Can the Shopkeeper give up to 20% at its own discretion? Default for now: only when you've said so in an inbox answer; otherwise it asks you.
   - **No sign-in on chat routes.** `/agents/*` and `/ask` have no sign-in. That's OK for the demo; it should change before real use.
+- **Reading an order by its ID:** can a customer get an order's status and total just by quoting the order ID? Default for now: yes, status and total only, never the customer's name.
+- **Refund drafts that never get approved** still count against the order's refund limit until someone reverses them. That's the safe side; the cost is that a stuck draft can block a legitimate refund until you clear it. OK?
 
 ## Overnight log
 - **05:00:** limits reset. Resumed the prover, M2 intake/questions and M2 compiler/guards. Mac kept awake with `caffeinate` (needs AC power and the lid **open**; a closed lid still sleeps). A watchdog runs every ~20 min to resume agents after limits, merge finished work, and move on through the plan.
@@ -64,3 +66,6 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
   - **Follow-up running now:** count policy-breaking drafts as breaches, fix the invariant labels (new docs/INVARIANTS.md lists the nine from your prompt), and add a **scripted "compromised model"** table. That table tests your principle that guarantees hold even if the LLM is swapped.
   - Also fixed the red team's finding that simulator pay links skipped the payment-intent log. 329 tests pass.
 - **10:5x–15:00:** paused on the Claude session limit. Resumed the red-team follow-up at 3 PM; its labels, draft detectors and compromised-model pass were already committed.
+- **15:1x:** merged the red-team follow-up. It found a **real guard gap**: under a scripted "compromised model", Support was escalated on a $45 refund but then allowed three $15 drafts on the same order. The role limit was checked per request, and pending drafts didn't count. **Fixed:** limits are now per order, with pending drafts counted. Re-ran RF-05 on the real platform and it now escalates. No money could have moved, because posting a refund needs a second approver, but it was a real hole.
+  - **Compromised-model results before the fix:** baseline had 18 breaches (all policy-breaking drafts), napkin had 1 (RF-05, now fixed).
+  - **Now running:** one full real red-team pass (Sonnet staff + compromised model + chaos + planted) that writes the final RESULTS.md. An earlier saved run file was lost when I removed its worktree, so the real-model rows need re-measuring with the new detectors.
