@@ -71,3 +71,10 @@ export function modelSatisfies(z: Z3, m: ZModel, assertions: ZBool[]): boolean {
   }
   return true;
 }
+
+/** check() whose sat models are independently validated; an invalid model is reported as unknown. */
+export async function checkValidated(z: Z3, assertions: ZBool[], timeoutMs: number): Promise<CheckOutcome> {
+  const r = await check(z, assertions, timeoutMs);
+  if (r.status === "sat" && !modelSatisfies(z, r.model, assertions)) return { status: "unknown", reason: "the solver returned a model that does not satisfy the query (rejected)" };
+  return r;
+}

@@ -448,7 +448,7 @@ export function buildSymbolicDoc(z: Z3, cfg: Configuration, doc: DocumentType, o
       if (f.type === "string") continue;
       out[`doc.${f.name}`] = show(f.type, Rational.parse(String(input.fields[f.name])));
     }
-    for (const v of vars) if (v.type === "component") out[v.key] = show("rate", evalNV(z, m as never, realNV(v.term)));
+    for (const v of vars) if (v.type === "component") out[v.key] = show("rate", evalNV(z, m as never, intNV(v.term, bounds.rateDenominator)));
     input.lines.forEach((line, i) => {
       for (const f of doc.lineFields) {
         const raw = line[f.name];

@@ -98,7 +98,7 @@ function obligations(sym: SymbolicDoc, want: (k: ObligationKind) => boolean): Ob
   return out;
 }
 
-async function niceModel(z: Z3, sym: SymbolicDoc, base: ZBool[], model: ZModel): Promise<ZModel> {
+export async function niceModel(z: Z3, sym: SymbolicDoc, base: ZBool[], model: ZModel): Promise<ZModel> {
   for (let tier = 0; tier < NICE_TIERS; tier++) {
     const extra = sym.vars.flatMap((v) => v.nice(tier));
     if (!extra.length) continue;
