@@ -14,3 +14,5 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
 
 ## Overnight log
 - **05:00:** limits reset. Resumed the prover, M2 intake/questions and M2 compiler/guards. Mac kept awake with `caffeinate` (needs AC power and the lid **open**; a closed lid still sleeps). A watchdog runs every ~20 min to resume agents after limits, merge finished work, and move on through the plan.
+- **05:2x:** merged the **Z3 prover**. Maya's full configuration proves in 0.75 s: all 7 document types balance, the discount-stacking proof holds, and the flow check is clean. Breaking a rule gives a counterexample plus a verified fix. For example, removing the discount posting gives "1 cookie at 5% off, off by $0.15; debit line.discount to Discounts given (4100)". Posting-rule synthesis recovers the rules from examples, and when they're ambiguous it asks one question ("should revenue be $15.00 or $13.50?"). 137 tests pass on main.
+  - Prover notes for later: proofs are bounded (1–3 lines, qty ≤ 10,000) and rates are proven at 0.01% steps. The "max safe discount 58.4%" figure comes from placeholder costs, so don't quote it as Maya's real number.
