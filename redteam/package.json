@@ -3,6 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "test": "vitest run --passWithNoTests", "run": "tsx --env-file=../.env src/run.ts", "typecheck": "tsc -p ." },
-  "dependencies": { "@napkin/ledger-core": "workspace:*", "@napkin/schema": "workspace:*", "@napkin/prover": "workspace:*" }
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "run": "tsx --env-file=../.env src/run.ts",
+    "results": "tsx src/results.ts",
+    "results:sample": "tsx src/results.ts examples/sample-run.FAKE.json",
+    "planted:build": "tsx src/planted/build.ts",
+    "audit": "tsx src/planted/audit-cli.ts",
+    "validate": "tsx src/validate.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@napkin/ledger-core": "workspace:*",
+    "@napkin/schema": "workspace:*",
+    "@napkin/prover": "workspace:*",
+    "zod": "^4.6.7"
+  }
 }
