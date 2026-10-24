@@ -9,6 +9,7 @@ import {
   mayaConfig,
   trialBalanceSum,
   balances,
+  journal,
   stock,
   order,
   doc,
@@ -371,6 +372,26 @@ describe("refunds", () => {
     expect(openInbox(w, BIZ).map((i) => i.question).join()).toMatch(/reversed in the ledger/);
   });
 
+  it("a processor refund matches its outbox item exactly, never by substring of another item's result", () => {
+    sell(b, "r2", [line("cookie_box6", 1)]);
+    w.call(b.actors.support, "requestRefund", { orderId: "r1", amountCents: 1500n, reason: "a" });
+    w.call(b.actors.bookkeeper, "postDocument", { documentId: refundDraft().id });
+    w.call(b.actors.support, "requestRefund", { orderId: "r2", amountCents: 1500n, reason: "b" });
+    w.call(b.actors.bookkeeper, "postDocument", { documentId: refundDraft().id });
+    const [first, second] = w.rows("outbox").sort((x, y) => (x.id < y.id ? -1 : 1));
+    // the second item finished first, with processor refund "re_12"; then "re_1" arrives for the first one
+    w.call(w.system, "claimOutbox", { id: second.id });
+    w.call(w.system, "completeOutbox", { id: second.id, ok: true, resultJson: JSON.stringify({ refundId: "re_12" }) });
+    w.call(w.system, "recordProcessorEvent", { eventId: "refund:re_1", businessId: BIZ, kind: "refund_succeeded", orderId: "r1", amountCents: 1500n, processorRef: "re_1" });
+    expect(w.db.outbox.id.find(first.id).status).toBe("done");
+    expect(JSON.parse(w.db.outbox.id.find(first.id).resultJson)).toMatchObject({ processorRef: "re_1", via: "webhook" });
+    expect(w.db.outbox.id.find(second.id).resultJson).toBe(JSON.stringify({ refundId: "re_12" }));
+    // the exact ref still matches the completed item (idempotent)
+    w.call(w.system, "recordProcessorEvent", { eventId: "refund:re_12", businessId: BIZ, kind: "refund_succeeded", orderId: "r2", amountCents: 1500n, processorRef: "re_12" });
+    expect(w.db.processorEvent.eventId.find("refund:re_12").documentId).toBe(BigInt(JSON.parse(second.payloadJson).documentId));
+    expect(openInbox(w, BIZ)).toHaveLength(0);
+  });
+
   it("two pending refunds are re-checked at posting: the second cannot exceed the sale", () => {
     w.call(b.actors.support, "requestRefund", { orderId: "r1", amountCents: 1500n, reason: "a" });
     const first = refundDraft();
@@ -442,28 +463,56 @@ describe("inbox, periods, reversals", () => {
     expect(w.rows("decisionRecord")[0]).toMatchObject({ actorKind: "agent", actorId: "shopkeeper", outcome: "refused" });
   });
 
-  it("a closed period refuses posting; the next month is open", () => {
+  it("only ended months can be closed; documents and processor events post into the open current month", () => {
     const o = createOrder(b, b.actors.storefront, "p1", [line("cookie_single", 1)]);
-    expect(() => w.call(b.actors.shopkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/permission denied/);
-    w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" });
-    expect(() => w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/already closed/);
-
-    const before = snapshot(w);
-    expect(() => pay(b, "p1", o.totalCents)).toThrow(/invariant 8/);
     const receipt = { businessId: BIZ, docType: "stock_receipt", externalRef: "", fields: [], lines: [{ values: [{ name: "stockItem", value: "choc_chip_cookie" }, { name: "qty", value: "12" }, { name: "unitCost", value: "0.80" }] }], note: "" };
     w.call(b.actors.bookkeeper, "createDocument", receipt);
     const rec = lastDoc(w, BIZ, "stock_receipt");
-    expect(() => w.call(b.actors.owner, "postDocument", { documentId: rec.id })).toThrow(/invariant 8/);
-    expect(doc(w, rec.id).status).toBe("draft");
-    void before;
+    expect(() => w.call(b.actors.shopkeeper, "closePeriod", { businessId: BIZ, month: "2026-09" })).toThrow(/permission denied/);
 
-    w.setTime(1_793_577_600_000_000n); // 2026-11-02T00:00Z
-    w.call(b.actors.owner, "postDocument", { documentId: rec.id });
-    expect(doc(w, rec.id).period).toBe("2026-11");
-    expect(stock(w, BIZ)).toBe(60n);
+    // 2026-10-24: October is the current month, November and later are in the future
+    const before = snapshot(w);
+    for (const who of [b.actors.bookkeeper, b.actors.owner]) {
+      expect(() => w.call(who, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/2026-10 is the current month; only months that have ended can be closed/);
+      expect(() => w.call(who, "closePeriod", { businessId: BIZ, month: "2026-11" })).toThrow(/2026-11 is in the future/);
+      expect(() => w.call(who, "closePeriod", { businessId: BIZ, month: "2027-01" })).toThrow(/in the future/);
+    }
+    expect(snapshot(w)).toBe(before);
+    w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-09" }); // an ended month
+
+    // the last microsecond of October is still October
+    const NOV1 = 1_793_491_200_000_000n; // 2026-11-01T00:00Z
+    w.setTime(NOV1 - 1n);
+    expect(() => w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/current month/);
+    w.setTime(NOV1 + 24n * HOUR);
+    w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" });
+    expect(() => w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/already closed/);
+    expect(() => w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-11" })).toThrow(/current month/);
+
+    // an October order and an October draft post into November; the payment is never refused for a closed period
     pay(b, "p1", o.totalCents);
     expect(order(w, "p1").status).toBe("paid");
+    expect(doc(w, o.saleDocumentId).period).toBe("2026-11");
+    w.call(w.system, "recordProcessorEvent", { eventId: "fee-p1", businessId: BIZ, kind: "fee", orderId: "p1", amountCents: 9n, processorRef: "txn_p1" });
+    w.call(b.actors.owner, "postDocument", { documentId: rec.id });
+    expect(doc(w, rec.id).period).toBe("2026-11");
+    expect(stock(w, BIZ)).toBe(60n - 1n);
+    const openingId = docsOf(w, BIZ, "opening_balance")[0].id;
+    expect(journal(w, BIZ).filter((j) => j.period === "2026-10").every((j) => j.documentId === openingId)).toBe(true); // only the opening stock (Oct 24)
+    expect(journal(w, BIZ).filter((j) => j.period === "2026-11").length).toBeGreaterThan(0);
     expect(trialBalanceSum(w, BIZ)).toBe(0n);
+  });
+
+  it("defence in depth: a closed current period (e.g. from older data) still refuses posting (invariant 8)", () => {
+    const o = createOrder(b, b.actors.storefront, "p2", [line("cookie_single", 1)]);
+    // closePeriod can no longer produce this state; write it directly to check the posting guard itself
+    w.h.withReducerTx(w.system, (ctx: any) => {
+      const key = `${BIZ}|2026-10`;
+      ctx.db.period.key.update({ ...ctx.db.period.key.find(key), status: "closed", closedBy: ctx.sender, closedAt: ctx.timestamp });
+    });
+    const before = snapshot(w);
+    expect(() => pay(b, "p2", o.totalCents)).toThrow(/invariant 8/);
+    expect(snapshot(w)).toBe(before);
   });
 
   it("stock receipts: creator cannot approve their own (SoD)", () => {
@@ -476,13 +525,29 @@ describe("inbox, periods, reversals", () => {
     expect(balances(w, BIZ)["2000"]).toBe(-1920n);
   });
 
-  it("reversing a sale cancels the order, restores stock and nets the sale out", () => {
+  it("a paid sale cannot be reversed until it is fully refunded; then reversing cancels the order and restores stock", () => {
     const o = sell(b, "rv", [line("cookie_box6", 2)]);
     const sale = doc(w, o.saleDocumentId);
     expect(stock(w, BIZ)).toBe(36n);
     expect(() => w.call(b.actors.shopkeeper, "reverseDocument", { documentId: sale.id, reason: "no-show" })).toThrow(/permission denied/);
     expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: sale.id, reason: " " })).toThrow(/needs a reason/);
+    const before = snapshot(w);
+    for (const who of [b.actors.bookkeeper, b.actors.owner]) {
+      expect(() => w.call(who, "reverseDocument", { documentId: sale.id, reason: "no-show" })).toThrow(/refund first via requestRefund; reversing a paid sale would leave the customer's money unaccounted/);
+    }
+    expect(snapshot(w)).toBe(before);
+
+    // a partial refund is not enough
+    w.call(b.actors.shopkeeper, "requestRefund", { orderId: "rv", amountCents: 1000n, reason: "one box was broken" });
+    w.call(b.actors.owner, "postDocument", { documentId: lastDoc(w, BIZ, "refund").id });
+    expect(order(w, "rv").status).toBe("partially_refunded");
+    expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: sale.id, reason: "no-show" })).toThrow(/refund first/);
+    // refund the rest, then the sale may be reversed
+    w.call(b.actors.shopkeeper, "requestRefund", { orderId: "rv", amountCents: 2000n, reason: "rest" });
+    w.call(b.actors.owner, "postDocument", { documentId: lastDoc(w, BIZ, "refund").id });
+    expect(order(w, "rv").status).toBe("refunded");
     w.call(b.actors.bookkeeper, "reverseDocument", { documentId: sale.id, reason: "no-show" });
+
     const orig = doc(w, sale.id);
     expect(orig.status).toBe("reversed");
     const rev = doc(w, orig.reversedBy);
@@ -494,10 +559,39 @@ describe("inbox, periods, reversals", () => {
     expect(bal["4000"]).toBe(0n);
     expect(bal["5000"]).toBe(0n);
     expect(bal["1300"]).toBe(3840n);
+    expect(bal["1010"] ?? 0n).toBe(0n); // the customer's money went back out through the refunds
+    // NOTE (README open question): refund + sale reversal books the revenue reduction twice: Refunds (4200)
+    // keeps the 30.00 and Receivables (1200) shows a 30.00 credit. How to book returned goods is a business decision.
+    expect(bal["4200"]).toBe(3000n);
+    expect(bal["1200"]).toBe(-3000n);
     expect(trialBalanceSum(w, BIZ)).toBe(0n);
     expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: sale.id, reason: "again" })).toThrow(/only posted/);
     expect(() => w.call(b.actors.owner, "reverseDocument", { documentId: rev.id, reason: "undo" })).toThrow(/itself a reversal/);
     expect(() => w.call(b.actors.support, "requestRefund", { orderId: "rv", amountCents: 100n, reason: "x" })).toThrow(/nothing to refund/);
+    // undoing a refund of a cancelled order would leave the payment unaccounted
+    expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: lastDoc(w, BIZ, "refund").id, reason: "undo" })).toThrow(/order rv is cancelled/);
+  });
+
+  it("an unpaid sale draft cannot be reversed (only posted documents)", () => {
+    const o = createOrder(b, b.actors.storefront, "unpaid", [line("cookie_single", 1)]);
+    expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: o.saleDocumentId, reason: "x" })).toThrow(/only posted documents can be reversed/);
+  });
+
+  it("processor documents (payment, fee, payout) cannot be reversed", () => {
+    sell(b, "pd", [line("cookie_box6", 1)]);
+    w.call(w.system, "recordProcessorEvent", { eventId: "fee-pd", businessId: BIZ, kind: "fee", orderId: "pd", amountCents: 74n, processorRef: "txn_pd" });
+    w.call(w.system, "recordProcessorEvent", { eventId: "po-pd", businessId: BIZ, kind: "payout", orderId: "", amountCents: 1426n, processorRef: "po_pd" });
+    w.call(b.actors.owner, "postDocument", { documentId: lastDoc(w, BIZ, "payout").id });
+    const before = snapshot(w);
+    for (const docType of ["payment_received", "processor_fee", "payout"]) {
+      const d = lastDoc(w, BIZ, docType);
+      expect(d.status).toBe("posted");
+      for (const who of [b.actors.bookkeeper, b.actors.owner]) {
+        expect(() => w.call(who, "reverseDocument", { documentId: d.id, reason: "x" })).toThrow(/processor documents cannot be reversed/);
+      }
+    }
+    expect(snapshot(w)).toBe(before);
+    expect(order(w, "pd").status).toBe("paid");
   });
 
   it("a reversal that would make stock negative is refused", () => {
@@ -541,5 +635,104 @@ describe("red-team baseline (enforce=false)", () => {
     expect(() => createOrder(base, base.actors.storefront, "b-big", [line("cookie_box6", 9)])).toThrow(/invariant 3/);
     expect(() => w.call(base.actors.support, "createRoleGrant", { code: "baseline-code", businessId: "maya-baseline", role: "owner", name: "x", ttlSeconds: 60 })).toThrow(/cannot grant roles/);
     expect(() => createOrder(real, base.actors.storefront, "cross", [line("cookie_single", 1)])).toThrow(/not an actor of business/);
+  });
+});
+
+describe("invariant 7: processor documents only through recordProcessorEvent", () => {
+  const processorDocs = (orderId: string) => ({
+    payment_received: [{ name: "orderId", value: orderId }, { name: "amount", value: "3.00" }, { name: "processorRef", value: "pi_x" }],
+    processor_fee: [{ name: "orderId", value: orderId }, { name: "fee", value: "0.10" }, { name: "processorRef", value: "txn_x" }],
+    payout: [{ name: "amount", value: "1.00" }, { name: "processorRef", value: "po_x" }],
+  });
+
+  it("createDocument refuses payment_received, processor_fee and payout for every role, also on the baseline", () => {
+    const w = new World();
+    const real = bootMaya(w);
+    const base = bootMaya(w, { id: "maya-baseline", enforce: false, claim: false });
+    for (const b of [real, base]) {
+      const orderId = `${b.id}-o`;
+      createOrder(b, b.actors.storefront, orderId, [line("cookie_single", 1)]);
+      for (const [docType, fields] of Object.entries(processorDocs(orderId))) {
+        for (const who of [w.system, ...Object.values(b.actors)]) {
+          const before = snapshot(w);
+          expect(() => w.call(who, "createDocument", { businessId: b.id, docType, externalRef: orderId, fields, lines: [], note: "" })).toThrow(/invariant 7.*only by recordProcessorEvent/);
+          expect(snapshot(w)).toBe(before);
+        }
+      }
+      // the processor path still works and still dedupes
+      pay(b, orderId, 300n, `evt-${b.id}`);
+      pay(b, orderId, 300n, `evt-${b.id}`);
+      expect(docsOf(w, b.id, "payment_received")).toHaveLength(1);
+      expect(order(w, orderId).status).toBe("paid");
+    }
+  });
+});
+
+describe("rates are whole basis points in [0, 1] (the prover's domain)", () => {
+  it("createOrder refuses discount rates with more than 4 decimal places or outside [0, 1], for every role and the baseline", () => {
+    const w = new World();
+    const real = bootMaya(w);
+    const base = bootMaya(w, { id: "maya-baseline", enforce: false, claim: false });
+    let n = 0;
+    for (const b of [real, base]) {
+      for (const who of [b.actors.storefront, b.actors.shopkeeper, b.actors.owner]) {
+        const before = snapshot(w);
+        expect(() => createOrder(b, who, `x${++n}`, [line("cookie_box6", 1)], "0.12345")).toThrow(/discountRate: rate "0.12345" has more than 4 decimal places/);
+        expect(() => createOrder(b, who, `x${++n}`, [line("cookie_box6", 1)], "1/3")).toThrow(/more than 4 decimal places/);
+        expect(() => createOrder(b, who, `x${++n}`, [line("cookie_box6", 1)], "1.5")).toThrow(/outside \[0, 1\]/);
+        expect(() => createOrder(b, who, `x${++n}`, [line("cookie_box6", 1)], "-0.1")).toThrow(/outside \[0, 1\]/);
+        expect(snapshot(w)).toBe(before);
+      }
+      // exactly 4 decimal places (and a fraction that is whole basis points) are fine
+      expect(createOrder(b, b.actors.storefront, `${b.id}-bp`, [line("cookie_box6", 1)], "0.1234").totalCents).toBe(1315n); // 15 - round2(1.851)
+      expect(createOrder(b, b.actors.storefront, `${b.id}-frac`, [line("cookie_box6", 1)], "1/8").totalCents).toBe(1312n); // 15 - round2(1.875) = 15 - 1.88
+    }
+  });
+
+  it("createDocument refuses any field typed rate outside the domain (sale discountRate and other document types)", () => {
+    const w = new World();
+    w.call(w.system, "claimSystem", {} as never);
+    w.call(w.system, "registerBusiness", { id: BIZ, name: "Maya's Cookies", enforce: true });
+    // a configuration whose stock receipt also carries a rate field
+    const json = mayaConfig(BIZ, (c) => c.documents.find((d: any) => d.id === "stock_receipt").fields.push({ name: "vatRate", type: "rate" }));
+    w.call(w.system, "submitConfiguration", { businessId: BIZ, json, proofReportJson: "" });
+    w.call(w.system, "activateConfiguration", { configId: w.rows("configVersion")[0].id });
+    const bookkeeper = w.identity("bk");
+    const shopkeeper = w.identity("sk");
+    grant(w, w.system, bookkeeper, BIZ, "bookkeeper");
+    grant(w, w.system, shopkeeper, BIZ, "shopkeeper");
+
+    const sale = (rate: string) => ({ businessId: BIZ, docType: "sale", externalRef: "", fields: [{ name: "orderId", value: `cd-${rate.replace(/\W/g, "")}` }, { name: "discountRate", value: rate }], lines: [{ values: [{ name: "productId", value: "cookie_box6" }, { name: "qty", value: "1" }] }], note: "" });
+    expect(() => w.call(shopkeeper, "createDocument", sale("0.00001"))).toThrow(/more than 4 decimal places/);
+    expect(() => w.call(shopkeeper, "createDocument", sale("2"))).toThrow(/outside \[0, 1\]/);
+    w.call(shopkeeper, "createDocument", sale("0.0001"));
+
+    const receipt = (vatRate: string) => ({ businessId: BIZ, docType: "stock_receipt", externalRef: "", fields: [{ name: "vatRate", value: vatRate }], lines: [{ values: [{ name: "stockItem", value: "choc_chip_cookie" }, { name: "qty", value: "1" }, { name: "unitCost", value: "0.80" }] }], note: "" });
+    const before = snapshot(w);
+    expect(() => w.call(bookkeeper, "createDocument", receipt("0.08875"))).toThrow(/stock_receipt document: field "vatRate": rate "0.08875" has more than 4 decimal places/);
+    expect(() => w.call(bookkeeper, "createDocument", receipt("1.01"))).toThrow(/outside \[0, 1\]/);
+    expect(() => w.call(bookkeeper, "createDocument", receipt("-1/2"))).toThrow(/outside \[0, 1\]/);
+    expect(snapshot(w)).toBe(before);
+    w.call(bookkeeper, "createDocument", receipt("0.0825"));
+    expect(lastDoc(w, BIZ, "stock_receipt").status).toBe("draft");
+  });
+
+  it("submitConfiguration refuses rate policies with more than 4 decimal places or outside [0, 1]", () => {
+    const w = new World();
+    bootMaya(w);
+    const sub = (patch: (c: any) => void) => w.call(w.system, "submitConfiguration", { businessId: BIZ, json: mayaConfig(BIZ, patch), proofReportJson: "" });
+    const before = snapshot(w);
+    expect(() => sub((c) => (c.policies.marginFloor = "0.30001"))).toThrow(/policy marginFloor: rate "0.30001" has more than 4 decimal places/);
+    expect(() => sub((c) => (c.policies.maxDiscount = "0.123456"))).toThrow(/policy maxDiscount.*more than 4 decimal places/);
+    expect(() => sub((c) => (c.policies.taxRate = "0.08875"))).toThrow(/policy taxRate.*more than 4 decimal places/);
+    expect(() => sub((c) => (c.policies.maxDiscount = "1.5"))).toThrow(/policy maxDiscount: rate "1.5" is outside \[0, 1\]/);
+    expect(() => sub((c) => (c.policies.marginFloor = "-0.1"))).toThrow(/policy marginFloor.*outside \[0, 1\]/);
+    expect(snapshot(w)).toBe(before);
+    sub((c) => {
+      c.policies.taxRate = "0.0825";
+      c.policies.maxDiscount = "0.1999";
+      c.policies.marginFloor = "1";
+    });
+    expect(w.rows("configVersion").filter((c) => c.status === "pending")).toHaveLength(1);
   });
 });

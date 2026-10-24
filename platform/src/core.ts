@@ -89,6 +89,27 @@ export function parseExact(text: string, what: string): Rational {
   }
 }
 
+const BASIS_POINTS = Rational.of(10000n);
+
+/**
+ * Rates are proven in basis points (services/prover: every multiple of 0.0001 in [0, 1]). A rate outside that
+ * domain is refused so that nothing the platform accepts falls outside what the prover covered.
+ */
+export function checkRate(r: Rational, text: string, what: string): void {
+  if (r.lt(Rational.ZERO) || r.gt(Rational.ONE)) fail(`${what}: rate "${text}" is outside [0, 1]`);
+  if (!r.mul(BASIS_POINTS).isInteger()) fail(`${what}: rate "${text}" has more than 4 decimal places (rates are whole basis points, the domain the prover proves)`);
+}
+
+/** Policies typed as rates (checked on submitConfiguration). */
+export const RATE_POLICIES = ["marginFloor", "maxDiscount", "taxRate"] as const;
+
+export function checkRatePolicies(cfg: Configuration): void {
+  for (const k of RATE_POLICIES) {
+    const text = String(cfg.policies[k]);
+    checkRate(parseExact(text, `policy ${k}`), text, `policy ${k}`);
+  }
+}
+
 // ---------- identity & roles ----------
 
 export interface Caller {
@@ -258,6 +279,7 @@ export function validateDocValues(def: DocumentType, fields: readonly FieldValue
         if (!DECIMAL.test(v.value) && !FRACTION.test(v.value)) fail(`${def.id} ${where}: field "${v.name}" must be an exact decimal, got "${v.value}"`);
         const r = parseExact(v.value, `${def.id} ${where}: field "${v.name}"`);
         if (fd.type === "qty" && !r.isInteger()) fail(`${def.id} ${where}: quantity "${v.name}" must be a whole number`);
+        if (fd.type === "rate") checkRate(r, v.value, `${def.id} ${where}: field "${v.name}"`);
       }
     }
     for (const fd of defs) {
