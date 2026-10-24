@@ -90,6 +90,7 @@ function LiveData({ businessId, setBusiness, children }: { businessId: string; s
       answerInbox: (id, answer, makePrecedent, precedentRule, conditionJson) => c().reducers.answerInbox({ id, answer, makePrecedent, precedentRule, conditionJson }),
       decideOwnerStatement: (id, confirm) => c().reducers.decideOwnerStatement({ id, confirm }),
       redeemRoleGrant: (code) => c().reducers.redeemRoleGrant({ code }),
+      activateConfiguration: (configId) => c().reducers.activateConfiguration({ configId }),
     };
   }, [getConnection]);
 

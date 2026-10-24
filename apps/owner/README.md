@@ -18,7 +18,11 @@ movements, approval roles, reversal links; post drafts you did not create; rever
 Reports (trial balance via `@napkin/ledger-core`, P&L, stock, receivables, payables, cash flow, margin by item),
 Decisions, Inbox (answer + "make this a precedent"; phone owner statements "needs your confirmation"), Audit log,
 Proof report (active `proofReportJson`, else "Not proven yet"; plus "Facts not confirmed by the owner"),
-Intake (photo + voice -> facts drawn over the photo with provenance badges and confidence), Interview (one top-impact question at a time, owner-statement diffs to confirm, money-ready checklist), Build placeholder ("coming in M2"). Intake/Interview talk to the brain (`NEXT_PUBLIC_BRAIN_URL`).
+Intake (photo + voice -> facts drawn over the photo with provenance badges and confidence), Interview (one top-impact question at a time, owner-statement diffs to confirm, money-ready checklist), Build (compile the confirmed spec with live SSE progress from `POST {BRAIN_URL}/compile`; typed refusals with the
+owner questions and a link to the Interview; the newest pending version diffed against the active one: prices, costs,
+stock units, policies, accounts, starting stock, role limits, storefront; its proof report, with stub proofs labelled
+"skipped (stub)"; owner-only "Activate configuration vN" via the `activateConfiguration` reducer). Intake/Interview/Build
+talk to the brain (`NEXT_PUBLIC_BRAIN_URL`).
 
 ## Owner sign-in
 `/signin`: PIN -> `POST {BRAIN_URL}/auth/owner {pin}` -> `{code}` -> `redeemRoleGrant(code)` with this browser's own

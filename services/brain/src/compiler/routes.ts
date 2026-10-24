@@ -17,6 +17,7 @@ import { compile, CompileRefused, type StepEvent } from "./index";
 import { SpecStore } from "../spec/store";
 import { SpecStoreSource, StdbCompilePlatform, type CompilePlatformPort, type SpecSource } from "./platform";
 import { StubProver, type ProverPort } from "./prover-port";
+import { Z3Prover } from "./z3-prover";
 import { LlmCopyProposer, type CopyProposer } from "./storefront";
 import { llmFromEnv } from "../llm";
 import type { RoleLimits } from "./templates/item_seller";
@@ -126,8 +127,8 @@ export function registerCompileRoutes(app: Hono, deps: CompileRouteDeps): void {
   app.get("/compile/:businessId/latest", (c) => c.json(JSON.parse(json({ businessId: c.req.param("businessId"), running: running.has(c.req.param("businessId")), events: latest.get(c.req.param("businessId")) ?? [] }))));
 }
 
-/** Production wiring: stub prover until services/prover is merged; Claude copy proposals only with a key. */
-export function defaultCompileDeps(platform: CompilePlatformPort, specs: SpecSource, prover: ProverPort = new StubProver()): CompileRouteDeps {
+/** Production wiring: the Z3 prover (services/prover; COMPILE_PROVER=stub falls back to the labelled stub); Claude copy proposals only with a key. */
+export function defaultCompileDeps(platform: CompilePlatformPort, specs: SpecSource, prover: ProverPort = process.env["COMPILE_PROVER"] === "stub" ? new StubProver() : new Z3Prover()): CompileRouteDeps {
   const llm = llmFromEnv();
   const proposer = llm ? new LlmCopyProposer(llm) : undefined;
   if (prover.isStub) log.warn("compile", "PROVER STUB: configurations are compiled with proofs marked 'skipped' until services/prover is wired");

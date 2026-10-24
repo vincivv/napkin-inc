@@ -55,6 +55,8 @@ export interface Actions {
   answerInbox(id: bigint, answer: string, makePrecedent: boolean, precedentRule: string, conditionJson: string): Promise<void>;
   decideOwnerStatement(id: bigint, confirm: boolean): Promise<void>;
   redeemRoleGrant(code: string): Promise<void>;
+  /** owner only (invariant 6): make a pending configuration active */
+  activateConfiguration(configId: bigint): Promise<void>;
 }
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";

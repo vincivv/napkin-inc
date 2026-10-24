@@ -1,6 +1,6 @@
-// The compiler's view of the Z3 prover (services/prover, built on another branch). The real prover is
-// wired at merge time by implementing ProverPort; until then StubProver is used and EVERY result it
-// returns says "skipped" with a STUB label, so nothing downstream can mistake it for a proof.
+// The compiler's view of the Z3 prover. Z3Prover (z3-prover.ts) implements it over services/prover;
+// StubProver is the labelled fallback (COMPILE_PROVER=stub, and unit tests): EVERY result it returns says
+// "skipped" with a STUB label, so nothing downstream can mistake it for a proof.
 
 import type { Configuration, DocumentType, OpenQuestion, ProofReport } from "@napkin/schema";
 import type { BusinessSpec } from "@napkin/schema";

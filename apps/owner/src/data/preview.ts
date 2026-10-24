@@ -323,6 +323,19 @@ class PreviewWorld {
     redeemRoleGrant: async () => {
       throw new Error("not used in preview");
     },
+    activateConfiguration: async (configId) => {
+      this.requireOwner();
+      const at = this.nowTs();
+      const row = this.s.configVersions.find((c) => c.id === configId);
+      if (!row || row.status !== "pending") throw new Error(`configuration ${configId} is not pending`);
+      const prev = this.s.businesses[0]!.activeConfigId;
+      this.commit({
+        configVersions: this.s.configVersions.map((c) => (c.id === configId ? { ...c, status: "active", activatedBy: PREVIEW_IDS.me, activatedAt: new Timestamp(at) } : c.id === prev ? { ...c, status: "superseded" } : c)),
+        businesses: this.s.businesses.map((b) => ({ ...b, activeConfigId: configId })),
+      });
+      this.commit({ business: this.s.businesses[0] });
+      this.audit("me", "activate_configuration", `config ${configId} (v${row.version}) active`, at);
+    },
     simulateSale: () => {
       const at = this.nowTs();
       const names = ["Riley", "Morgan", "Casey", "Taylor", "Jamie", "Quinn"];
