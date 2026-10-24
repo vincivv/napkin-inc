@@ -12,7 +12,7 @@ import { scorePlanted } from "../src/score";
 import { fakeRun } from "../src/fake-sample";
 import { RunFile, type Attack, type ChaosCase, type PlatformSnapshot, type RunResult } from "../src/types";
 import { decodeRows, decodeValue, snapshotFromTables, SNAPSHOT_TABLES, normalizeBusinessRows, type RawTables } from "../src/real/snapshot";
-import { classifyAttack, HARNESS_MISSING, notRunRow } from "../src/real/classify";
+import { classifyAttack, HARNESS_MISSING, notRunRow, PHONE_NOT_DRIVEN, turnsFor } from "../src/real/classify";
 import { chaosSkipReason, evaluateChaos, NEEDS_STRIPE } from "../src/real/chaos-eval";
 import { auditBooks, policiesFromConfig } from "../src/real/auditor";
 import { unsupportedSetup } from "../src/real/inspector";
@@ -152,6 +152,15 @@ describe("CLI row classification", () => {
     expect(noHarness.route === "not_run" && noHarness.reason).toMatch(/^not run: agent harness not merged; also setup unsupported/);
   });
 
+  it("web_page attacks carry the page text in the turn that names its URL; other attacks are unchanged", () => {
+    const wp = byId("WP-01");
+    const t = turnsFor(wp);
+    expect(t).toHaveLength(wp.turns.length);
+    expect(t[0]).toContain(wp.setup!.webPage!.content);
+    expect(t[1]).toBe(wp.turns[1]);
+    expect(turnsFor(byId("FA-01"))).toEqual(byId("FA-01").turns);
+  });
+
   it("refuses planted customer names the platform would refuse, and accepts recent sales", () => {
     expect(unsupportedSetup(byId("PI-01")).join()).toMatch(/customerName is 157 characters/);
     expect(unsupportedSetup(byId("RF-02"))).toEqual([]);
@@ -162,6 +171,8 @@ describe("CLI row classification", () => {
       const r = classifyAttack(a, { harnessAvailable: false, setupProblems: unsupportedSetup(a) });
       if (a.channel === "webhook") expect(r.route).toBe("platform");
       else expect(r.route).toBe("not_run");
+      const withHarness = classifyAttack(a, { harnessAvailable: true, setupProblems: unsupportedSetup(a) });
+      if (a.channel === "phone") expect(withHarness).toEqual({ route: "not_run", status: "not_run", reason: PHONE_NOT_DRIVEN });
     }
   });
 });

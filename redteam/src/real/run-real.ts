@@ -4,9 +4,11 @@
 // (never `napkin`, which runs the live demo), re-published clean for every row.
 //
 //   chaos     11 cases x 2 modes through the brain's payment code (DEV SIMULATOR); Stripe-only cases skipped
-//   planted   the deterministic reference auditor over both planted book sets; bookkeeper-agent rows wait for the harness
-//   attacks   webhook-channel attacks run for real (no agent needed); agent attacks run only when
-//             services/brain/src/agents/harness.ts exports createAgentHarness, otherwise they are "not run"
+//   planted   the deterministic reference auditor over both planted book sets, plus the Bookkeeper agent's audit
+//             (harness.audit) in both modes when the harness is present
+//   attacks   webhook-channel attacks run for real (no agent needed); chat, order-note and web-page attacks run
+//             through the live AI staff (services/brain/src/agents/harness.ts, loaded by dynamic import) when it
+//             exists and ANTHROPIC_API_KEY is set; otherwise they are "not run". Phone attacks are not run (see classify.ts).
 //
 // Writes redteam/out/run-<timestamp>.json (gitignored) and regenerates redteam/RESULTS.md from real rows only.
 
@@ -17,52 +19,20 @@ import { pathToFileURL } from "node:url";
 import { loadAttacks, loadChaos, loadPlanted, REDTEAM_ROOT } from "../load";
 import { measureAttack } from "../measure";
 import { assertRunRoutable, renderResults, writeResults } from "../results";
-import { attackSetHash, MODES, runAttack, type AgentHarness, type RunDeps } from "../run";
+import { attackSetHash, MODES } from "../run";
 import { scorePlanted } from "../score";
 import { RunFile, type RunResult } from "../types";
 import { auditBooks, policiesFromConfig } from "./auditor";
 import { RealChaosDriver } from "./chaos";
-import { classifyAttack, HARNESS_MISSING, notRunRow } from "./classify";
-import { buildBundle, businessFor, SCRATCH_DB, ScratchWorld, STDB_URI } from "./db";
+import { classifyAttack, HARNESS_MISSING, notRunRow, turnsFor } from "./classify";
+import { loadLiveAgents, type LiveAgents } from "./agents";
+import { buildBundle, SCRATCH_DB, ScratchWorld, STDB_URI } from "./db";
 import { RealInspector, SetupUnsupported, unsupportedSetup } from "./inspector";
 import { newWebhookSecret } from "./stripe-events";
 import { deliverAttackWebhook } from "./webhook-channel";
 import { FIXTURE_PATH } from "./brain";
 
-export const HARNESS_PATH = join(REDTEAM_ROOT, "..", "services", "brain", "src", "agents", "harness.ts");
-
 type Section = "attacks" | "chaos" | "planted";
-
-interface LoadedHarness {
-  harness?: AgentHarness;
-  why?: string;
-}
-
-/** Dynamic import of the agent harness. Absent module -> no harness (agent rows are "not run"). */
-export async function loadHarness(world: ScratchWorld, path = HARNESS_PATH): Promise<LoadedHarness> {
-  if (!existsSync(path)) return { why: HARNESS_MISSING };
-  try {
-    const mod = (await import(pathToFileURL(path).href)) as { createAgentHarness?: (deps: unknown) => AgentHarness | Promise<AgentHarness> };
-    if (typeof mod.createAgentHarness !== "function") return { why: `${HARNESS_MISSING} (harness.ts has no createAgentHarness export)` };
-    // The deps contract is owned by the agents work; this passes everything the red team has, with getters so a
-    // reset (which replaces the hub) never leaves the harness holding dead connections.
-    const harness = await mod.createAgentHarness({
-      stdbUri: STDB_URI,
-      stdbDb: SCRATCH_DB,
-      businessFor,
-      get hub() {
-        return world.hub;
-      },
-      get platform() {
-        return world.platform;
-      },
-      world,
-    });
-    return { harness };
-  } catch (e) {
-    return { why: `not run: agent harness failed to load: ${e instanceof Error ? e.message : String(e)}` };
-  }
-}
 
 function gitCommit(): string {
   try {
@@ -91,8 +61,11 @@ export async function main(argv = process.argv.slice(2)): Promise<string> {
   const traces: Record<string, unknown> = {};
   const notes: string[] = [];
   const log = (s: string) => process.stdout.write(`${s}\n`);
-  const { harness, why: harnessWhy } = await loadHarness(world);
-  log(`harness: ${harness ? "loaded" : harnessWhy}`);
+  const inspector = new RealInspector(world);
+  const { agents, why: harnessWhy } = await loadLiveAgents(world, inspector);
+  const harness: LiveAgents | undefined = agents;
+  log(`agents: ${agents ? `loaded (${agents.model})` : harnessWhy}`);
+  let agentRowsRan = 0;
 
   try {
     // ---------- chaos ----------
@@ -125,10 +98,26 @@ export async function main(argv = process.argv.slice(2)): Promise<string> {
         for (const f of unmatched) notes.push(`reference auditor, ${set.id}: finding not in the answer key: ${f.kind} on ${f.entries.join(", ")} (${f.note ?? ""})`);
         log(`planted ${set.id} reference_auditor: precision ${s.precision.toFixed(3)} recall ${s.recall.toFixed(3)}`);
         for (const mode of MODES) {
-          const reason = harness
-            ? "not run: the bookkeeper audit needs a harness call that returns structured findings (AgentHarness has only send)"
-            : (harnessWhy ?? HARNESS_MISSING);
-          results.push(notRunRow("planted", set.id, "bookkeeper_agent", mode, "not_run", reason));
+          if (!agents) {
+            results.push(notRunRow("planted", set.id, "bookkeeper_agent", mode, "not_run", harnessWhy ?? HARNESS_MISSING));
+            continue;
+          }
+          try {
+            await world.reset();
+            const a = await agents.make().audit({ id: set.id, documents: set.documents, periods: set.periods, processorStatement: set.processorStatement }, mode);
+            agentRowsRan++;
+            if (a.error) {
+              results.push(notRunRow("planted", set.id, "bookkeeper_agent", mode, "not_run", `not run: audit error: ${a.error}`));
+              log(`planted ${set.id} bookkeeper_agent ${mode}: ERROR ${a.error}`);
+              continue;
+            }
+            const sc = scorePlanted(set.answerKey, a.findings);
+            results.push({ kind: "planted", setId: set.id, mode, auditor: "bookkeeper_agent", errors: sc.errors, findings: sc.findings, truePositives: sc.truePositives, precision: sc.precision, recall: sc.recall, missed: sc.missed });
+            traces[`planted:${set.id}:bookkeeper_agent:${mode}`] = { findings: a.findings, matches: sc.matches, reply: a.reply, toolCalls: a.toolCalls };
+            log(`planted ${set.id} bookkeeper_agent ${mode}: precision ${sc.precision.toFixed(3)} recall ${sc.recall.toFixed(3)}`);
+          } catch (e) {
+            results.push(notRunRow("planted", set.id, "bookkeeper_agent", mode, "not_run", `not run: run error: ${errMsg(e)}`));
+          }
         }
       }
       notes.push("The reference auditor reads only the planted books, the processor statement and the configuration's policies and approval rules; it never reads the answer key. It runs on the book JSON, not on the platform (the planted books contain errors the platform refuses to post).");
@@ -136,9 +125,7 @@ export async function main(argv = process.argv.slice(2)): Promise<string> {
 
     // ---------- attacks ----------
     if (sections.has("attacks")) {
-      const inspector = new RealInspector(world);
       const secret = newWebhookSecret();
-      const deps: RunDeps | undefined = harness ? { harness, inspector, chaos: new RealChaosDriver(world) } : undefined;
       for (const a of loadAttacks().sort((x, y) => (x.id < y.id ? -1 : 1))) {
         const route = classifyAttack(a, { harnessAvailable: !!harness, setupProblems: unsupportedSetup(a) });
         for (const mode of MODES) {
@@ -157,10 +144,21 @@ export async function main(argv = process.argv.slice(2)): Promise<string> {
               traces[`attack:${a.id}:${mode}`] = { transcript, notes: inspector.notes };
               log(`attack ${a.id} ${mode}: ${r.breached ? `BREACH ${r.breachCodes.join(",")}` : "held"} (${r.observed})`);
             } else {
-              const r = await runAttack(a, mode, deps!, businessFor(mode));
+              await inspector.prepare(a, mode);
+              const before = await inspector.snapshot(mode);
+              const transcript = await agents!.make().send(a.target, turnsFor(a), mode);
+              agentRowsRan++;
+              const after = await inspector.snapshot(mode);
+              traces[`attack:${a.id}:${mode}`] = { transcript, notes: inspector.notes };
+              if (transcript.error && !transcript.turns.some((t) => t.role === "agent")) {
+                // the agent never answered (API or platform error): nothing was measured
+                results.push(notRunRow("attack", a.id, a.category, mode, "not_run", `not run: agent error before any reply: ${transcript.error}`));
+                log(`attack ${a.id} ${mode}: ERROR ${transcript.error}`);
+                continue;
+              }
+              const r = measureAttack(a, mode, before, after, transcript);
               results.push(r);
-              traces[`attack:${a.id}:${mode}`] = { notes: inspector.notes };
-              log(`attack ${a.id} ${mode}: ${r.kind === "attack" && r.breached ? "BREACH" : "held"}`);
+              log(`attack ${a.id} ${mode}: ${r.breached ? `BREACH ${r.breachCodes.join(",")}` : "held"} (${r.observed}, expected ${r.expected}${r.behaviorOk ? "" : ", behaviour NOT ok"})`);
             }
           } catch (e) {
             const reason = e instanceof SetupUnsupported ? `not run: setup unsupported: ${e.message}` : `not run: run error: ${errMsg(e)}`;
@@ -175,12 +173,14 @@ export async function main(argv = process.argv.slice(2)): Promise<string> {
   }
 
   const attacks = loadAttacks();
-  const ranLlm = !!harness && results.some((r) => r.kind === "attack" && attacks.find((a) => a.id === r.attackId)?.target !== "platform");
+  const ranLlm = agentRowsRan > 0;
   const run: RunFile = RunFile.parse({
     schema: "napkin-redteam-run/1",
     fake: false,
     label: `real run (${[...sections].sort().join(", ")})`,
-    model: ranLlm ? (harness?.model ?? "unknown (the harness did not report its model)") : "none: no LLM ran (platform, brain payment code and the deterministic reference auditor only)",
+    model: ranLlm
+      ? `${harness!.model} (AI staff: Shopkeeper, Support, Bookkeeper; napkin = real Guard, baseline = BaselineGuard). Chaos, webhook attacks and the reference auditor use no LLM`
+      : "none: no LLM ran (platform, brain payment code and the deterministic reference auditor only)",
     ranAt,
     attackSetHash: attackSetHash(attacks),
     gitCommit: commit,
