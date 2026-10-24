@@ -132,6 +132,8 @@ export async function runAgentTurn(input: TurnInput, deps: LoopDeps): Promise<Ag
   const max = deps.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const tools = toolDefs(input.offered);
   const toolCalls: ToolCallRecord[] = [];
+  /** text the model wrote during this turn (also alongside tool calls): the customer sees all of it */
+  const said: string[] = [];
   const finish = (reply: string, stopReason: AgentTurnResult["stopReason"]): AgentTurnResult => {
     // a fixed assistant text closes the turn so the history stays well formed for the next one
     history.push({ role: "assistant", content: [{ type: "text", text: reply }] });
@@ -148,12 +150,13 @@ export async function runAgentTurn(input: TurnInput, deps: LoopDeps): Promise<Ag
     if (res.stop_reason === "model_context_window_exceeded") return finish(FIXED_REPLIES.context, "model_context_window_exceeded");
 
     history.push({ role: "assistant", content: res.content });
+    const t = res.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
+    if (t) said.push(t);
     // (pause_turn only happens with server tools, which no agent has; it is treated as the end of the turn)
 
     const uses = res.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
     if (res.stop_reason !== "tool_use" || uses.length === 0) {
-      const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
-      return { reply: text || FIXED_REPLIES.empty, toolCalls, stopReason: res.stop_reason };
+      return { reply: said.join("\n\n") || FIXED_REPLIES.empty, toolCalls, stopReason: res.stop_reason };
     }
 
     // parallel tool calls: run in order, answer all of them in one user message

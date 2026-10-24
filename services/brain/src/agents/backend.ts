@@ -24,6 +24,7 @@ export interface OrderStatusView {
   paidCents: string;
   refundedCents: string;
   channel: string;
+  paidAt?: string | null;
 }
 
 export interface StaffBackend {

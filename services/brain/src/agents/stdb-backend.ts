@@ -45,7 +45,7 @@ export class StdbStaffBackend implements StaffBackend {
     const o = this.db.customerOrder.id.find(orderId);
     if (!o || o.businessId !== businessId) return undefined;
     // no customer name: chat callers are not verified, so nothing personal is returned
-    return { orderId: o.id, status: o.status, totalCents: o.totalCents.toString(), paidCents: o.paidCents.toString(), refundedCents: o.refundedCents.toString(), channel: o.channel };
+    return { orderId: o.id, status: o.status, totalCents: o.totalCents.toString(), paidCents: o.paidCents.toString(), refundedCents: o.refundedCents.toString(), channel: o.channel, paidAt: iso(o.paidAt) ?? null };
   }
 
   async requestRefund(role: StaffRole, businessId: string, a: { orderId: string; amountCents: number; reason: string }) {
