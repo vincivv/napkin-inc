@@ -1,13 +1,11 @@
-import { ScratchWorld } from "./db";
-import { RealChaosDriver } from "./chaos";
-import { loadChaos } from "../load";
-const w = new ScratchWorld();
-const d = new RealChaosDriver(w);
-for (const c of loadChaos()) for (const m of ["baseline", "napkin"] as const) {
-  const t = Date.now();
-  const r = await d.runCase(c, m);
-  console.log(`== ${c.id} ${m} ${r.skipped ? r.skipped : r.passed ? "PASS" : "FAIL"} ${Date.now() - t}ms`);
-  for (const l of r.trace) console.log("   " + l);
-  for (const f of r.failures) console.log("   ! " + f);
+import { readFileSync } from "node:fs";
+import { loadPlanted } from "../load";
+import { auditBooks, policiesFromConfig } from "./auditor";
+import { scorePlanted } from "../score";
+const cfg = JSON.parse(readFileSync("../fixtures/maya/configuration.json", "utf8"));
+for (const { set } of loadPlanted()) {
+  const f = auditBooks(set, policiesFromConfig(cfg));
+  console.log(set.id, JSON.stringify(f, null, 0));
+  const s = scorePlanted(set.answerKey, f);
+  console.log(s.precision, s.recall, s.missed);
 }
-w.close(); process.exit(0);

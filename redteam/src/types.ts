@@ -473,7 +473,26 @@ export const PlantedRunResult = z.object({
 });
 export type PlantedRunResult = z.infer<typeof PlantedRunResult>;
 
-export const RunResult = z.discriminatedUnion("kind", [AttackRunResult, ChaosRunResult, PlantedRunResult]);
+/**
+ * A row that was NOT measured, with the reason. "skipped": the row cannot run in this environment by design
+ * (e.g. needs a Stripe test key); "not_run": it is waiting on something (e.g. the agent harness is not merged,
+ * or the platform cannot build the attack's setup). Never counted as a pass or a breach.
+ */
+export const NotRunResult = z.object({
+  kind: z.literal("not_run"),
+  subject: z.enum(["attack", "chaos", "planted"]),
+  /** attack id, chaos case id, or planted set id */
+  id: z.string(),
+  /** attack category, chaos kind, or planted auditor */
+  category: z.string(),
+  mode: Mode,
+  status: z.enum(["skipped", "not_run"]),
+  reason: z.string().min(5),
+  sample: z.boolean().optional(),
+});
+export type NotRunResult = z.infer<typeof NotRunResult>;
+
+export const RunResult = z.discriminatedUnion("kind", [AttackRunResult, ChaosRunResult, PlantedRunResult, NotRunResult]);
 export type RunResult = z.infer<typeof RunResult>;
 
 export const RunFile = z.object({
@@ -485,6 +504,12 @@ export const RunFile = z.object({
   /** set by the runner from the run, never from the clock inside results.ts (keeps output deterministic) */
   ranAt: z.string(),
   attackSetHash: z.string(),
+  /** git commit the run was made from (HEAD, with "-dirty" if the tree had changes). Real runs only. */
+  gitCommit: z.string().optional(),
+  /** where and how it ran (scratch database, processor mode, ...) */
+  environment: z.array(z.string()).optional(),
+  /** approximations and observations the runner wants on the report */
+  notes: z.array(z.string()).optional(),
   results: z.array(RunResult),
 });
 export type RunFile = z.infer<typeof RunFile>;
