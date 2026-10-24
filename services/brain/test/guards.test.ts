@@ -206,6 +206,35 @@ describe("guard: refunds", () => {
     expect((await guard.check(call("support", "request_refund", { orderId: "MC-NONE", amountCents: 100 }))).ruleIds).toContain("order.unknown");
   });
 
+  it("split refunds: pending drafts and posted refunds on the order count toward the role limit (red-team RF-05)", async () => {
+    const { guard, platform } = world();
+    // $30 order, support limit $15: one $15 draft is fine, a second $15 on the same order escalates
+    expect((await guard.check(call("support", "request_refund", { orderId: "MC-BIG", amountCents: 1500 }))).outcome).toBe("allowed");
+    platform.facts.set("MC-BIG", { ...facts("MC-BIG", "30", "9.6"), pendingRefundCents: 1500n });
+    const second = await guard.check(call("support", "request_refund", { orderId: "MC-BIG", amountCents: 1500 }));
+    expect(second.outcome).toBe("escalated");
+    expect(second.ruleIds).toContain("role_limit.maxRefundCents");
+    expect(second.reason).toContain("per order");
+    platform.facts.set("MC-BIG", { ...facts("MC-BIG", "30", "9.6"), refundedSoFarCents: 1000n, pendingRefundCents: 400n });
+    expect((await guard.check(call("support", "request_refund", { orderId: "MC-BIG", amountCents: 200 }))).ruleIds).toContain("role_limit.maxRefundCents");
+  });
+
+  it("pending refund drafts count as refunded for the over-refund and floor checks", async () => {
+    const { guard, platform } = world();
+    platform.facts.set("MC-BOX", { ...facts("MC-BOX", "15", "4.8"), pendingRefundCents: 1000n });
+    const d = await guard.check(call("owner", "request_refund", { orderId: "MC-BOX", amountCents: 1000 }, "owner_app"));
+    expect(d.allow).toBe(false);
+    expect(d.ruleIds.some((r) => r === "refund.not_over" || r === "D4.full_or_floor")).toBe(true);
+  });
+
+  it("approving split refund drafts: other posted refunds on the order count toward the approver's limit", async () => {
+    const { guard, platform } = world();
+    platform.docs.set("9", { id: "9", docType: "refund", status: "draft", createdByRole: "support", createdByIdentity: "id-support", totalCents: 1000n, orderRefundedOtherCents: 1000n });
+    const d = await guard.check(call("bookkeeper", "approve_refund", { documentId: "9" }, "agent"));
+    expect(d.allow).toBe(false);
+    expect(d.ruleIds).toContain("role_limit.maxRefundCents");
+  });
+
   it("segregation of duties on approval", async () => {
     const { guard, platform } = world();
     platform.docs.set("7", { id: "7", docType: "refund", status: "draft", createdByRole: "bookkeeper", createdByIdentity: "id-bookkeeper", totalCents: 500n });

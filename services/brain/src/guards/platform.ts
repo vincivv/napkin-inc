@@ -76,17 +76,26 @@ export class StdbGuardPlatform implements GuardPlatformPort {
       cost = cost.add(l["cost"]!);
     }
     let refunded = 0n;
+    let pending = 0n;
     for (const d of this.db.document.externalRef.filter(orderId)) {
-      if (d.businessId === businessId && d.docType === "refund" && d.status === "posted" && d.reversalOf === 0n) refunded += d.totalCents;
+      if (d.businessId !== businessId || d.docType !== "refund" || d.reversalOf !== 0n) continue;
+      if (d.status === "posted") refunded += d.totalCents;
+      else if (d.status === "draft") pending += d.totalCents;
     }
     const hours = Rational.of(BigInt(this.now()) * 1000n - sale.postedAt.microsSinceUnixEpoch, 3_600_000_000n);
-    return { orderId, saleTotal: Rational.fromCents(sale.totalCents).toJSON(), saleNet: net.toJSON(), saleCost: cost.toJSON(), refundedSoFarCents: refunded, hoursSinceSale: hours.toJSON() };
+    return { orderId, saleTotal: Rational.fromCents(sale.totalCents).toJSON(), saleNet: net.toJSON(), saleCost: cost.toJSON(), refundedSoFarCents: refunded, pendingRefundCents: pending, hoursSinceSale: hours.toJSON() };
   }
 
   documentMeta(businessId: string, documentId: string): DocumentMeta | undefined {
     const d = this.db.document.id.find(BigInt(documentId));
     if (!d || d.businessId !== businessId) return undefined;
-    return { id: d.id.toString(), docType: d.docType, status: d.status, createdByRole: d.createdByRole, createdByIdentity: d.createdBy.toHexString(), totalCents: d.totalCents };
+    let other = 0n;
+    if (d.docType === "refund" && d.externalRef) {
+      for (const x of this.db.document.externalRef.filter(d.externalRef)) {
+        if (x.id !== d.id && x.businessId === businessId && x.docType === "refund" && x.status === "posted" && x.reversalOf === 0n) other += x.totalCents;
+      }
+    }
+    return { id: d.id.toString(), docType: d.docType, status: d.status, createdByRole: d.createdByRole, createdByIdentity: d.createdBy.toHexString(), totalCents: d.totalCents, orderRefundedOtherCents: other };
   }
 
   private keyFor(role: string, businessId: string) {

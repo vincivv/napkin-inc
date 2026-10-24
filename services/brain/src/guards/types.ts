@@ -59,6 +59,8 @@ export interface RefundFacts {
   saleNet: string;
   saleCost: string;
   refundedSoFarCents: bigint;
+  /** refund drafts on this order that are not posted yet; they count against limits so a refund can't be split */
+  pendingRefundCents?: bigint;
   hoursSinceSale: string;
 }
 
@@ -69,6 +71,8 @@ export interface DocumentMeta {
   createdByRole: string;
   createdByIdentity: string;
   totalCents: bigint;
+  /** refunds only: other refunds already posted on the same order (approving split drafts adds up) */
+  orderRefundedOtherCents?: bigint;
 }
 
 /** Everything a rule may read. Loaded by the engine, passed to the pure evaluator. */

@@ -279,15 +279,17 @@ export function evaluate(call: GuardCall, world: GuardWorld | undefined): Evalua
     ctx.policies = { ...ctx.policies, refundWindowHours: fracStr(window) };
     const amount = Rational.fromCents(BigInt(a.amountCents));
     const saleTotal = Rational.parse(f.saleTotal);
-    const remaining = saleTotal.sub(Rational.fromCents(f.refundedSoFarCents));
+    // pending drafts count as already refunded: splitting one refund into several drafts changes nothing
+    const committedCents = f.refundedSoFarCents + (f.pendingRefundCents ?? 0n);
+    const remaining = saleTotal.sub(Rational.fromCents(committedCents));
     const floorAmt = Rational.parse(f.saleCost).mul(Rational.ONE.add(Rational.parse(cfg.policies.marginFloor)));
-    const maxPartial = Rational.parse(f.saleNet).sub(Rational.fromCents(f.refundedSoFarCents)).sub(floorAmt);
+    const maxPartial = Rational.parse(f.saleNet).sub(Rational.fromCents(committedCents)).sub(floorAmt);
     const maxPartialCents = maxPartial.lt(Rational.ZERO) ? 0n : maxPartial.mul(Rational.of(100n)).floor();
     try {
       post(
         docDef(cfg, "refund"),
         {
-          fields: { orderId: a.orderId, amount: fracStr(amount), reason: "", saleTotal: f.saleTotal, saleNet: f.saleNet, saleCost: f.saleCost, refundedSoFar: fracStr(Rational.fromCents(f.refundedSoFarCents)), hoursSinceSale: f.hoursSinceSale },
+          fields: { orderId: a.orderId, amount: fracStr(amount), reason: "", saleTotal: f.saleTotal, saleNet: f.saleNet, saleCost: f.saleCost, refundedSoFar: fracStr(Rational.fromCents(committedCents)), hoursSinceSale: f.hoursSinceSale },
           lines: [],
         },
         ctx,
@@ -307,7 +309,15 @@ export function evaluate(call: GuardCall, world: GuardWorld | undefined): Evalua
       const lim = minR([roleLimit(cfg, roleId, "maxRefundCents"), ...ps.filter((p) => p.cond.maxRefundCents !== undefined).map((p) => (rules.add(`precedent:${p.id}`), Rational.of(BigInt(p.cond.maxRefundCents!))))]);
       if (lim) {
         maxAllowed = { refundCents: lim.toDecimal(0) };
-        if (Rational.of(BigInt(a.amountCents)).gt(lim)) escalate("role_limit.maxRefundCents", `${roleId} may refund up to ${lim.toDecimal(0)} cents, asked ${a.amountCents}`, "the owner approves this refund");
+        const orderTotal = committedCents + BigInt(a.amountCents);
+        if (Rational.of(orderTotal).gt(lim))
+          escalate(
+            "role_limit.maxRefundCents",
+            committedCents > 0n
+              ? `${roleId} may refund up to ${lim.toDecimal(0)} cents per order; this order would reach ${orderTotal} (already ${committedCents} refunded or pending, asked ${a.amountCents})`
+              : `${roleId} may refund up to ${lim.toDecimal(0)} cents, asked ${a.amountCents}`,
+            "the owner approves this refund",
+          );
       }
     }
   }
@@ -323,7 +333,9 @@ export function evaluate(call: GuardCall, world: GuardWorld | undefined): Evalua
     if (d.createdByIdentity === identity || (!owner && d.createdByRole === roleId)) return refuse("inv5.sod", "the creator of a document cannot approve it (segregation of duties)", "a different role approves it");
     if (!owner) {
       const lim = minR([roleLimit(cfg, roleId, "maxRefundCents"), ...ps.filter((p) => p.cond.maxRefundCents !== undefined).map((p) => Rational.of(BigInt(p.cond.maxRefundCents!)))]);
-      if (lim && Rational.of(d.totalCents).gt(lim)) escalate("role_limit.maxRefundCents", `${roleId} may approve refunds up to ${lim.toDecimal(0)} cents; this one is ${d.totalCents}`, "the owner approves this refund");
+      const orderTotal = d.totalCents + (d.orderRefundedOtherCents ?? 0n);
+      if (lim && Rational.of(orderTotal).gt(lim))
+        escalate("role_limit.maxRefundCents", `${roleId} may approve refunds up to ${lim.toDecimal(0)} cents per order; this order would reach ${orderTotal} (this draft ${d.totalCents})`, "the owner approves this refund");
     }
     rules.add("inv5.sod_ok");
   }
