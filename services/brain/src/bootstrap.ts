@@ -82,10 +82,11 @@ export async function bootstrap(hub: StdbHub, fixturePath = FIXTURE_PATH): Promi
 
   for (const seed of SEED_BUSINESSES) {
     // 2. business
-    let biz = db.business.id.find(seed.id);
+    type Biz = NonNullable<ReturnType<typeof db.business.id.find>>;
+    let biz: Biz | undefined = db.business.id.find(seed.id) ?? undefined;
     if (!biz) {
       await hub.call("system", "registerBusiness", (c) => c.reducers.registerBusiness(seed));
-      biz = await waitFor(() => db.business.id.find(seed.id));
+      biz = await waitFor(() => db.business.id.find(seed.id) ?? undefined);
       if (!biz) throw new Error(`registerBusiness(${seed.id}) succeeded but the row did not appear`);
       step(`business ${seed.id}: registered (enforce=${seed.enforce})`);
     } else {

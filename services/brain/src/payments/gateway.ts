@@ -108,7 +108,6 @@ export class StripeGateway implements ProcessorGateway {
       const s = await this.stripe.checkout.sessions.create(
         {
           mode: "payment",
-          payment_method_types: ["card"],
           line_items: p.lineItems.map((li) => ({
             quantity: li.quantity,
             price_data: {

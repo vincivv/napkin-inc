@@ -111,13 +111,13 @@ export class StdbPlatform implements PlatformPort {
 
   business(id: string): BusinessView | undefined {
     const b = this.db.business.id.find(id);
-    return b && { id: b.id, name: b.name, activeConfigId: b.activeConfigId, enforce: b.enforce };
+    return b ? { id: b.id, name: b.name, activeConfigId: b.activeConfigId, enforce: b.enforce } : undefined;
   }
 
   order(orderId: string): OrderView | undefined {
     const o = this.db.customerOrder.id.find(orderId);
     return (
-      o && {
+      o ? {
         id: o.id,
         businessId: o.businessId,
         status: o.status,
@@ -127,7 +127,7 @@ export class StdbPlatform implements PlatformPort {
         refundedCents: o.refundedCents,
         customerName: o.customerName,
         channel: o.channel,
-      }
+      } : undefined
     );
   }
 
@@ -158,7 +158,7 @@ export class StdbPlatform implements PlatformPort {
 
   document(id: bigint): DocumentView | undefined {
     const d = this.rawDoc(id);
-    return d && this.toDoc(d);
+    return d ? this.toDoc(d) : undefined;
   }
 
   documentsByExternalRef(externalRef: string): DocumentView[] {
