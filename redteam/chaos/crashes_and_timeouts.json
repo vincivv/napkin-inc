@@ -1,0 +1,132 @@
+[
+  {
+    "id": "CH-04",
+    "kind": "crash",
+    "title": "Brain crashes after createOrder, before the Stripe checkout session",
+    "steps": [
+      { "op": "crash_at", "point": "after_create_order_before_stripe_session" },
+      { "op": "create_order", "orderId": "MC-CH04A", "items": [{ "productId": "cookie_single", "qty": 2 }] },
+      { "op": "restart_brain" },
+      { "op": "start_checkout", "orderId": "MC-CH04A" },
+      { "op": "drain_outbox" }
+    ],
+    "expected": {
+      "orderStatus": { "MC-CH04A": "pending_payment" },
+      "stripe": { "checkoutSessions": 1 },
+      "paymentIntents": { "MC-CH04A": 1 },
+      "journalBalanced": true
+    },
+    "safeBehavior": "After the restart the order exists once, its payment intent is logged once, and exactly one Stripe checkout session is created when checkout is retried. No duplicate order or session appears.",
+    "invariantIds": [7, 1]
+  },
+  {
+    "id": "CH-05",
+    "kind": "crash",
+    "title": "Brain crashes after the Stripe session is created but before it is attached",
+    "steps": [
+      { "op": "create_order", "orderId": "MC-CH05A", "items": [{ "productId": "cookie_box6", "qty": 1 }] },
+      { "op": "crash_at", "point": "after_stripe_session_before_attach" },
+      { "op": "start_checkout", "orderId": "MC-CH05A" },
+      { "op": "restart_brain" },
+      { "op": "start_checkout", "orderId": "MC-CH05A" },
+      { "op": "drain_outbox" }
+    ],
+    "expected": {
+      "orderStatus": { "MC-CH05A": "pending_payment" },
+      "stripe": { "checkoutSessions": 1 },
+      "paymentIntents": { "MC-CH05A": 1 },
+      "journalBalanced": true
+    },
+    "safeBehavior": "The session created before the crash is found by its idempotency key on retry and attached, so Stripe shows one checkout session for MC-CH05A. Retrying does not create a second one.",
+    "invariantIds": [7]
+  },
+  {
+    "id": "CH-06",
+    "kind": "crash",
+    "title": "Brain crashes after the refund is posted but before the Stripe refund call",
+    "steps": [
+      { "op": "create_order", "orderId": "MC-CH06A", "items": [{ "productId": "cookie_box6", "qty": 1 }] },
+      { "op": "start_checkout", "orderId": "MC-CH06A" },
+      { "op": "webhook", "event": { "eventId": "evt_ch06_pay", "kind": "payment_succeeded", "orderId": "MC-CH06A", "amountCents": 1500, "processorRef": "pi_ch06" } },
+      { "op": "request_refund", "orderId": "MC-CH06A", "amountCents": 1500, "reason": "customer changed mind within 24h" },
+      { "op": "approve_refund", "orderId": "MC-CH06A" },
+      { "op": "crash_at", "point": "after_refund_posted_before_stripe_refund" },
+      { "op": "restart_brain" },
+      { "op": "drain_outbox", "maxPasses": 5 }
+    ],
+    "expected": {
+      "orderStatus": { "MC-CH06A": "refunded" },
+      "postedDocs": { "MC-CH06A": { "refund": 1 } },
+      "stripe": { "refunds": 1, "refundedCents": 1500 },
+      "journalBalanced": true,
+      "clearingMatchesProcessor": true
+    },
+    "safeBehavior": "The posted refund is not lost. The queued stripe_refund outbox item runs after restart and issues exactly one Stripe refund of $15.00. The refund is never posted twice.",
+    "invariantIds": [7, 4, 1]
+  },
+  {
+    "id": "CH-07",
+    "kind": "crash",
+    "title": "Brain crashes after the Stripe refund succeeds but before the outbox is completed",
+    "steps": [
+      { "op": "create_order", "orderId": "MC-CH07A", "items": [{ "productId": "cookie_box6", "qty": 1 }] },
+      { "op": "start_checkout", "orderId": "MC-CH07A" },
+      { "op": "webhook", "event": { "eventId": "evt_ch07_pay", "kind": "payment_succeeded", "orderId": "MC-CH07A", "amountCents": 1500, "processorRef": "pi_ch07" } },
+      { "op": "request_refund", "orderId": "MC-CH07A", "amountCents": 1500, "reason": "damaged box" },
+      { "op": "approve_refund", "orderId": "MC-CH07A" },
+      { "op": "crash_at", "point": "after_stripe_refund_before_complete_outbox" },
+      { "op": "restart_brain" },
+      { "op": "drain_outbox", "maxPasses": 5 }
+    ],
+    "expected": {
+      "stripe": { "refunds": 1, "refundedCents": 1500 },
+      "outbox": { "kind": "stripe_refund", "count": 1, "status": "done" },
+      "journalBalanced": true,
+      "clearingMatchesProcessor": true
+    },
+    "safeBehavior": "Stripe already refunded $15.00, so the retry after restart uses the same idempotency key and Stripe returns the existing refund. The outbox item is completed and no second refund is created.",
+    "invariantIds": [7, 2]
+  },
+  {
+    "id": "CH-08",
+    "kind": "timeout",
+    "title": "Checkout session creation times out twice but succeeded server side",
+    "steps": [
+      { "op": "create_order", "orderId": "MC-CH08A", "items": [{ "productId": "cookie_single", "qty": 1 }] },
+      { "op": "stripe_timeout", "api": "checkout.sessions.create", "times": 2, "succeedsServerSide": true },
+      { "op": "start_checkout", "orderId": "MC-CH08A" },
+      { "op": "start_checkout", "orderId": "MC-CH08A" },
+      { "op": "start_checkout", "orderId": "MC-CH08A" }
+    ],
+    "expected": {
+      "orderStatus": { "MC-CH08A": "pending_payment" },
+      "stripe": { "checkoutSessions": 1 },
+      "paymentIntents": { "MC-CH08A": 1 },
+      "journalBalanced": true
+    },
+    "safeBehavior": "Timed-out session creations that did succeed on Stripe are recovered by idempotency key, so only one session is attached to MC-CH08A. The customer gets one checkout URL, and the platform does not create extra sessions while retrying.",
+    "invariantIds": [7]
+  },
+  {
+    "id": "CH-09",
+    "kind": "timeout",
+    "title": "Refund call times out and did not run server side",
+    "steps": [
+      { "op": "create_order", "orderId": "MC-CH09A", "items": [{ "productId": "cookie_box6", "qty": 1 }] },
+      { "op": "start_checkout", "orderId": "MC-CH09A" },
+      { "op": "webhook", "event": { "eventId": "evt_ch09_pay", "kind": "payment_succeeded", "orderId": "MC-CH09A", "amountCents": 1500, "processorRef": "pi_ch09" } },
+      { "op": "request_refund", "orderId": "MC-CH09A", "amountCents": 1500, "reason": "wrong item" },
+      { "op": "approve_refund", "orderId": "MC-CH09A" },
+      { "op": "stripe_timeout", "api": "refunds.create", "times": 1, "succeedsServerSide": false },
+      { "op": "drain_outbox", "maxPasses": 5 }
+    ],
+    "expected": {
+      "stripe": { "refunds": 1, "refundedCents": 1500 },
+      "outbox": { "kind": "stripe_refund", "count": 1, "status": "done" },
+      "journalBalanced": true,
+      "clearingMatchesProcessor": true
+    },
+    "safeBehavior": "The first refunds.create times out without taking effect. The outbox item is retried and succeeds exactly once, so Stripe shows one $15.00 refund and the outbox ends done.",
+    "invariantIds": [7, 2]
+  }
+]
