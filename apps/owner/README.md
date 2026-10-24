@@ -18,7 +18,7 @@ movements, approval roles, reversal links; post drafts you did not create; rever
 Reports (trial balance via `@napkin/ledger-core`, P&L, stock, receivables, payables, cash flow, margin by item),
 Decisions, Inbox (answer + "make this a precedent"; phone owner statements "needs your confirmation"), Audit log,
 Proof report (active `proofReportJson`, else "Not proven yet"; plus "Facts not confirmed by the owner"),
-Intake / Interview / Build placeholders ("coming in M2").
+Intake (photo + voice -> facts drawn over the photo with provenance badges and confidence), Interview (one top-impact question at a time, owner-statement diffs to confirm, money-ready checklist), Build placeholder ("coming in M2"). Intake/Interview talk to the brain (`NEXT_PUBLIC_BRAIN_URL`).
 
 ## Owner sign-in
 `/signin`: PIN -> `POST {BRAIN_URL}/auth/owner {pin}` -> `{code}` -> `redeemRoleGrant(code)` with this browser's own

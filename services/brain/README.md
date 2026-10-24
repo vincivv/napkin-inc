@@ -41,3 +41,29 @@ Identity tokens live in `services/brain/.data/identities.json` (gitignored), che
 `OWNER_APP_URL` (3001), `BRAIN_URL`, `PORT` (4000), `SPACETIMEDB_URI` (http://localhost:3000), `SPACETIMEDB_DB` (napkin),
 `CORS_ORIGINS` (extra, comma separated), `BRAIN_DATA_DIR`, `OUTBOX_STALE_SECONDS` (60).
 CORS allows localhost 3001/3002, `OWNER_APP_URL`, `STORE_PUBLIC_URL`, and `CORS_ORIGINS`.
+
+## M2: intake + question engine (never assume)
+Every field of the draft `BusinessSpec` is a `Fact` {value, provenance owner_said|paper|inferred, confidence, source{kind, ref, region, quote}, confirmed}.
+A fact may drive money only when `usableForMoney` (confirmed and not inferred). Code: `src/intake`, `src/questions`, `src/spec`, `src/m2.ts` (mounted by one line in `server.ts`).
+
+**AI vs deterministic.** AI: read the photo (`claude-opus-5-5` vision, forced tool call), extract facts from a transcript, parse an owner statement into
+proposed field changes, and re-word (never choose) a question (`claude-haiku-5-5`, rejected if any number changed). Deterministic code: provenance
+assignment (paper/owner_said only with a quote, otherwise inferred and capped at 0.4), value coercion, merge, impact scoring, which question is next,
+moneyReady, applying/reverting diffs. Fields nobody mentioned are typed placeholders (provenance inferred, confidence 0, ref "missing") and become questions.
+
+Endpoints (businessId = lowercase slug):
+- `POST /intake/photo` multipart `businessId`, `image` -> draft spec (+ `facts`, `counts`, `moneyReady`, `blockers`). Retries once on invalid model output.
+- `POST /intake/voice` multipart `businessId` + `audio` (webm; Cartesia `ink-whisper` batch STT) or `transcript` (typed fallback, source kind "chat").
+- `POST /intake/merge {businessId}` re-merges stored photo+voice drafts into the spec (idempotent). Photo/voice also merge into the current spec on arrival.
+  Merge rules (`src/intake/merge.ts`): same value -> keep, max confidence; one side confirmed or the other a mere guess -> the stronger wins, loser kept in `alternatives`;
+  otherwise conflict -> both candidates kept in an OpenQuestion `conflict.<path>`; order-independent (property tested).
+- `GET /intake/photo/:businessId` the stored photo. Drafts: `.data/specs/<businessId>.json` (gitignored, `version` bumps on every write).
+- `GET /spec/:businessId` -> spec + `moneyReady` (every money-relevant fact usableForMoney) + `blockers`. **The compiler must refuse when `moneyReady` is false.**
+- `GET /questions/next?businessId=` top unresolved question by `impactScore = moneyImpact(path) * (1 - confidence)` (table in `src/questions/impact.ts`).
+- `POST /questions/:id/answer {businessId, answer? | confirm?}` fact becomes owner_said + confirmed; records a DecisionRecord (system identity) when the business exists on the platform.
+- `POST /questions/:id/dismiss` only for non-money questions.
+- `POST /owner/statement {businessId, text, channel: app|phone}` -> structured diff (nothing applied). `phone` also calls `queueOwnerStatement`; the owner confirms in the app Inbox
+  (platform `decideOwnerStatement`), and `GET /owner/statements` / `GET /spec` then apply it and call `markOwnerStatementApplied`. `POST /owner/statement/:id/decide {businessId, confirm}` is for app statements only (phone -> 409).
+- Env: `ANTHROPIC_API_KEY` (+ `ANTHROPIC_WORKSPACE_ID` if the key is not workspace scoped), `CARTESIA_API_KEY`. Missing keys -> 503, nothing is faked.
+- Dev without keys: `PORT=4010 DEV_ORIGINS=http://localhost:3015 pnpm --filter @napkin/brain exec tsx scripts/dev-fixture-server.ts` (FAKE LLM, serves only M2 routes).
+- Real smoke: `pnpm --filter @napkin/brain exec tsx --env-file=/path/.env scripts/real-intake.ts ../../fixtures/maya/napkin.SYNTHETIC.png [voice.wav]`.

@@ -1,9 +1,8 @@
 // What the /compile route needs from the platform and from the spec store, behind small ports so the
 // route is tested with fakes. All writes run as the SYSTEM identity; the platform decides who may do what.
 
-import fs from "node:fs";
-import path from "node:path";
-import { parseBusinessSpec, type BusinessSpec } from "@napkin/schema";
+import type { BusinessSpec } from "@napkin/schema";
+import type { SpecStore } from "../spec/store";
 import { waitFor, type StdbHub } from "../stdb";
 
 export interface ConfigVersionView {
@@ -30,21 +29,11 @@ export interface SpecSource {
   get(businessId: string): Promise<BusinessSpec | undefined>;
 }
 
-/** Specs at <dataDir>/specs/<businessId>.json, validated against the BusinessSpec contract. */
-export class FileSpecSource implements SpecSource {
-  constructor(private readonly dir: string) {}
-  file(businessId: string): string {
-    return path.join(this.dir, `${businessId}.json`);
-  }
+/** The intake/question engine's spec store (src/spec/store.ts): .data/specs/<businessId>.json. */
+export class SpecStoreSource implements SpecSource {
+  constructor(private readonly store: Pick<SpecStore, "get">) {}
   async get(businessId: string): Promise<BusinessSpec | undefined> {
-    let raw: string;
-    try {
-      raw = fs.readFileSync(this.file(businessId), "utf8");
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-      throw e;
-    }
-    return parseBusinessSpec(JSON.parse(raw));
+    return this.store.get(businessId)?.spec;
   }
 }
 

@@ -7,8 +7,6 @@
 // -> storefront -> agents -> submit), then exactly one `result` {configId, version, status, activated} or
 // `error` {code, message, questions}. GET /compile/:businessId/latest replays the last run's events.
 
-import path from "node:path";
-import Anthropic from "@anthropic-ai/sdk";
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -16,7 +14,8 @@ import type { Configuration } from "@napkin/schema";
 import { log } from "../log";
 import { ReducerRefused, type StdbHub } from "../stdb";
 import { compile, CompileRefused, type StepEvent } from "./index";
-import { FileSpecSource, StdbCompilePlatform, type CompilePlatformPort, type SpecSource } from "./platform";
+import { SpecStore } from "../spec/store";
+import { SpecStoreSource, StdbCompilePlatform, type CompilePlatformPort, type SpecSource } from "./platform";
 import { StubProver, type ProverPort } from "./prover-port";
 import { ClaudeCopyProposer, type CopyProposer } from "./storefront";
 import type { RoleLimits } from "./templates/item_seller";
@@ -128,12 +127,13 @@ export function registerCompileRoutes(app: Hono, deps: CompileRouteDeps): void {
 
 /** Production wiring: stub prover until services/prover is merged; Claude copy proposals only with a key. */
 export function defaultCompileDeps(platform: CompilePlatformPort, specs: SpecSource, prover: ProverPort = new StubProver()): CompileRouteDeps {
-  const proposer = process.env["ANTHROPIC_API_KEY"] ? new ClaudeCopyProposer(new Anthropic()) : undefined;
+  const key = process.env["ANTHROPIC_API_KEY"]?.trim();
+  const proposer = key ? new ClaudeCopyProposer(key, process.env["ANTHROPIC_WORKSPACE_ID"]?.trim() || undefined) : undefined;
   if (prover.isStub) log.warn("compile", "PROVER STUB: configurations are compiled with proofs marked 'skipped' until services/prover is wired");
   return { platform, specs, prover, ...(proposer ? { proposer } : {}) };
 }
 
-/** One-line mount for server.ts. Specs are read from <dataDir>/specs/<businessId>.json. */
+/** One-line mount for server.ts. Specs come from the intake/question engine's SpecStore. */
 export function mountCompiler(app: Hono, hub: StdbHub, dataDir: string): void {
-  registerCompileRoutes(app, defaultCompileDeps(new StdbCompilePlatform(hub), new FileSpecSource(path.join(dataDir, "specs"))));
+  registerCompileRoutes(app, defaultCompileDeps(new StdbCompilePlatform(hub), new SpecStoreSource(new SpecStore(dataDir))));
 }

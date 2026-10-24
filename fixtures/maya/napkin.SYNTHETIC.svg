@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900">
+  <!-- SYNTHETIC test image generated for Napkin Inc. It is not a photo of a real menu. -->
+  <rect width="1200" height="900" fill="#e9e4d6"/>
+  <rect x="60" y="50" width="1080" height="800" rx="14" fill="#fbf8ee" stroke="#cfc8b4" stroke-width="3" transform="rotate(-1 600 450)"/>
+  <g font-family="Bradley Hand, Marker Felt, Chalkboard SE, cursive" fill="#1f2a5a" transform="rotate(-1.5 600 450)">
+    <text x="130" y="190" font-size="92" font-weight="bold">Maya's Cookies</text>
+    <path d="M130 215 Q 400 235 700 212" stroke="#1f2a5a" stroke-width="5" fill="none"/>
+    <text x="130" y="360" font-size="64">chocolate chip ..... $3</text>
+    <text x="130" y="480" font-size="64">box of 6 ........... $15</text>
+    <text x="130" y="600" font-size="64">+ sea salt ......... $1</text>
+    <text x="130" y="760" font-size="34" fill="#6a6fa0">(synthetic test image)</text>
+  </g>
+</svg>

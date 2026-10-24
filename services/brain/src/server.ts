@@ -13,6 +13,7 @@ import { IdentityStore } from "./store";
 import { SessionStore } from "./payments/checkout";
 import { SimulatorGateway, StripeGateway, type ProcessorGateway } from "./payments/gateway";
 import { OutboxWorker, RefundExecutor } from "./payments/outbox";
+import { registerM2Routes } from "./m2";
 import { mountCompiler } from "./compiler/routes";
 
 let env: Env;
@@ -101,8 +102,8 @@ const app = createApp({
     }
   },
 });
-
-mountCompiler(app, hub, env.dataDir);
+registerM2Routes(app, hub, env.dataDir); // M2: intake + question engine
+mountCompiler(app, hub, env.dataDir); // M2: compiler (POST /compile, SSE)
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();

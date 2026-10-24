@@ -154,7 +154,11 @@ export const COPY_MODEL = "claude-opus-5-5";
 /** Proposes look and wording with Claude. Used only when ANTHROPIC_API_KEY is configured. */
 export class ClaudeCopyProposer implements CopyProposer {
   readonly name = `${COPY_MODEL} (proposal only)`;
-  constructor(private readonly client: Anthropic = new Anthropic()) {}
+  private readonly client: Anthropic;
+  /** workspaceId: sent as anthropic-workspace-id (required for keys not scoped to a workspace), like src/llm.ts */
+  constructor(apiKey: string, workspaceId?: string) {
+    this.client = new Anthropic({ apiKey, maxRetries: 2, timeout: 120_000, ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}) });
+  }
 
   async propose(input: CopyInput): Promise<Proposal> {
     const res = await this.client.messages.parse({

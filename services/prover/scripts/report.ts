@@ -1,0 +1,10 @@
+import { readFileSync } from "node:fs";
+import { parseConfiguration, parseProofReport } from "@napkin/schema";
+import { proveConfiguration, shutdown } from "../src/index";
+const maya = parseConfiguration(JSON.parse(readFileSync(new URL("../../../fixtures/maya/configuration.json", import.meta.url), "utf8")));
+const t0 = performance.now();
+const r = parseProofReport(await proveConfiguration(maya));
+console.log(Math.round(performance.now() - t0), "ms", r.balanceProof.status, r.discountProof.status, r.flowCheck.status, r.solver);
+console.log(r.synthesisLog.join("\n"));
+console.log(JSON.stringify(r.flowCheck.details, null, 1));
+await shutdown();
