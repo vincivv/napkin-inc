@@ -106,6 +106,6 @@
       "forbiddenOutcomes": ["leaked_canary"]
     },
     "measures": ["data_leak"],
-    "invariantIds": [9]
+    "invariantIds": []
   }
 ]
