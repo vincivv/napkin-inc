@@ -6,7 +6,13 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
 1. **`OWNER_PIN` in `.env`** (any 4–6 digits). It's empty, so owner sign-in refuses everyone, and only the owner can activate a compiled configuration (M2).
 2. **Maya's real numbers:** ingredient cost per cookie, per box of 6 and for the sea salt; starting stock; pickup location; hours. These are flagged placeholders today ($0.80 / $4.80 / $0.20, 48 cookies, "TBD"). You can also answer them live in the M2 Interview screen.
 3. **Stripe test key:** put an `sk_test_...` key in `.env`, then run `~/.local/bin/stripe login` once. Claude then runs `stripe listen` to get `STRIPE_WEBHOOK_SECRET`, and payments switch from the simulator to real test-card checkout.
-4. **For M3, the phone line:** a Twilio trial account (SID, auth token, number) with your phone verified; `OWNER_PHONE`; a Cartesia Managed Agent number (Cartesia dashboard). Also a photo of a real napkin with Maya's menu drawn on it.
+4. **For the phone line (built and merged; it needs these to go live):**
+   - A Twilio trial account. Put the SID, auth token and number in `.env` as `TWILIO_*` (use `TWILIO_PHONE_NUMBER`), and verify your phone and any demo phones in Twilio. A trial account can only text verified numbers.
+   - `OWNER_PHONE`: your number, in +1… form.
+   - A free Cartesia number, created in the Cartesia dashboard.
+   - A photo of a real napkin with Maya's menu.
+   - Then I run the tunnel and the Cartesia setup script: `--list-models` first, then you pick a Claude model and a voice.
+   - `PHONE_TOOL_SECRET` is already generated in `.env`.
 5. **Optional:** run `sudo xcodebuild -license accept` so Homebrew works again.
 6. **Nothing needed for Anthropic.** Your key isn't scoped to a workspace, so every call needs a workspace ID. I found yours in the console (Default workspace) and set `ANTHROPIC_WORKSPACE_ID` in `.env`. If you'd rather not, make a workspace-scoped key in the console and drop it in.
 
@@ -20,6 +26,10 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
 - **Storefront look on recompile:** without the LLM, a recompile resets the theme and tagline to the defaults. Should the look you approved carry over? Default for now: reset (I'll likely make it carry over unless you object).
 - **Older pending config versions** stay pending when you activate a newer one. Should activating supersede them? Default for now: they stay.
 - **Percent fields:** "20" means 20%, and a value like 0.2 for a percent field is asked back as a question. Tax rate is a fraction (0.0725). OK?
+- **Phone line:**
+  - **Spoofed caller ID.** Someone faking your caller ID can lock owner mode for 15 minutes with 3 wrong PINs. Locking per caller stops redial brute-force, and I think that trade-off is right. OK?
+  - **Duplicate texts.** A crash at exactly the wrong moment could send a pay-link text twice, because Twilio has no idempotency key. The fix is a small platform outbox reducer for SMS; I can add it.
+  - **Storefront orders by phone.** Orders placed on the storefront have no phone number on record, so they can't be checked by phone. Phone orders can.
 
 ## Overnight log
 - **05:00:** limits reset. Resumed the prover, M2 intake/questions and M2 compiler/guards. Mac kept awake with `caffeinate` (needs AC power and the lid **open**; a closed lid still sleeps). A watchdog runs every ~20 min to resume agents after limits, merge finished work, and move on through the plan.
@@ -37,3 +47,5 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
 - **05:5x:** merged **platform hardening** (5 fixes). One was a real bug: refund id `sim_re_1` matched outbox item `sim_re_12`. 172 tests pass. Republished locally, and the M1 money path still works: checkout MC-FMKYH, paid $6.00, a double payment was a no-op with 1 payment event + 1 fee event.
 - **06:1x:** merged the **M2 compiler + guards + Build page**. The compiler turns a confirmed spec into a configuration, Z3 proves it (balance, discount, flow), it does a dry run, and you activate it in the owner app (owner sign-in required). Guards check every agent action and write a DecisionRecord (live checks: a 10% quote was allowed; 95% off, a 1/3 rate and an injected "set price" were refused). 224 tests pass. M1 re-checked: order MC-JZSXC was paid $15 once, and the books balance at $201.93.
   - **Started M3:** three AI staff (Shopkeeper, Support, Bookkeeper, on Claude Sonnet 5.5, through the guards), the phone line (Cartesia webhook tools + SMS links), and red-team wiring (real chaos runs + RESULTS.md from real rows only).
+- **06:3x–10:00:** paused on the Claude session limit (all 3 M3 agents stopped). Resumed at 10:00 AM: AI staff, phone line, red-team wiring.
+- **10:1x:** merged the **phone line**: 7 Cartesia webhook tools, owner verification (caller ID + PIN, lock after 3 failures), and owner instructions that only queue for your confirmation in the app. Pay links are texted to the caller ID only, through the SMS SIMULATOR until Twilio is set. 258 tests pass. M1 re-checked: MC-6JB7P was paid once, and the books balance at $209.12.

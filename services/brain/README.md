@@ -116,3 +116,105 @@ Real vs simulated: compiler, dry run, Z3 proofs, guards and the SSE route are re
 platform. Posting-rule synthesis from examples is not wired (reported `skipped`). The LLM copy step runs only with `ANTHROPIC_API_KEY`; without it defaults are
 used. Tests: `test/compiler.test.ts`, `test/compile-route.test.ts`, `test/guards.test.ts`, `test/z3-prover.test.ts` (TEST data in
 `test/fixtures/maya-spec.TEST.ts`: the fixture's placeholder costs, marked confirmed for tests only).
+
+## M3-K: phone line (`src/phone`, `POST /phone/tools/:name`)
+A **Cartesia Managed Agent** owns the voice and the LLM (a Claude model from Cartesia's catalog, billed by Cartesia).
+All logic is in brain **webhook tools**; the agent only talks and picks tools. Cartesia fills `caller_id` from
+`{{system__caller_id}}` and `conversation_id` from `{{system__conversation_id}}` (hidden from the model), and
+`business_id` is a constant, so the model cannot choose any of them. Cartesia has no SMS: pay links go by Twilio.
+
+| Tool | Mode | What it does |
+|---|---|---|
+| `menu_lookup` | customer | live catalog prices + availability (`floor(stock / stockUnits)`); never costs |
+| `order_status` | customer / owner | details only if the caller ID placed that phone order (or the owner is verified); otherwise one generic reply, identical for unknown orders |
+| `place_order` | customer | validates lines against the live catalog, then `createCheckout(..., {channel: "phone"})` (the storefront's path). Total = platform pricing. Pay link `BRAIN_URL/p/<orderId>` texted to the **caller ID** via the SMS outbox (key `paylink:<orderId>`). A retry (same conversation + caller + cart) returns the same order and never re-texts |
+| `escalate` | customer | `openInbox` with the conversation id, masked caller (`…0111`) and the summary marked `untrusted` (max 3 per call) |
+| `verify_owner` | customer | caller ID == `OWNER_PHONE` (E.164) **and** PIN == `OWNER_PIN`, both compared in constant time; 3 failures per conversation and per caller in 15 min lock it (even with the right PIN); either env var empty = everyone refused |
+| `owner_report` | owner | today (in the active config's `business.timezone`): orders, paid orders, sales, refunds, stock, open inbox, statements awaiting confirmation |
+| `owner_instruction` | owner | `submitOwnerStatement(..., "phone")`: LLM diff + `queueOwnerStatement`. **Never applied**; the owner confirms in the app Inbox (invariant 6). Needs `ANTHROPIC_API_KEY` and an intake spec, otherwise it refuses and nothing changes |
+
+**Security.** Every call needs `Authorization: Bearer $PHONE_TOOL_SECRET` (at least 24 chars; unset or short = every call 401).
+Inputs are zod-validated (unknown fields ignored). Owner mode exists only as server-side state: `OwnerSessions` is
+**in memory**, keyed by conversation id, bound to caller ID and business, TTL 30 min, set only by a successful
+`verify_owner`. A brain restart forgets it (the owner verifies again). No parameter or text can grant it. The platform's
+`customer_order` has no phone column, so `.data/phone-orders.json` maps orderId -> caller ID (plus the place_order
+idempotency index). Money and policy rules are enforced by the platform reducers the tools call.
+
+**SMS.** `TwilioSms` posts to `https://api.twilio.com/2010-04-01/Accounts/{SID}/Messages.json` (form `To/From/Body`,
+basic auth; the `twilio` SDK is not used). Without all three `TWILIO_*` vars the **SMS SIMULATOR** logs
+`[SMS SIMULATOR] NOT SENT ...`, keeps messages in memory, and the agent is told *no text was sent*. Texts go through
+`.data/sms-outbox.json` (one row per idempotency key, retried every 15 s on 5xx/429/network; 4xx is permanent; max 5
+attempts). Twilio has no idempotency key, so a crash between Twilio accepting and the row being marked done can
+duplicate a text (at-least-once). `SmsExecutor` also drains platform outbox rows of kind `sms` if the platform ever queues them.
+
+**Setup (real phone).**
+1. `.env`: `PHONE_TOOL_SECRET` (`openssl rand -hex 32`), `OWNER_PHONE=+1...`, `OWNER_PIN`, `TWILIO_ACCOUNT_SID`,
+   `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `CARTESIA_API_KEY`. Twilio trial: verify every phone that should get texts.
+2. Tunnel: `cloudflared tunnel --url http://localhost:4000`, set `BRAIN_URL` to the https URL, restart the brain.
+3. Model and voice: `pnpm --filter @napkin/brain exec tsx --env-file-if-exists=../../.env scripts/cartesia-setup.ts --list-models`
+   (pick a Claude id), and a voice id from the Cartesia Playground.
+4. `... scripts/cartesia-setup.ts https://<tunnel> --model <id> --voice <id> --dry-run` prints every request (secret
+   redacted, no network). Without `--dry-run` it creates or updates the 7 tools and the agent.
+5. Number: Cartesia Playground -> Phone Numbers -> Cartesia Number (free plan = 1 slot), assign it to the agent there or
+   pass `--phone-number-id <id>`. A new tunnel URL means re-running step 4.
+
+**Demo without a phone.** `... scripts/phone-sim.ts customer | owner | attack | call <tool> '<json>' [--brain URL]` sends
+exactly the bodies Cartesia would (needs `PHONE_TOOL_SECRET`; `owner` uses `OWNER_PHONE`/`OWNER_PIN`).
+
+**Real vs simulated.** Real: all 7 tools against the real platform; the Twilio REST adapter (unit-tested with a fake
+fetch, never called for real yet); the Cartesia setup script (only `--dry-run` has been run). Simulated when keys are
+missing: SMS (simulator) and payments (DEV SIMULATOR pay links). Tests: `test/phone.test.ts` (auth, privacy, lockout,
+injection, idempotent SMS, Twilio errors, and a fast-check property that no customer-mode call sequence reaches owner
+tools or changes policy).
+
+## M3: Agents (`src/agents`) — the AI staff
+Three staff on **Claude Sonnet 5.5** (`claude-sonnet-5-5`): **Shopkeeper** (sells via chat: `menu_lookup`, `quote`,
+`create_order`, `escalate`), **Support** (`order_status`, `request_refund`, `escalate`) and **Bookkeeper**
+(`ledger_read`, `reconcile`, `approve_refund`, `escalate`; in chat and `/ask`, whose callers are unauthenticated, only `ledger_read`, `reconcile`, `escalate`: safer, so no chat path approves refunds). The offered tools are always the agent's configured list
+(`configuration.agents[].tools`) ∩ the guard registry `TOOLS` ∩ the implemented tools.
+
+Every tool call: **LLM -> guard (`wrapTool`) -> platform reducer as the agent's own identity -> DecisionRecord**.
+- The manual loop (`loop.ts`) caps iterations (8), runs parallel tool calls in order and returns all `tool_result`
+  blocks in one user message. A refusal goes back as `is_error: true` with the guard's reason, rule ids, `maxAllowed`
+  and `wouldChangeIf`, so the model can explain it; an escalation comes back as `status: escalated_to_owner` (the
+  guard already opened the inbox item). A tool the agent was not offered (or an unknown name) is refused by the loop
+  and recorded (`agent_tools.not_offered`). Exactly one DecisionRecord per tool call.
+- History is append-only: the full `response.content` (thinking blocks included) is appended unchanged. `stop_reason`
+  `refusal` / `max_tokens` / context exhaustion are checked before content is read; nothing in such a response runs,
+  a fixed reply is given and a fixed assistant text closes the turn. Model params: `tool_choice` auto, no `thinking`
+  param (adaptive default), no sampling params, no prefill, `output_config.effort: "medium"`, no server-side fallback.
+- The system prompt (`prompt.ts`) comes only from the active configuration (business facts, menu prices, policies,
+  goals, escalation rules; `_unconfirmed`/TBD facts are marked "not confirmed, escalate"; costs are never shown to the
+  Shopkeeper) and the platform `precedent` rows for that role, re-read every turn (owner inbox answers saved as
+  precedents reach the agent on its next turn). Customer text (and anything pasted from web pages) is sent only as a
+  JSON-escaped `<customer_message>` data block. The role comes from the route path and the identity from the brain's
+  identity store; no text or body field can change either.
+- **Shopkeeper orders** go through the storefront checkout path (`payments/checkout.ts` `checkoutOrder`, now shared):
+  the platform prices the order from the catalog as the **shopkeeper** identity, channel `agent`, and the pay link is
+  made exactly as for the storefront. Discounts only with an owner precedent (prompt) and always guard + platform
+  checked. Coupon codes are **not honored** (the configuration has no coupon list to verify them; the tool refuses).
+- **Support** `request_refund` creates a draft as the support identity; over the role limit or outside the window the
+  guard escalates to the inbox and nothing is created. `order_status` returns no customer name (callers are not verified).
+- **Bookkeeper** tools only read and compute facts (`books.ts`): documents with journal totals, trial balance;
+  `reconcile` = unbalanced documents, processor statement vs processor documents (missing / duplicate / amount
+  differences), Stripe clearing 1010 vs statement net, stock running balances, closed periods. The agent decides what
+  is an error. Live books come from the platform (statement = the `processor_event` table, not a fresh Stripe read).
+
+Routes (mounted in `server.ts` with one line): `POST /agents/:role/message {businessId, conversationId, text}` ->
+`{reply, toolCalls:[{tool, args, decision, result}], stopReason}` (conversations in memory, 500 max, one turn at a time
+per conversation); `POST /ask {businessId, question}` -> the Bookkeeper with read tools + escalate only ->
+`{answer, refs, unverifiedRefs, toolCalls}`; `refs` are `[doc <id>]` citations that appeared in tool output,
+anything else is listed as `unverifiedRefs`. 503 without `ANTHROPIC_API_KEY`.
+
+Red team (`harness.ts`): `createAgentHarness({staff})` implements `redteam/src/run.ts` `AgentHarness`
+(`send(target, turns, mode) -> Transcript`). `napkin` = `maya-cookies` with the guard; `baseline` =
+`maya-cookies-baseline` with `BaselineGuard`: the same prompt and tools, args only schema-parsed, no policy checks,
+straight to the platform (enforce=false), still one DecisionRecord per call (`baseline.no_guard`). Target `platform`
+returns a transcript with `error`. Extra: `harness.audit(plantedSet, mode)` runs the Bookkeeper on a provided book
+set (answer key never sent) and returns findings `{kind, entries, note}` for `redteam/src/score.ts`.
+
+Real vs simulated: the agent loop, guards, platform calls and DecisionRecords are real. Tests use a scripted LLM
+(`test/agents.test.ts`, `test/agents.fakes.ts`; fixture costs are placeholders, TEST data). Real smoke run against a
+scratch DB: `cd platform && spacetime publish napkin-j --server local --yes`, then
+`pnpm --filter @napkin/brain exec tsx --env-file=../../.env scripts/agents-smoke.ts [--audit]` (hard-wired to
+`napkin-j`; payments are the DEV SIMULATOR, so pay links are `?simulate=1` order pages, not Stripe).

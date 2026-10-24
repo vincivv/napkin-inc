@@ -81,6 +81,34 @@ async function syncStatements(d: M2Deps, businessId: string): Promise<StoredSpec
   return next;
 }
 
+/**
+ * Owner statement -> structured diff, stored as pending. "phone" statements are also queued on the platform
+ * (queueOwnerStatement) for the owner to confirm in the app Inbox. NOTHING is applied here (invariant 6).
+ * Shared by POST /owner/statement and the phone line's owner_instruction tool.
+ */
+export async function submitOwnerStatement(d: M2Deps, businessId: string, text: string, channel: "app" | "phone") {
+  const rec0 = requireSpec(d, businessId);
+  if (channel === "phone" && !d.platform?.hasBusiness(businessId)) throw new HttpError(409, "phone statements need the business to exist on the platform");
+  const llm = requireLlm(d);
+  const id = d.newId?.() ?? randomUUID();
+  const parsed = await parseStatement(llm, rec0.spec, text);
+  const diff = buildDiff(rec0.spec, parsed, { statementId: id, text, channel });
+  const st: PendingStatement = { id, text, channel, diff, status: "pending", createdAt: new Date().toISOString() };
+  let queued = false;
+  if (channel === "phone") {
+    // Queued for the owner to confirm in the app (Inbox). Never applied here.
+    await d.platform!.queueOwnerStatement({
+      businessId,
+      channel: "phone",
+      text,
+      diffJson: JSON.stringify({ statementId: id, changes: diff.changes.map((x) => ({ path: x.path, label: x.label, from: x.beforeText, to: x.afterText })), unparsed: diff.unparsed, note: diff.note }),
+    });
+    queued = true;
+  }
+  await d.store.update(businessId, (cur) => ({ ...cur!, statements: [...cur!.statements, st] }));
+  return { statementId: id, status: "pending" as const, channel, diff, platformQueued: queued, appliedToSpec: false as const };
+}
+
 export function questionRoutes(d: M2Deps) {
   const r = newRouter();
 
@@ -145,26 +173,7 @@ export function questionRoutes(d: M2Deps) {
   r.post("/owner/statement", async (c) => {
     const body = Statement.parse(await c.req.json());
     const businessId = checkBusinessId(body.businessId);
-    const rec0 = requireSpec(d, businessId);
-    if (body.channel === "phone" && !d.platform?.hasBusiness(businessId)) throw new HttpError(409, "phone statements need the business to exist on the platform");
-    const llm = requireLlm(d);
-    const id = d.newId?.() ?? randomUUID();
-    const parsed = await parseStatement(llm, rec0.spec, body.text);
-    const diff = buildDiff(rec0.spec, parsed, { statementId: id, text: body.text, channel: body.channel });
-    const st: PendingStatement = { id, text: body.text, channel: body.channel, diff, status: "pending", createdAt: new Date().toISOString() };
-    let queued = false;
-    if (body.channel === "phone") {
-      // Queued for the owner to confirm in the app (Inbox). Never applied here.
-      await d.platform!.queueOwnerStatement({
-        businessId,
-        channel: "phone",
-        text: body.text,
-        diffJson: JSON.stringify({ statementId: id, changes: diff.changes.map((x) => ({ path: x.path, label: x.label, from: x.beforeText, to: x.afterText })), unparsed: diff.unparsed, note: diff.note }),
-      });
-      queued = true;
-    }
-    await d.store.update(businessId, (cur) => ({ ...cur!, statements: [...cur!.statements, st] }));
-    return c.json({ statementId: id, status: "pending", channel: body.channel, diff, platformQueued: queued, appliedToSpec: false });
+    return c.json(await submitOwnerStatement(d, businessId, body.text, body.channel));
   });
 
   r.get("/owner/statements", async (c) => {

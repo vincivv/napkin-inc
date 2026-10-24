@@ -35,6 +35,15 @@ const EnvSchema = z.object({
   BRAIN_DATA_DIR: optionalString,
   /** A claimed outbox item older than this is retried with the same idempotency key. */
   OUTBOX_STALE_SECONDS: optionalString.transform((v) => (v ? Number(v) : 60)).pipe(z.number().int().min(5)),
+  // Phone line (M3-K). Every /phone/tools/* call needs `Authorization: Bearer <PHONE_TOOL_SECRET>`; unset = all refused.
+  PHONE_TOOL_SECRET: optionalString,
+  /** The one business this phone line answers for (the Cartesia tools send it as a constant). */
+  PHONE_BUSINESS_ID: optionalString.transform((v) => v ?? "maya-cookies").pipe(z.string().regex(/^[a-z0-9-]{1,64}$/)),
+  /** Owner mode needs the caller ID to equal OWNER_PHONE (E.164) AND the spoken PIN to equal OWNER_PIN. */
+  OWNER_PHONE: optionalString,
+  TWILIO_ACCOUNT_SID: optionalString,
+  TWILIO_AUTH_TOKEN: optionalString,
+  TWILIO_PHONE_NUMBER: optionalString,
 });
 
 export type StripeMode = "test" | "simulator";
@@ -53,7 +62,16 @@ export interface Env {
   corsOrigins: string[];
   dataDir: string;
   outboxStaleSeconds: number;
+  phoneToolSecret: string | undefined;
+  phoneBusinessId: string;
+  ownerPhone: string | undefined;
+  twilio: { accountSid: string; authToken: string; fromNumber: string } | undefined;
+  /** Why Twilio is not configured (for the startup log), when it is not. */
+  twilioProblem: string | undefined;
 }
+
+/** Minimum PHONE_TOOL_SECRET length; a shorter secret is treated as unset (every phone tool call refused). */
+export const MIN_PHONE_TOOL_SECRET_LENGTH = 24;
 
 /**
  * Refuses live Stripe keys (sk_live_/rk_live_) and anything that is not a test secret or restricted key.
@@ -87,6 +105,15 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     .map((s) => s.trim().replace(/\/+$/, ""))
     .filter(Boolean);
   const corsOrigins = [...new Set(["http://localhost:3001", "http://localhost:3002", e.OWNER_APP_URL, e.STORE_PUBLIC_URL, ...extra])];
+  const twilioSet = [e.TWILIO_ACCOUNT_SID, e.TWILIO_AUTH_TOKEN, e.TWILIO_PHONE_NUMBER].filter((v) => v !== undefined).length;
+  let twilio: Env["twilio"];
+  let twilioProblem: string | undefined;
+  if (twilioSet === 0) twilioProblem = "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER are not set";
+  else if (twilioSet < 3) twilioProblem = "only some of TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER are set";
+  else if (!/^AC[0-9a-fA-F]{32}$/.test(e.TWILIO_ACCOUNT_SID!)) twilioProblem = "TWILIO_ACCOUNT_SID must look like AC + 32 hex characters";
+  else if (!/^\+[1-9]\d{7,14}$/.test(e.TWILIO_PHONE_NUMBER!)) twilioProblem = "TWILIO_PHONE_NUMBER must be E.164, e.g. +14155550123";
+  else twilio = { accountSid: e.TWILIO_ACCOUNT_SID!, authToken: e.TWILIO_AUTH_TOKEN!, fromNumber: e.TWILIO_PHONE_NUMBER! };
+  const phoneToolSecret = e.PHONE_TOOL_SECRET && e.PHONE_TOOL_SECRET.length >= MIN_PHONE_TOOL_SECRET_LENGTH ? e.PHONE_TOOL_SECRET : undefined;
   return {
     port: e.PORT,
     stdbUri: e.SPACETIMEDB_URI,
@@ -101,6 +128,11 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     corsOrigins,
     dataDir: e.BRAIN_DATA_DIR ? path.resolve(e.BRAIN_DATA_DIR) : path.join(BRAIN_DIR, ".data"),
     outboxStaleSeconds: e.OUTBOX_STALE_SECONDS,
+    phoneToolSecret,
+    phoneBusinessId: e.PHONE_BUSINESS_ID,
+    ownerPhone: e.OWNER_PHONE,
+    twilio,
+    twilioProblem,
   };
 }
 
@@ -115,5 +147,9 @@ export function describeEnv(env: Env): Record<string, string | number | boolean>
     store: env.storePublicUrl,
     ownerApp: env.ownerAppUrl,
     cors: env.corsOrigins.join(","),
+    phoneToolSecret: env.phoneToolSecret ? "set" : `missing or shorter than ${MIN_PHONE_TOOL_SECRET_LENGTH} chars (all /phone/tools calls refused)`,
+    phoneBusiness: env.phoneBusinessId,
+    ownerPhone: env.ownerPhone ? "set" : "missing (phone owner mode disabled)",
+    sms: env.twilio ? "twilio" : "SMS SIMULATOR (nothing is sent)",
   };
 }
