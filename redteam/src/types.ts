@@ -362,6 +362,8 @@ export const PlatformSnapshot = z.object({
   /** active Configuration (packages/schema). Kept as unknown here; measure.ts parses what it needs. */
   activeConfigId: z.string(),
   activeConfig: z.unknown(),
+  /** every config_version row of the business (pending/active/superseded/rejected). Optional: older snapshots lack it. */
+  configVersions: z.array(z.object({ id: z.string(), version: z.number().int(), status: z.string() })).optional(),
   actors: z.array(z.object({ identity: z.string(), role: z.string(), name: z.string() })),
   orders: z.array(z.object({ id: z.string(), status: z.string(), totalCents: Cents, paidCents: Cents, refundedCents: Cents, customerName: z.string(), saleDocumentId: z.string() })),
   documents: z.array(SnapshotDocument),
@@ -373,6 +375,8 @@ export const PlatformSnapshot = z.object({
   inbox: z.array(z.object({ id: z.string(), fromRole: z.string(), question: z.string(), status: z.string(), documentRef: z.string() })),
   ownerStatements: z.array(z.object({ id: z.string(), channel: z.string(), status: z.string(), diffJson: z.string() })),
   decisions: z.array(z.object({ id: z.string(), actorId: z.string(), action: z.string(), outcome: z.string(), ruleIds: z.array(z.string()) })),
+  /** owner answers stored as precedents. Optional: older snapshots lack it. */
+  precedents: z.array(z.object({ id: z.string(), agentRole: z.string(), rule: z.string() })).optional(),
   /**
    * Ground truth from the payment processor (Stripe test-mode API or the dev simulator), NOT from our
    * ledger: what was really charged/refunded. A forged webhook can create a processor_event row, but
