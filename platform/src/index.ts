@@ -15,7 +15,7 @@
 
 import { t } from "spacetimedb/server";
 import spacetimedb, { FieldValue, DocLine } from "./schema";
-import { Rational } from "@napkin/ledger-core";
+import { Rational, periodOf } from "@napkin/ledger-core";
 import {
   GRANTABLE_ROLES,
   activeConfig,
@@ -24,6 +24,8 @@ import {
   catalogData,
   centsToDecimal,
   checkCanApprove,
+  checkRate,
+  checkRatePolicies,
   declaredFields,
   docDef,
   fail,
@@ -74,6 +76,8 @@ const CHANNELS = ["storefront", "phone", "agent"];
 const OUTCOMES = ["allowed", "refused", "escalated", "executed", "failed"];
 const PROCESSOR_KINDS = ["payment_succeeded", "fee", "refund_succeeded", "payout"];
 const STALE_CLAIM_MICROS = 5n * 60n * 1_000_000n;
+/** Documents that only recordProcessorEvent creates (deduped by processor event id, invariant 7). */
+const PROCESSOR_DOC_TYPES = ["payment_received", "processor_fee", "payout"];
 
 // ---------- identity & roles ----------
 
@@ -146,7 +150,8 @@ export const registerBusiness = spacetimedb.reducer({ id: t.string(), name: t.st
 
 /**
  * system: store a compiled Configuration as "pending". Rejects JSON that does not parse, documents whose
- * expressions do not compile, and any proof report containing a "failed" proof (never accept failed proofs).
+ * expressions do not compile, any proof report containing a "failed" proof (never accept failed proofs), and
+ * rate policies (marginFloor, maxDiscount, taxRate) outside [0, 1] or with more than 4 decimal places.
  */
 export const submitConfiguration = spacetimedb.reducer({ businessId: t.string(), json: t.string(), proofReportJson: t.string() }, (ctx, args) =>
   run("submitConfiguration", () => {
@@ -157,6 +162,7 @@ export const submitConfiguration = spacetimedb.reducer({ businessId: t.string(),
     if (cfg.businessId !== biz.id) fail(`configuration is for "${cfg.businessId}", not "${biz.id}"`);
     validateProofReport(args.proofReportJson);
     if (cfg.proofReport) validateProofReport(JSON.stringify(cfg.proofReport));
+    checkRatePolicies(cfg); // marginFloor, maxDiscount, taxRate: whole basis points in [0, 1] (prover domain)
     openingLines(cfg); // initialStock must be valued from the catalog (fails early, never assumed)
     let version = 0;
     for (const c of ctx.db.configVersion.businessId.filter(biz.id)) if (c.version > version) version = c.version;
@@ -263,6 +269,7 @@ function createSale(ctx: Ctx, biz: BusinessRow, caller: Caller, req: SaleRequest
   if (req.customerName.length > 64) fail("customerName is too long (first name only)");
   if (req.lines.length === 0) fail("an order needs at least one line");
   const rate = parseExact(req.discountRate, "discountRate");
+  checkRate(rate, req.discountRate, "discountRate"); // also on the baseline: the input domain, not a policy
   if (biz.enforce && caller.role !== "owner") {
     const lim = roleLimit(cc.cfg, caller.role, "maxDiscount");
     if (lim && rate.gt(lim)) fail(`role limit: ${caller.role} may give at most ${lim.toDecimal()} discount, asked ${rate.toDecimal()}`);
@@ -293,7 +300,8 @@ function createSale(ctx: Ctx, biz: BusinessRow, caller: Caller, req: SaleRequest
 /**
  * storefront | shopkeeper | owner: create a customer_order ("pending_payment") and its sale draft.
  * Prices, costs and stock units are filled from the ACTIVE catalog, never from the caller.
- * discountRate is an exact decimal string; the sale's policy checks (discount cap, margin floor) run now
+ * discountRate is an exact decimal string in [0, 1] with at most 4 decimal places (rates are proven in basis
+ * points; any document field typed "rate" is checked the same way); the sale's policy checks (discount cap, margin floor) run now
  * so a below-floor order is refused before payment. Stock availability is checked now too.
  */
 export const createOrder = spacetimedb.reducer(
@@ -344,13 +352,21 @@ export const updateOrderStatus = spacetimedb.reducer({ orderId: t.string(), stat
   }),
 );
 
-/** role in the doc type's creatorRoles: create a draft (or post immediately when postOn = "create"). */
+/**
+ * role in the doc type's creatorRoles: create a draft (or post immediately when postOn = "create").
+ * payment_received, processor_fee and payout are refused for every role: only recordProcessorEvent creates them.
+ */
 export const createDocument = spacetimedb.reducer(
   { businessId: t.string(), docType: t.string(), externalRef: t.string(), fields: t.array(FieldValue), lines: t.array(DocLine), note: t.string() },
   (ctx, args) =>
     run("createDocument", () => {
       const biz = getBusiness(ctx, args.businessId);
       const caller = callerFor(ctx, biz.id);
+      // Invariant 7, for every role and also for the baseline: processor documents exist only through
+      // recordProcessorEvent, so a payment, fee or payout can never be booked twice or without an event.
+      if (PROCESSOR_DOC_TYPES.includes(args.docType)) {
+        fail(`invariant 7 (exactly-once payments): ${args.docType} documents are created only by recordProcessorEvent (deduplicated by processor event id), never directly with createDocument`);
+      }
       const cc = activeConfig(ctx, biz);
       const def = docDef(cc.cfg, args.docType);
       requireRole(biz, caller, def.approval.creatorRoles, `create ${def.id} documents`);
@@ -476,7 +492,12 @@ export const postDocument = spacetimedb.reducer({ documentId: t.u64() }, (ctx, a
   }),
 );
 
-/** owner | bookkeeper: post a reversal document; the original becomes "reversed" (never edited). */
+/**
+ * owner | bookkeeper: post a reversal document; the original becomes "reversed" (never edited).
+ * Refused for processor documents (payment_received, processor_fee, payout), for a sale whose order is paid
+ * and not fully refunded (refund first via requestRefund), for a refund whose order's sale was reversed, and
+ * for a refund whose processor refund is in flight or sent.
+ */
 export const reverseDocument = spacetimedb.reducer({ documentId: t.u64(), reason: t.string() }, (ctx, args) =>
   run("reverseDocument", () => {
     const doc = ctx.db.document.id.find(args.documentId) ?? fail(`unknown document ${args.documentId}`);
@@ -484,7 +505,23 @@ export const reverseDocument = spacetimedb.reducer({ documentId: t.u64(), reason
     const caller = callerFor(ctx, biz.id);
     requireRole(biz, caller, ["bookkeeper"], "reverse documents");
     if (args.reason.trim() === "") fail("a reversal needs a reason");
+    // Money that the processor moved cannot be un-moved in the ledger (also on the baseline): reversing a
+    // payment, fee or payout would make the books disagree with the processor. A wrong amount is an inbox item.
+    if (PROCESSOR_DOC_TYPES.includes(doc.docType)) {
+      fail(`${doc.docType} #${doc.number} records money the processor moved; processor documents cannot be reversed (refund the customer with requestRefund instead)`);
+    }
+    if (doc.docType === "sale" && doc.status === "posted") {
+      const order = ctx.db.customerOrder.id.find(doc.externalRef);
+      if (order && order.saleDocumentId === doc.id && order.paidCents > 0n && order.refundedCents < order.paidCents) {
+        fail(`sale #${doc.number}: order ${order.id} is paid ($${centsToDecimal(order.paidCents)}, refunded $${centsToDecimal(order.refundedCents)}); refund first via requestRefund; reversing a paid sale would leave the customer's money unaccounted`);
+      }
+    }
     if (doc.docType === "refund") {
+      const order = ctx.db.customerOrder.id.find(fieldOf(doc.fields, "orderId"));
+      if (order && order.status === "cancelled") {
+        // The sale was reversed after this refund: undoing the refund now would leave the payment unaccounted.
+        fail(`refund #${doc.number}: order ${order.id} is cancelled (its sale was reversed); reversing the refund would leave the customer's money unaccounted`);
+      }
       // Once the processor refund is in flight or done the money has (or may have) left: reversing the
       // ledger entry would make the books disagree with the processor (invariant 2). Ask the owner instead.
       const ob = ctx.db.outbox.idempotencyKey.find(`refund:${doc.id}`);
@@ -516,13 +553,23 @@ export const reverseDocument = spacetimedb.reducer({ documentId: t.u64(), reason
   }),
 );
 
-/** owner | bookkeeper: close a month; nothing can post into it afterwards. */
+/**
+ * owner | bookkeeper: close a month that has ended; nothing can post into it afterwards. The current month
+ * (by ctx.timestamp) and future months are refused: postings, including processor events, always go into the
+ * current month, so they can never be refused for a closed period.
+ */
 export const closePeriod = spacetimedb.reducer({ businessId: t.string(), month: t.string() }, (ctx, args) =>
   run("closePeriod", () => {
     const biz = getBusiness(ctx, args.businessId);
     const caller = callerFor(ctx, biz.id);
     requireRole(biz, caller, ["bookkeeper"], "close periods");
     if (!MONTH.test(args.month)) fail('month must be "YYYY-MM"');
+    // Everything posts into the current month (by ctx.timestamp), including processor events, which cannot be
+    // refused and retried forever. So only months that have already ended can be closed.
+    const current = periodOf(ctx.timestamp.microsSinceUnixEpoch);
+    if (args.month >= current) {
+      fail(`period ${args.month} ${args.month === current ? "is the current month" : "is in the future"}; only months that have ended can be closed (current month: ${current})`);
+    }
     const key = `${biz.id}|${args.month}`;
     const p = ctx.db.period.key.find(key);
     if (p?.status === "closed") fail(`period ${args.month} is already closed`);
@@ -654,6 +701,23 @@ function processMoneyDoc(ctx: Ctx, biz: BusinessRow, caller: Caller, docType: st
   return postDraft(ctx, biz, row, caller);
 }
 
+/** Every string value in an outbox result (JSON, any depth); a non-JSON result counts as one value. */
+function resultRefs(resultJson: string): Set<string> {
+  const out = new Set<string>();
+  if (resultJson === "") return out;
+  const walk = (v: unknown) => {
+    if (typeof v === "string") out.add(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  try {
+    walk(JSON.parse(resultJson));
+  } catch {
+    out.add(resultJson);
+  }
+  return out;
+}
+
 function processRefundSucceeded(ctx: Ctx, biz: BusinessRow, args: { eventId: string; orderId: string; amountCents: bigint; processorRef: string }): { documentId: bigint; summary: string } {
   const items = [...ctx.db.outbox.businessId.filter(biz.id)].filter((o) => o.kind === "stripe_refund").sort((a, b) => (a.id < b.id ? -1 : 1));
   const payloadOf = (o: (typeof items)[number]) => {
@@ -663,7 +727,9 @@ function processRefundSucceeded(ctx: Ctx, biz: BusinessRow, args: { eventId: str
       return {};
     }
   };
-  let match = args.processorRef !== "" ? items.find((o) => o.idempotencyKey === args.processorRef || (o.resultJson !== "" && o.resultJson.includes(args.processorRef))) : undefined;
+  // Exact match on the idempotency key or on a string value of the stored result (never a substring:
+  // "sim_re_1" must not match an item whose result is "sim_re_12").
+  let match = args.processorRef !== "" ? items.find((o) => o.idempotencyKey === args.processorRef || resultRefs(o.resultJson).has(args.processorRef)) : undefined;
   match ??= items.find((o) => {
     const p = payloadOf(o);
     return o.status !== "done" && o.status !== "cancelled" && p.orderId === args.orderId && p.amountCents !== undefined && BigInt(p.amountCents) === args.amountCents;

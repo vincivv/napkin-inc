@@ -404,6 +404,18 @@ describe("routes", () => {
     expect(getFact(spec, "offerings.chocolate-chip-cookie.variants.single.price")).toMatchObject({ value: "3.00", provenance: "owner_said", confirmed: true });
   });
 
+  it("money questions are never rephrased by the model (a rephrase can change the unit)", async () => {
+    const h = harness(new FakeLlm(() => napkin, () => "What would a whole batch cost you?"));
+    const fd = new FormData();
+    fd.set("businessId", "maya-cookies");
+    fd.set("image", png());
+    expect((await h.app.request("/intake/photo", { method: "POST", body: fd })).status).toBe(200);
+    const next = (await (await h.app.request("/questions/next?businessId=maya-cookies")).json()) as { question: { moneyRelevant: boolean; question: string; phrased: string; phrasedBy: string } };
+    expect(next.question.moneyRelevant).toBe(true);
+    expect(next.question.phrasedBy).toBe("template");
+    expect(next.question.phrased).toBe(next.question.question);
+  });
+
   it("app statement: diff returned, nothing applied until confirmed; reject leaves spec untouched", async () => {
     const h = harness(llm());
     const fd = new FormData();

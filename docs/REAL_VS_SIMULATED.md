@@ -1,6 +1,6 @@
 # What's real vs simulated
 
-Updated at the end of each milestone. Current: **M1**.
+Updated at the end of each milestone. Current: **M1 + M2 intake** (compiler/guards in progress).
 
 ## Real
 - **Platform ("the 1C"):** a SpacetimeDB 2.13 TypeScript module running locally.
@@ -40,10 +40,16 @@ Updated at the end of each milestone. Current: **M1**.
 - **M1 configuration is hand-written.** The proof report says "Not proven yet". The Z3 prover lands in M3.
 
 ## Not built yet
-- **M2:** photo and voice intake, question engine, compiler, guards layer, owner inbox flows driven by agents.
+- **M2:** compiler and guards layer (in progress), owner inbox flows driven by agents. Photo/voice intake and the question engine are **real** (Claude Opus 5.5 vision + Cartesia STT; verified with real keys).
 - **M3:** Z3 proofs gating configurations (the prover is in progress on its own branch), the three AI staff, the phone line, wiring the red-team runs. No real `RESULTS.md` exists yet.
 
 ## Known gaps (tracked)
 - **Sea-salt add-on cost:** its $0.20 cost is credited to Inventory (1300), but sea salt isn't a stock item. This needs an owner answer: is sea salt tracked stock, or a supply expense?
-- **Reversing a paid sale:** this cancels the order but doesn't queue a refund. It should require or queue a refund.
-- **Direct payment documents:** `createDocument` lets the system post `payment_received` directly. It should be restricted to the processor-event path so de-duplication can't be bypassed.
+- **Fixed overnight (platform hardening):**
+  - Processor documents (payment, fee, payout) are created only through de-duplicated processor events.
+  - A paid sale can't be reversed until it is refunded.
+  - Processor documents can't be reversed.
+  - Rates are in [0, 1] with at most 4 decimals, matching the prover.
+  - The current and future months can't be closed.
+  - Refund events are matched to outbox items exactly.
+- **Open (owner/accounting decisions):** see docs/MORNING.md and platform/README.md.
