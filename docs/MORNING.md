@@ -12,6 +12,10 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
 
 ## Decisions saved for you (work continues with the noted default)
 - **Sea salt: tracked stock or a supply expense?** Its $0.20 cost currently comes out of Inventory, but sea salt has no stock item, so inventory value drifts by $0.20 per topping sold. Default for now: unchanged, and flagged in docs/REAL_VS_SIMULATED.md.
+- **Payouts:** the bookkeeper can no longer create a `payout` by hand. Payouts now only come from processor events. Should a manual bank transfer get its own document type? Default for now: no.
+- **Tax rates with 5 decimals** (e.g. 8.875%) are refused. Rates allow at most 4 decimals, matching the prover. Default for now: unchanged; raising the limit is a one-line change on both sides.
+- **Refund, then reverse the sale:** the books still balance, but the refund shows up twice (Refunds 4200 and a credit in Receivables 1200). Do returned goods need their own document? Default for now: allowed, pinned by a test.
+- **Paid order whose sale couldn't post (sold out mid-checkout):** it can't be refunded through the normal path yet. It goes to the inbox for you. Default for now: inbox only.
 
 ## Overnight log
 - **05:00:** limits reset. Resumed the prover, M2 intake/questions and M2 compiler/guards. Mac kept awake with `caffeinate` (needs AC power and the lid **open**; a closed lid still sleeps). A watchdog runs every ~20 min to resume agents after limits, merge finished work, and move on through the plan.
