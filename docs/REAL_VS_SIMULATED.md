@@ -1,6 +1,6 @@
 # What's real vs simulated
 
-Updated at the end of each milestone. Current: **M1 + M2 intake** (compiler/guards in progress).
+Updated at the end of each milestone. Current: **M1 + M2 + most of M3** (red-team runs in progress).
 
 ## Real
 - **Platform ("the 1C"):** a SpacetimeDB 2.13 TypeScript module running locally.
@@ -25,7 +25,15 @@ Updated at the end of each milestone. Current: **M1 + M2 intake** (compiler/guar
   - owner PIN auth
 - **Red-team assets:** 57 attacks in 12 categories, 11 chaos cases, 2 planted-error books with an answer key, and the results generator.
 
+- **M2:** compiler, Z3 proofs that gate activation, guards with DecisionRecords, owner Build/Activate page.
+- **M3 AI staff:** Shopkeeper, Support and Bookkeeper run on Claude Sonnet 5.5 with real API calls. Every tool call goes through the guards, then the platform, then a DecisionRecord.
+- **M3 phone line:** the 7 webhook tools, owner verification, and the SMS outbox are real code, tested against the platform.
+
 ## Simulated or placeholder (be explicit on stage)
+- **Phone:**
+  - The Cartesia agent hasn't been created yet (dry run only), and no phone number is attached.
+  - Texts go through the **SMS SIMULATOR** until Twilio keys are set; the caller is told no text was sent.
+  - The Twilio adapter is tested only against a fake.
 - **Payments: DEV SIMULATOR** until a Stripe test key is set.
   - The simulated payment runs through the same handler code as real Stripe webhooks.
   - The fee uses the list-price formula (2.9% + 30¢).
@@ -41,7 +49,7 @@ Updated at the end of each milestone. Current: **M1 + M2 intake** (compiler/guar
 
 ## Not built yet
 - **M2:** compiler and guards layer (in progress), owner inbox flows driven by agents. Photo/voice intake and the question engine are **real** (Claude Opus 5.5 vision + Cartesia STT; verified with real keys).
-- **M3:** Z3 proofs gating configurations (the prover is in progress on its own branch), the three AI staff, the phone line, wiring the red-team runs. No real `RESULTS.md` exists yet.
+- **M3:** red-team runs against the real system are in progress. No real `RESULTS.md` exists yet. Posting-rule synthesis from the spec's examples isn't wired into the compiler: it's reported as "skipped", and the examples are checked against the template instead.
 
 ## Known gaps (tracked)
 - **Sea-salt add-on cost:** its $0.20 cost is credited to Inventory (1300), but sea salt isn't a stock item. This needs an owner answer: is sea salt tracked stock, or a supply expense?
