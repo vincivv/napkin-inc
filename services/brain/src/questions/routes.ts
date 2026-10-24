@@ -98,7 +98,8 @@ export function questionRoutes(d: M2Deps) {
     const open = rec.spec.openQuestions.filter((x) => x.status === "open" || x.status === "asked");
     if (!q) return c.json({ question: null, remaining: 0, moneyReady: moneyReady(rec.spec), version: rec.version });
     const fact = getFact(rec.spec, q.fieldPath);
-    const phrased = await phraseQuestion(d.llm, q.question);
+    // money questions keep the exact template wording: a rephrase can shift the unit ("per add-on" vs "per batch")
+    const phrased = q.moneyRelevant ? { text: q.question, phrasedBy: "template" as const } : await phraseQuestion(d.llm, q.question);
     return c.json({
       question: {
         ...q,

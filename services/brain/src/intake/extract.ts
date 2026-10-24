@@ -17,7 +17,7 @@ const factSchema = (what: string) => ({
   properties: {
     value: { type: "string", description: "The value as plain text. Money: digits only like 3.00. Rates as a fraction like 0.20 for 20%. Yes/no as yes or no." },
     confidence: { type: "number", minimum: 0, maximum: 1, description: "How sure you are the value is right." },
-    provenance: { type: "string", enum: ["paper", "inferred"], description: "paper = the value is written in the source; inferred = your guess or deduction." },
+    provenance: { type: "string", enum: ["paper", "inferred"], description: "paper = the value is stated in the source (written on the photo, or said by the owner in a transcript); inferred = your guess or deduction." },
     quote: { type: "string", description: "The exact words/characters from the source that support this value." },
     region: {
       type: "object",
