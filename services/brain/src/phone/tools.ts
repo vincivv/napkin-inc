@@ -15,7 +15,6 @@ import { decimalToCents } from "../payments/ids";
 import { submitOwnerStatement } from "../questions/routes";
 import { PlatformUnavailable, ReducerRefused } from "../stdb";
 import type { PhonePlatform } from "./platform";
-import { PermanentSmsError, type SmsOutbox, type SmsOutboxItem } from "./sms";
 import type { FailureLimiter, OwnerSessions, PhoneOrderStore } from "./state";
 import { constantTimeEqual, formatCents, localDay, maskPhone, normalizeE164, normalizeOrderId, normalizePin, sha256 } from "./util";
 
@@ -24,7 +23,8 @@ export interface PhoneDeps {
   checkout: CheckoutDeps;
   /** M2 deps (spec store + LLM + platform) for owner_instruction; undefined disables it. */
   m2: M2Deps | undefined;
-  sms: SmsOutbox;
+  /** How the brain delivers texts: "simulator" means NO text is ever sent (the agent must say so). */
+  smsMode: "twilio" | "simulator";
   orders: PhoneOrderStore;
   sessions: OwnerSessions;
   failures: FailureLimiter;
@@ -176,12 +176,30 @@ function isOwner(d: PhoneDeps, input: { business_id: string; caller_id: string; 
 const OWNER_REQUIRED = () =>
   refuse("That is only available to the owner, after they verify on this call with their PIN.", { owner_required: true });
 
-function smsSay(item: SmsOutboxItem): { sms: string; say: string } {
-  if (item.status === "done" && item.result?.status === "sent") return { sms: "sent", say: "I've texted a payment link to the number you're calling from." };
-  if (item.status === "done" && item.result?.status === "simulated_not_sent")
+type SmsState = "sent" | "simulated_not_sent" | "failed" | "queued";
+
+/** What the agent may say about the pay-link text. "sent" only when the platform row is done with a real send. */
+function smsSay(state: SmsState): { sms: SmsState; say: string } {
+  if (state === "sent") return { sms: "sent", say: "I've texted a payment link to the number you're calling from." };
+  if (state === "simulated_not_sent")
     return { sms: "simulated_not_sent", say: "Text messages are not set up on this line yet, so no text was sent. The order is saved; the shop can send you the payment link." };
-  if (item.status === "failed") return { sms: "failed", say: "I couldn't text the payment link to this number. The order is saved; the shop will follow up." };
+  if (state === "failed") return { sms: "failed", say: "I couldn't text the payment link to this number. The order is saved; the shop will follow up." };
   return { sms: "queued", say: "The payment link text is queued and should arrive shortly." };
+}
+
+function smsState(d: PhoneDeps, key: string): SmsState {
+  if (d.smsMode === "simulator") return "simulated_not_sent"; // the worker only logs it; never claim a send
+  const row = d.platform.outboxRow(key);
+  if (row?.status === "failed") return "failed";
+  if (row?.status === "done") {
+    try {
+      const r = JSON.parse(row.resultJson) as { status?: string };
+      if (r.status === "sent") return "sent";
+    } catch {
+      /* fall through to queued */
+    }
+  }
+  return "queued";
 }
 
 // ---------- tools ----------
@@ -316,16 +334,23 @@ async function placeOnce(
 
   const smsKey = `paylink:${orderId}`;
   const link = `${d.publicBrainUrl}/p/${encodeURIComponent(orderId)}`;
-  let item: SmsOutboxItem;
+  let state: SmsState;
   try {
-    // Always the CALLER ID on record for this order: never a number spoken in the conversation.
-    d.sms.enqueue({ key: smsKey, kind: "pay_link", businessId: input.business_id, orderId, to: caller, body: `Order ${orderId}, total ${total}. Pay here: ${link}` });
-    item = await d.sms.deliver(smsKey);
+    // Always the CALLER ID on record for this order: never a number spoken in the conversation. The platform row
+    // is created once per key (enqueueOutbox is idempotent), so a retried place_order never queues a second text.
+    await d.platform.enqueueOutbox({
+      businessId: input.business_id,
+      kind: "sms",
+      payloadJson: JSON.stringify({ to: caller, body: `Order ${orderId}, total ${total}. Pay here: ${link}`, orderId }),
+      idempotencyKey: smsKey,
+    });
+    state = smsState(d, smsKey);
   } catch (e) {
-    if (!(e instanceof PermanentSmsError)) throw e;
-    item = { key: smsKey, kind: "pay_link", businessId: input.business_id, orderId, to: caller, body: "", status: "failed", attempts: 0, createdAt: "", result: { error: e.message } };
+    if (!(e instanceof ReducerRefused)) throw e;
+    log.error("phone", `enqueueOutbox ${smsKey} refused: ${e.message}`);
+    state = "failed";
   }
-  const s = smsSay(item);
+  const s = smsSay(state);
   log.info("phone", `place_order ${orderId} ${total} for ${maskPhone(caller)} (${input.conversation_id})${duplicate ? " [retry: same order]" : ""}, sms ${s.sms}`);
   return ok({
     order_id: orderId,

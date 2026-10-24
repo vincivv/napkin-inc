@@ -832,6 +832,44 @@ export const completeOutbox = spacetimedb.reducer({ id: t.u64(), ok: t.bool(), r
   }),
 );
 
+/** Kinds the brain may queue itself. Refunds are queued only by posting a refund document (requestRefund path). */
+const ENQUEUE_OUTBOX_KINDS = ["sms"];
+const MAX_OUTBOX_PAYLOAD_BYTES = 2048;
+const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
+
+/**
+ * system: queue a side effect for the brain's outbox worker (invariant 7). Idempotent on idempotencyKey: the same
+ * key with the same business, kind and payload is a no-op; the same key with anything different is refused.
+ * Only "sms" can be queued this way. The system-only check is NOT skipped for the red-team baseline.
+ */
+export const enqueueOutbox = spacetimedb.reducer({ businessId: t.string(), kind: t.string(), payloadJson: t.string(), idempotencyKey: t.string() }, (ctx, args) =>
+  run("enqueueOutbox", () => {
+    const biz = getBusiness(ctx, args.businessId);
+    const caller = callerFor(ctx, biz.id);
+    if (caller.role !== "system") fail(`permission denied: role "${caller.role}" cannot enqueue outbox items (only the system actor can)`);
+    if (!ENQUEUE_OUTBOX_KINDS.includes(args.kind)) fail(`outbox kind "${args.kind}" cannot be enqueued (allowed: ${ENQUEUE_OUTBOX_KINDS.join(", ")}); refunds are queued by posting a refund document`);
+    if (args.idempotencyKey.trim() === "" || args.idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) fail(`idempotencyKey must be 1..${MAX_IDEMPOTENCY_KEY_LENGTH} characters`);
+    if (new TextEncoder().encode(args.payloadJson).length > MAX_OUTBOX_PAYLOAD_BYTES) fail(`payloadJson is larger than ${MAX_OUTBOX_PAYLOAD_BYTES} bytes`);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(args.payloadJson);
+    } catch {
+      return fail("payloadJson must be JSON");
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) fail("payloadJson must be a JSON object");
+    const existing = ctx.db.outbox.idempotencyKey.find(args.idempotencyKey);
+    if (existing) {
+      if (existing.businessId !== biz.id || existing.kind !== args.kind || existing.payloadJson !== args.payloadJson) {
+        fail(`outbox item ${args.idempotencyKey} already exists with a different business, kind or payload`);
+      }
+      audit(ctx, biz.id, caller.role, "enqueueOutbox", `${args.kind} ${args.idempotencyKey} already queued (idempotent)`);
+      return;
+    }
+    ctx.db.outbox.insert({ id: 0n, businessId: biz.id, kind: args.kind, payloadJson: args.payloadJson, idempotencyKey: args.idempotencyKey, status: "pending", attempts: 0, createdAt: ctx.timestamp, claimedAt: undefined, resultJson: "" });
+    audit(ctx, biz.id, caller.role, "enqueueOutbox", `${args.kind} ${args.idempotencyKey} queued`);
+  }),
+);
+
 // ---------- decisions, inbox, precedents, owner statements ----------
 
 /** any actor of the business: write a DecisionRecord. actorKind/actorId come from the caller's actor row. */

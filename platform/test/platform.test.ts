@@ -423,6 +423,97 @@ describe("refunds", () => {
   });
 });
 
+describe("enqueueOutbox (system queues sms; invariant 7)", () => {
+  let w: World;
+  let b: Biz;
+  beforeEach(() => {
+    w = new World();
+    b = bootMaya(w);
+  });
+  const sms = (to = "+14155550123", body = "Pay here") => JSON.stringify({ to, body, orderId: "MC-1" });
+  const enq = (by = w.system, over: Record<string, unknown> = {}) => w.call(by, "enqueueOutbox", { businessId: BIZ, kind: "sms", payloadJson: sms(), idempotencyKey: "paylink:MC-1", ...over } as never);
+
+  it("only the system actor may enqueue; every other role is refused and nothing changes", () => {
+    for (const role of ["owner", "storefront", "shopkeeper", "support", "bookkeeper"] as const) {
+      expect(() => enq(b.actors[role])).toThrow(/permission denied.*only the system actor/);
+    }
+    expect(() => enq(w.identity("stranger"))).toThrow(/unknown caller/);
+    expect(w.rows("outbox")).toHaveLength(0);
+  });
+
+  it("the role check holds for the red-team baseline too", () => {
+    const w2 = new World();
+    const b2 = bootMaya(w2, { enforce: false });
+    expect(() => w2.call(b2.actors.support, "enqueueOutbox", { businessId: BIZ, kind: "sms", payloadJson: sms(), idempotencyKey: "k" })).toThrow(/permission denied/);
+    expect(w2.rows("outbox")).toHaveLength(0);
+  });
+
+  it("allowlists only the sms kind; refunds cannot be queued directly", () => {
+    for (const kind of ["stripe_refund", "email", "", "SMS"]) expect(() => enq(w.system, { kind })).toThrow(/cannot be enqueued/);
+    expect(w.rows("outbox")).toHaveLength(0);
+    enq();
+    expect(w.rows("outbox")).toHaveLength(1);
+    expect(w.rows("outbox")[0]).toMatchObject({ kind: "sms", status: "pending", attempts: 0, idempotencyKey: "paylink:MC-1", businessId: BIZ });
+  });
+
+  it("is idempotent on the key: same payload is a no-op, a different payload/business is refused", () => {
+    enq();
+    const before = snapshot(w);
+    enq(); // duplicate, same payload
+    expect(snapshot(w)).toBe(before);
+    expect(() => enq(w.system, { payloadJson: sms("+14155550999") })).toThrow(/different/);
+    expect(snapshot(w)).toBe(before);
+    w.call(w.system, "registerBusiness", { id: "other-biz", name: "Other", enforce: true });
+    expect(() => enq(w.system, { businessId: "other-biz" })).toThrow(/different/);
+    expect(w.rows("outbox")).toHaveLength(1);
+  });
+
+  it("a duplicate after the row was drained stays a no-op (no second send is queued)", () => {
+    enq();
+    const id = w.rows("outbox")[0].id;
+    w.call(w.system, "claimOutbox", { id });
+    w.call(w.system, "completeOutbox", { id, ok: true, resultJson: "{}" });
+    enq();
+    expect(w.rows("outbox")).toHaveLength(1);
+    expect(w.rows("outbox")[0].status).toBe("done");
+  });
+
+  it("payload limits: at most 2 KB, must parse as a JSON object, key bounded", () => {
+    expect(() => enq(w.system, { payloadJson: "not json" })).toThrow(/must be JSON/);
+    expect(() => enq(w.system, { payloadJson: "[1]" })).toThrow(/JSON object/);
+    expect(() => enq(w.system, { payloadJson: "" })).toThrow(/must be JSON/);
+    const pad = (n: number) => JSON.stringify({ to: "+14155550123", body: "x".repeat(n) });
+    const base = new TextEncoder().encode(pad(0)).length;
+    expect(() => enq(w.system, { payloadJson: pad(2048 - base + 1) })).toThrow(/larger than 2048/);
+    enq(w.system, { payloadJson: pad(2048 - base), idempotencyKey: "exactly-2k" });
+    expect(() => enq(w.system, { idempotencyKey: "" })).toThrow(/idempotencyKey/);
+    expect(() => enq(w.system, { idempotencyKey: "k".repeat(201) })).toThrow(/idempotencyKey/);
+    expect(w.rows("outbox")).toHaveLength(1);
+  });
+
+  it("an unknown business is refused", () => {
+    expect(() => enq(w.system, { businessId: "nope" })).toThrow(/unknown business/);
+  });
+
+  it("drains through claimOutbox/completeOutbox exactly once; a failed sms opens no refund inbox item", () => {
+    enq();
+    const id = w.rows("outbox")[0].id;
+    w.call(w.system, "claimOutbox", { id });
+    expect(() => w.call(w.system, "claimOutbox", { id })).toThrow(/is claimed/);
+    expect(w.db.outbox.id.find(id)).toMatchObject({ status: "claimed", attempts: 1 });
+    w.call(w.system, "completeOutbox", { id, ok: true, resultJson: JSON.stringify({ sid: "SM1" }) });
+    w.call(w.system, "completeOutbox", { id, ok: true, resultJson: "{}" }); // idempotent
+    expect(w.db.outbox.id.find(id)).toMatchObject({ status: "done", resultJson: JSON.stringify({ sid: "SM1" }) });
+    enq(w.system, { idempotencyKey: "paylink:MC-2" });
+    const id2 = w.rows("outbox").find((o) => o.idempotencyKey === "paylink:MC-2").id;
+    w.call(w.system, "claimOutbox", { id: id2 });
+    w.call(w.system, "completeOutbox", { id: id2, ok: false, resultJson: "{}" });
+    expect(w.db.outbox.id.find(id2).status).toBe("failed");
+    expect(openInbox(w, BIZ)).toHaveLength(0);
+    expect(trialBalanceSum(w, BIZ)).toBe(0n);
+  });
+});
+
 describe("inbox, periods, reversals", () => {
   let w: World;
   let b: Biz;

@@ -11,16 +11,15 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@napkin/ledger-core": "workspace:*",
-    "@napkin/schema": "workspace:*",
-    "@napkin/prover": "workspace:*",
     "@anthropic-ai/sdk": "1.3.0",
     "@hono/node-server": "2.1.5",
+    "@napkin/ledger-core": "workspace:*",
+    "@napkin/prover": "workspace:*",
+    "@napkin/schema": "workspace:*",
+    "@napkin/stdb-bindings": "workspace:*",
     "hono": "4.13.13",
     "spacetimedb": "2.13.0",
     "stripe": "23.0.1",
-    "twilio": "6.2.0",
-    "zod": "^4.6.7",
-    "@napkin/stdb-bindings": "workspace:*"
+    "zod": "^4.6.7"
   }
 }
