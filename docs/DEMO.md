@@ -1,5 +1,15 @@
 # Demo paths
 
+## M2: napkin to running configuration (merged Sat 2026-10-24, ~6 AM)
+Same servers as M1. You need `OWNER_PIN` set in `.env` before the activate step.
+1. In the owner app (http://localhost:3001), open **Intake**. Upload a photo of the napkin (or `fixtures/maya/napkin.SYNTHETIC.png`) and/or record your voice.
+   - Claude Opus 5.5 reads the photo. Every value shows its quote and the place on the image it came from.
+   - Cartesia transcribes the voice. Values you said are marked "owner said".
+2. Open **Interview**. Questions are ordered by money impact. Money questions use exact, fixed wording; the AI only rephrases the others.
+3. Open **Build** and press compile. Progress streams step by step: checks, Z3 proofs, a dry run, then configuration vN pending.
+   - Compiling is refused while any money fact is unconfirmed, and the page lists each one.
+4. Sign in with your PIN, review the diff and the proof report, then press **Activate**. The storefront picks up the new prices live.
+
 ## M1: hand-written Maya's Cookies, end to end (verified Sat 2026-10-24, 2 AM)
 
 ### Start everything (4 terminals, from the repo root)

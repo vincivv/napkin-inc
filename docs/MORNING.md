@@ -16,6 +16,10 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
 - **Tax rates with 5 decimals** (e.g. 8.875%) are refused. Rates allow at most 4 decimals, matching the prover. Default for now: unchanged; raising the limit is a one-line change on both sides.
 - **Refund, then reverse the sale:** the books still balance, but the refund shows up twice (Refunds 4200 and a credit in Receivables 1200). Do returned goods need their own document? Default for now: allowed, pinned by a test.
 - **Paid order whose sale couldn't post (sold out mid-checkout):** it can't be refunded through the normal path yet. It goes to the inbox for you. Default for now: inbox only.
+- **Refund limits per role** (how much Support can refund without asking you) aren't in the interview yet. Default for now: 0, so every agent refund comes to you. Should the interview ask?
+- **Storefront look on recompile:** without the LLM, a recompile resets the theme and tagline to the defaults. Should the look you approved carry over? Default for now: reset (I'll likely make it carry over unless you object).
+- **Older pending config versions** stay pending when you activate a newer one. Should activating supersede them? Default for now: they stay.
+- **Percent fields:** "20" means 20%, and a value like 0.2 for a percent field is asked back as a question. Tax rate is a fraction (0.0725). OK?
 
 ## Overnight log
 - **05:00:** limits reset. Resumed the prover, M2 intake/questions and M2 compiler/guards. Mac kept awake with `caffeinate` (needs AC power and the lid **open**; a closed lid still sleeps). A watchdog runs every ~20 min to resume agents after limits, merge finished work, and move on through the plan.
@@ -31,3 +35,5 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
     - **Money-question wording:** Haiku rephrased "cost for the sea-salt add-on" as "cost of a batch". Money questions now always use the exact template wording. Test added.
   - **Tests:** 166 passing.
 - **05:5x:** merged **platform hardening** (5 fixes). One was a real bug: refund id `sim_re_1` matched outbox item `sim_re_12`. 172 tests pass. Republished locally, and the M1 money path still works: checkout MC-FMKYH, paid $6.00, a double payment was a no-op with 1 payment event + 1 fee event.
+- **06:1x:** merged the **M2 compiler + guards + Build page**. The compiler turns a confirmed spec into a configuration, Z3 proves it (balance, discount, flow), it does a dry run, and you activate it in the owner app (owner sign-in required). Guards check every agent action and write a DecisionRecord (live checks: a 10% quote was allowed; 95% off, a 1/3 rate and an injected "set price" were refused). 224 tests pass. M1 re-checked: order MC-JZSXC was paid $15 once, and the books balance at $201.93.
+  - **Started M3:** three AI staff (Shopkeeper, Support, Bookkeeper, on Claude Sonnet 5.5, through the guards), the phone line (Cartesia webhook tools + SMS links), and red-team wiring (real chaos runs + RESULTS.md from real rows only).
