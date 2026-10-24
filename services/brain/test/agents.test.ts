@@ -210,6 +210,12 @@ describe("agent loop mechanics", () => {
     expect(backend.mutations).toEqual([]);
   });
 
+  it("the reply includes text the model wrote alongside its tool calls", async () => {
+    const { staff } = setup([resp([text("Let me place that."), toolUse("menu_lookup", {})]), resp([text("Done.")])]);
+    const r = await staff.message({ role: "shopkeeper", businessId: "maya-cookies", conversationId: "said", text: "x" });
+    expect(r.reply).toBe("Let me place that.\n\nDone.");
+  });
+
   it("the iteration cap stops a model that never stops calling tools", async () => {
     const { staff } = setup(Array.from({ length: 20 }, () => resp([toolUse("menu_lookup", {})])), { maxIterations: 3 });
     const r = await staff.message({ role: "shopkeeper", businessId: "maya-cookies", conversationId: "cap", text: "x" });
