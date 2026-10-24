@@ -8,7 +8,7 @@ import { computeDocument, Rational, type DocumentDef } from "@napkin/ledger-core
 import { parseConfiguration, type Configuration } from "@napkin/schema";
 import { postingContext } from "../compiler/dryrun";
 import { actorKey, type StdbHub } from "../stdb";
-import type { DecisionWrite, GuardPlatformPort } from "./index";
+import { Guard, type DecisionWrite, type GuardPlatformPort } from "./index";
 import type { DocumentMeta, PrecedentRow, RefundFacts } from "./types";
 
 const record = (fs: readonly { name: string; value: string }[]) => Object.fromEntries(fs.map((f) => [f.name, f.value]));
@@ -105,4 +105,9 @@ export class StdbGuardPlatform implements GuardPlatformPort {
   queueOwnerStatement(s: { businessId: string; channel: "phone"; text: string; diffJson: string }): Promise<void> {
     return this.hub.call("system", "queueOwnerStatement", (c) => c.reducers.queueOwnerStatement(s));
   }
+}
+
+/** The guard M3 agents use: `wrapTool(tool, createStdbGuard(hub))`. */
+export function createStdbGuard(hub: StdbHub): Guard {
+  return new Guard(new StdbGuardPlatform(hub));
 }

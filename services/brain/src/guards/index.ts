@@ -29,6 +29,8 @@ export interface DecisionWrite {
 }
 
 export interface GuardPlatformPort {
+  /** optional: resolves once the reads below are served (e.g. a lazy subscription) */
+  ready?(): Promise<void>;
   activeConfiguration(businessId: string): { configId: string; config: Configuration } | undefined;
   precedents(businessId: string): PrecedentRow[];
   refundFacts(businessId: string, orderId: string): RefundFacts | undefined;
@@ -74,6 +76,7 @@ export class Guard {
     const inputsHash = hashInputs(call);
     let ev: Evaluation;
     try {
+      await this.platform.ready?.();
       ev = evaluate(call, this.world(call));
     } catch (e) {
       ev = { allow: false, outcome: "refused", ruleIds: ["guard_error"], reason: `guard error (fail closed): ${(e as Error).message}`, wouldChangeIf: null, evidenceRefs: [] };

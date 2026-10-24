@@ -7,6 +7,7 @@ import { post, PolicyCheckError, Rational, type PostingContext } from "@napkin/l
 import type { Configuration } from "@napkin/schema";
 import { z } from "zod";
 import { docDef, postingContext, productCatalog, saleInput } from "../compiler/dryrun";
+import { fixed2 } from "../compiler";
 import { TOOLS, type ToolSpec } from "./tools";
 import { SOURCES, type GuardCall, type GuardDecision, type GuardWorld, type MaxAllowed, type PrecedentRow } from "./types";
 
@@ -79,7 +80,7 @@ const permitted = (perms: readonly string[], need: string) => perms.some((p) => 
 
 const fracStr = (r: Rational) => r.toJSON();
 const show = (r: Rational) => r.toDecimal(6);
-const centsStr = (c: bigint) => Rational.fromCents(c).toDecimal(2);
+const centsStr = (c: bigint) => fixed2(Rational.fromCents(c));
 
 const minR = (xs: (Rational | undefined)[]) => xs.filter((x): x is Rational => x !== undefined).reduce<Rational | undefined>((m, x) => (!m || x.lt(m) ? x : m), undefined);
 
@@ -291,8 +292,8 @@ export function evaluate(call: GuardCall, world: GuardWorld | undefined): Evalua
       for (const x of e.failures) {
         if (x.checkId === "refund_window") escalate("refund_window", `${show(Rational.parse(f.hoursSinceSale))} h since the sale is past the ${show(window)} h refund window`, "the owner approves a late refund");
         else if (x.checkId === "refund_full_or_floor")
-          refuse("D4.full_or_floor", "a partial refund cannot take the sale below cost plus the margin floor", `refund the full remaining ${remaining.toDecimal(2)} instead, or at most ${centsStr(maxPartialCents)} as a partial refund`);
-        else if (x.checkId === "refund_not_over") refuse("refund.not_over", `refunds would exceed what was paid (remaining ${remaining.toDecimal(2)})`, `refund at most ${remaining.toDecimal(2)}`);
+          refuse("D4.full_or_floor", "a partial refund cannot take the sale below cost plus the margin floor", `refund the full remaining ${fixed2(remaining)} instead, or at most ${centsStr(maxPartialCents)} as a partial refund`);
+        else if (x.checkId === "refund_not_over") refuse("refund.not_over", `refunds would exceed what was paid (remaining ${fixed2(remaining)})`, `refund at most ${fixed2(remaining)}`);
         else refuse(`check.${x.checkId}`, x.message);
       }
     }
