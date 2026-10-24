@@ -37,9 +37,9 @@ export function labelFor(spec: BusinessSpec, path: string): string {
     const offName = off && String(off.name.value) ? String(off.name.value) : "this item";
     const el = grp && off ? (off[grp as "variants" | "addOns"] as { id: string; name: AnyFact }[]).find((e) => e.id === eid) : undefined;
     const elName = el && String(el.name.value) ? String(el.name.value) : grp === "addOns" ? "this add-on" : "this size";
-    const what = { price: "the price of", cost: "what it costs you to make", stockUnits: "the stock units of", name: "the name of", initialStock: "how many you have in stock of", stockTracked: "whether you track stock for", description: "the description of" }[field!] ?? field;
+    const what = { price: "the price of", cost: "your cost to make", stockUnits: "the stock units of", name: "the name of", initialStock: "the starting stock of", stockTracked: "whether you track stock for", description: "the description of" }[field!] ?? field;
     const target = grp ? `${offName}, ${elName}` : offName;
-    return field === "cost" ? `what it costs you to make ${target}` : `${what} ${target}`.replace("the price of", "the price of");
+    return `${what} ${target}`;
   }
   return path;
 }

@@ -7,7 +7,9 @@ import { ZodError } from "zod";
 import { log } from "./log";
 import type { Llm } from "./llm";
 import { LlmUnavailable } from "./llm";
-import { moneyBlockers, moneyReady } from "./questions/engine";
+import { labelFor, moneyBlockers, moneyReady } from "./questions/engine";
+import { isMoneyRelevant, moneyImpact } from "./questions/impact";
+import { showValue } from "./spec/coerce";
 import { listFacts, isMissing } from "./spec/paths";
 import { BUSINESS_ID_RE, type SpecStore, type StoredSpec } from "./spec/store";
 
@@ -75,6 +77,8 @@ export function specView(rec: StoredSpec) {
     version: rec.version,
     updatedAt: rec.updatedAt,
     spec: rec.spec,
+    /** flat list for UIs: every Fact with a human label and display value */
+    facts: listFacts(rec.spec).map(({ path, fact }) => ({ path, label: labelFor(rec.spec, path), display: isMissing(fact) ? null : showValue(path, fact.value), missing: isMissing(fact), moneyRelevant: isMoneyRelevant(path), moneyImpact: moneyImpact(path), fact })),
     alternatives: rec.alternatives,
     moneyReady: moneyReady(rec.spec),
     blockers: moneyBlockers(rec.spec),
@@ -90,9 +94,9 @@ export function newRouter(): Hono {
   app.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
     if (err instanceof LlmUnavailable) return c.json({ error: err.message }, 502);
-    if (typeof (err as { status?: unknown }).status === "number" && /APIError|AnthropicError/.test(err.constructor.name + (err.name ?? ""))) {
-      log.error("m2", `Anthropic API error ${(err as { status: number }).status}: ${err.message.slice(0, 300)}`);
-      return c.json({ error: `the AI service refused the request (HTTP ${(err as { status: number }).status})` }, 502);
+    if (typeof (err as unknown as { status?: unknown }).status === "number" && /APIError|AnthropicError/.test(err.constructor.name + (err.name ?? ""))) {
+      log.error("m2", `Anthropic API error ${(err as unknown as { status: number }).status}: ${err.message.slice(0, 300)}`);
+      return c.json({ error: `the AI service refused the request (HTTP ${(err as unknown as { status: number }).status})` }, 502);
     }
     if (err instanceof ZodError) return c.json({ error: "invalid request", issues: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`) }, 400);
     if (err instanceof SyntaxError) return c.json({ error: "invalid JSON body" }, 400);

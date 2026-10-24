@@ -52,10 +52,10 @@ const NAV: { section: string; items: NavItem[] }[] = [
   },
   { section: "Trust", items: [{ href: "/proof", label: "Proof report", icon: I.proof }] },
   {
-    section: "Coming in M2",
+    section: "Set up",
     items: [
-      { href: "/intake", label: "Intake", icon: I.intake, m2: true },
-      { href: "/interview", label: "Interview", icon: I.interview, m2: true },
+      { href: "/intake", label: "Intake", icon: I.intake },
+      { href: "/interview", label: "Interview", icon: I.interview },
       { href: "/build", label: "Build", icon: I.build, m2: true },
     ],
   },

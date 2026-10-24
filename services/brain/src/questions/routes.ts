@@ -9,7 +9,7 @@ import { applyAnswer, dismissQuestion, moneyReady, nextQuestion, refreshQuestion
 import { phraseQuestion } from "./phrase";
 import { applyDiff, buildDiff, parseStatement, StaleDiff, type StatementDiff } from "./statement";
 import type { PendingStatement, StoredSpec } from "../spec/store";
-import { getFact } from "../spec/paths";
+import { getFact, isMissing } from "../spec/paths";
 import { showValue } from "../spec/coerce";
 
 async function recordDecision(d: M2Deps, businessId: string, a: { action: string; reason: string; evidence: string[]; inputs: unknown; wouldChangeIf?: string }): Promise<boolean> {
@@ -104,7 +104,7 @@ export function questionRoutes(d: M2Deps) {
         ...q,
         phrased: phrased.text,
         phrasedBy: phrased.phrasedBy,
-        current: fact ? { value: fact.value, display: showValue(q.fieldPath, fact.value), provenance: fact.provenance, confidence: fact.confidence, source: fact.source, confirmed: fact.confirmed } : undefined,
+        current: fact ? { value: fact.value, display: isMissing(fact) ? "" : showValue(q.fieldPath, fact.value), provenance: fact.provenance, confidence: fact.confidence, source: fact.source, confirmed: fact.confirmed } : undefined,
       },
       remaining: open.length,
       moneyReady: moneyReady(rec.spec),
