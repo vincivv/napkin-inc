@@ -15,6 +15,7 @@ import { SimulatorGateway, StripeGateway, type ProcessorGateway } from "./paymen
 import { OutboxWorker, RefundExecutor } from "./payments/outbox";
 import { registerM2Routes } from "./m2";
 import { mountCompiler } from "./compiler/routes";
+import { mountAgents } from "./agents";
 
 let env: Env;
 try {
@@ -84,10 +85,11 @@ function health(): Record<string, unknown> {
   };
 }
 
+const sessions = new SessionStore(env.dataDir);
 const app = createApp({
   platform,
   gateway,
-  sessions: new SessionStore(env.dataDir),
+  sessions,
   storePublicUrl: env.storePublicUrl,
   corsOrigins: env.corsOrigins,
   webhookSecret: env.stripeWebhookSecret,
@@ -104,6 +106,7 @@ const app = createApp({
 });
 registerM2Routes(app, hub, env.dataDir); // M2: intake + question engine
 mountCompiler(app, hub, env.dataDir); // M2: compiler (POST /compile, SSE)
+mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront: (b) => Boolean(hub.get(actorKey("storefront", b))) }); // M3: AI staff
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();
