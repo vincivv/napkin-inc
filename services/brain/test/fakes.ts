@@ -14,6 +14,8 @@ export class FakePlatform implements PlatformPort {
   attached: { orderId: string; sessionId: string; url: string }[] = [];
   intents: { orderId: string; key: string }[] = [];
   refuseCreateOrder: string | undefined;
+  clock: () => number = Date.now;
+  nextOutboxId = 1n;
 
   isConnected() { return true; }
   business(id: string) { return this.businesses.get(id); }
@@ -56,7 +58,20 @@ export class FakePlatform implements PlatformPort {
       }
     }
   }
-  async claimOutbox(id: bigint) { const o = this.outbox.find((x) => x.id === id)!; o.status = "claimed"; o.attempts++; }
+  /** Mirrors the platform reducer enqueueOutbox: sms only, idempotent on the key, a different payload is refused. */
+  async enqueueOutbox(a: { businessId: string; kind: string; payloadJson: string; idempotencyKey: string }) {
+    const { ReducerRefused } = await import("../src/stdb");
+    this.calls.push(`enqueueOutbox:${a.kind}`);
+    if (a.kind !== "sms") throw new ReducerRefused("enqueueOutbox", `outbox kind "${a.kind}" cannot be enqueued`);
+    if (new TextEncoder().encode(a.payloadJson).length > 2048) throw new ReducerRefused("enqueueOutbox", "payloadJson is larger than 2048 bytes");
+    const existing = this.outbox.find((o) => o.idempotencyKey === a.idempotencyKey);
+    if (existing) {
+      if (existing.businessId !== a.businessId || existing.kind !== a.kind || existing.payloadJson !== a.payloadJson) throw new ReducerRefused("enqueueOutbox", `outbox item ${a.idempotencyKey} already exists with a different business, kind or payload`);
+      return;
+    }
+    this.outbox.push({ id: this.nextOutboxId++, businessId: a.businessId, kind: a.kind, payloadJson: a.payloadJson, idempotencyKey: a.idempotencyKey, status: "pending", attempts: 0, claimedAtMs: undefined, resultJson: "" });
+  }
+  async claimOutbox(id: bigint) { const o = this.outbox.find((x) => x.id === id)!; o.status = "claimed"; o.attempts++; o.claimedAtMs = this.clock(); }
   async completeOutbox(id: bigint, ok: boolean, resultJson: string) { const o = this.outbox.find((x) => x.id === id)!; o.status = ok ? "done" : "failed"; o.resultJson = resultJson; }
   async createRoleGrant(a: { code: string; businessId: string; role: string }) { this.grants.push(a); }
 }

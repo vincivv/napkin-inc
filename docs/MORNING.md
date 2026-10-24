@@ -30,6 +30,11 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
   - **Spoofed caller ID.** Someone faking your caller ID can lock owner mode for 15 minutes with 3 wrong PINs. Locking per caller stops redial brute-force, and I think that trade-off is right. OK?
   - **Duplicate texts.** A crash at exactly the wrong moment could send a pay-link text twice, because Twilio has no idempotency key. The fix is a small platform outbox reducer for SMS; I can add it.
   - **Storefront orders by phone.** Orders placed on the storefront have no phone number on record, so they can't be checked by phone. Phone orders can.
+- **AI staff:**
+  - **Proving order ownership.** Should chat customers prove an order is theirs (phone or email) before order status or a refund request? Today any order id works, but refunds only go back to the original card and need approval.
+  - **Coupons.** Do coupons exist? There's no coupon list, so the Shopkeeper refuses all codes for now.
+  - **Shopkeeper discounts.** Can the Shopkeeper give up to 20% at its own discretion? Default for now: only when you've said so in an inbox answer; otherwise it asks you.
+  - **No sign-in on chat routes.** `/agents/*` and `/ask` have no sign-in. That's OK for the demo; it should change before real use.
 
 ## Overnight log
 - **05:00:** limits reset. Resumed the prover, M2 intake/questions and M2 compiler/guards. Mac kept awake with `caffeinate` (needs AC power and the lid **open**; a closed lid still sleeps). A watchdog runs every ~20 min to resume agents after limits, merge finished work, and move on through the plan.
@@ -49,3 +54,4 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
   - **Started M3:** three AI staff (Shopkeeper, Support, Bookkeeper, on Claude Sonnet 5.5, through the guards), the phone line (Cartesia webhook tools + SMS links), and red-team wiring (real chaos runs + RESULTS.md from real rows only).
 - **06:3x–10:00:** paused on the Claude session limit (all 3 M3 agents stopped). Resumed at 10:00 AM: AI staff, phone line, red-team wiring.
 - **10:1x:** merged the **phone line**: 7 Cartesia webhook tools, owner verification (caller ID + PIN, lock after 3 failures), and owner instructions that only queue for your confirmation in the app. Pay links are texted to the caller ID only, through the SMS SIMULATOR until Twilio is set. 258 tests pass. M1 re-checked: MC-6JB7P was paid once, and the books balance at $209.12.
+- **10:2x:** merged the **three AI staff** (Shopkeeper, Support, Bookkeeper on Claude Sonnet 5.5; every tool call goes through the guards and writes a DecisionRecord), plus a platform SMS outbox (texts are exactly-once in the platform; at most twice at Twilio on a crash). Live check on the demo: asked for 50% off, the Shopkeeper said no, quoted $15 and escalated to your inbox. In a test run the Bookkeeper found all 6 planted errors in set A (2 false alarms). Fixed a real script bug: `pnpm publish:local` never published the module (pnpm's built-in `publish` ran instead). 302 tests pass, and the M1 books balance at $223.50.
