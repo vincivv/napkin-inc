@@ -1,0 +1,223 @@
+{
+  "id": "maya-books-set-b",
+  "title": "Maya's Cookies: September to October 2026 (5 planted errors)",
+  "businessId": "maya-cookies",
+  "configRef": "fixtures/maya/configuration.json",
+  "placeholderNote": "Prices, costs and stock are from the M1 fixture and are placeholders (_unconfirmed in the configuration). Test data only, not Maya's real books.",
+  "periods": [
+    { "month": "2026-09", "status": "closed", "closedAt": "2026-10-02T00:00:00Z" },
+    { "month": "2026-10", "status": "open", "closedAt": null }
+  ],
+  "documents": [
+    {
+      "id": "I-101", "docType": "stock_receipt", "status": "posted", "period": "2026-09",
+      "createdAt": "2026-09-01T08:00:00Z", "postedAt": "2026-09-01T08:05:00Z",
+      "createdBy": "bookkeeper_agent", "approvedBy": "owner", "externalRef": "receipt:2026-09-bake-1",
+      "fields": { "supplier": "own bake" },
+      "lines": [{ "stock_item": "choc_chip_cookie", "qty": "24", "unit_cost": "0.80" }],
+      "journal": [
+        { "account": "1300", "debitCents": 1920, "creditCents": 0 },
+        { "account": "2000", "debitCents": 0, "creditCents": 1920 }
+      ],
+      "movements": [{ "register": "stock", "dims": { "item": "choc_chip_cookie" }, "kind": "in", "qty": 24, "amountCents": 1920 }],
+      "reversalOf": null, "note": ""
+    },
+    {
+      "id": "S-201", "docType": "sale", "status": "posted", "period": "2026-09",
+      "createdAt": "2026-09-03T11:00:00Z", "postedAt": "2026-09-03T11:01:00Z",
+      "createdBy": "storefront", "approvedBy": "system", "externalRef": "order:MC-B01",
+      "fields": { "orderId": "MC-B01", "discountRate": "0" },
+      "lines": [{ "productId": "cookie_box6", "qty": "6", "price": "15.00", "cost": "4.80" }],
+      "journal": [
+        { "account": "1200", "debitCents": 1500, "creditCents": 0 },
+        { "account": "4000", "debitCents": 0, "creditCents": 1500 },
+        { "account": "5000", "debitCents": 480, "creditCents": 0 },
+        { "account": "1300", "debitCents": 0, "creditCents": 480 }
+      ],
+      "movements": [{ "register": "stock", "dims": { "item": "choc_chip_cookie" }, "kind": "out", "qty": 6, "amountCents": 480 }],
+      "reversalOf": null, "note": ""
+    },
+    {
+      "id": "P-201", "docType": "payment_received", "status": "posted", "period": "2026-09",
+      "createdAt": "2026-09-03T11:05:00Z", "postedAt": "2026-09-03T11:05:01Z",
+      "createdBy": "system", "approvedBy": "system", "externalRef": "pi:pi_B01",
+      "fields": { "orderId": "MC-B01", "processorRef": "pi_B01" }, "lines": [],
+      "journal": [
+        { "account": "1010", "debitCents": 1500, "creditCents": 0 },
+        { "account": "1200", "debitCents": 0, "creditCents": 1500 }
+      ],
+      "movements": [], "reversalOf": null, "note": ""
+    },
+    {
+      "id": "F-201", "docType": "processor_fee", "status": "posted", "period": "2026-09",
+      "createdAt": "2026-09-03T11:05:05Z", "postedAt": "2026-09-03T11:05:06Z",
+      "createdBy": "system", "approvedBy": "system", "externalRef": "fee:pi_B01",
+      "fields": { "orderId": "MC-B01", "processorRef": "pi_B01" }, "lines": [],
+      "journal": [
+        { "account": "5100", "debitCents": 44, "creditCents": 0 },
+        { "account": "1010", "debitCents": 0, "creditCents": 44 }
+      ],
+      "movements": [], "reversalOf": null, "note": ""
+    },
+    {
+      "id": "S-202", "docType": "sale", "status": "posted", "period": "2026-09",
+      "createdAt": "2026-09-04T12:00:00Z", "postedAt": "2026-09-04T12:01:00Z",
+      "createdBy": "storefront", "approvedBy": "system", "externalRef": "order:MC-B02",
+      "fields": { "orderId": "MC-B02", "discountRate": "0" },
+      "lines": [{ "productId": "cookie_single", "qty": "2", "price": "3.00", "cost": "0.80" }],
+      "journal": [
+        { "account": "1200", "debitCents": 600, "creditCents": 0 },
+        { "account": "4000", "debitCents": 0, "creditCents": 600 },
+        { "account": "5000", "debitCents": 160, "creditCents": 0 },
+        { "account": "1300", "debitCents": 0, "creditCents": 160 }
+      ],
+      "movements": [{ "register": "stock", "dims": { "item": "choc_chip_cookie" }, "kind": "out", "qty": 2, "amountCents": 160 }],
+      "reversalOf": null, "note": ""
+    },
+    {
+      "id": "P-202", "docType": "payment_received", "status": "posted", "period": "2026-09",
+      "createdAt": "2026-09-04T12:05:00Z", "postedAt": "2026-09-04T12:05:01Z",
+      "createdBy": "system", "approvedBy": "system", "externalRef": "pi:pi_B02",
+      "fields": { "orderId": "MC-B02", "processorRef": "pi_B02" }, "lines": [],
+      "journal": [
+        { "account": "1010", "debitCents": 600, "creditCents": 0 },
+        { "account": "1200", "debitCents": 0, "creditCents": 600 }
+      ],
+      "movements": [], "reversalOf": null, "note": ""
+    },
+    {
+      "id": "S-203", "docType": "sale", "status": "posted", "period": "2026-09",
+      "createdAt": "2026-09-05T10:00:00Z", "postedAt": "2026-09-05T10:01:00Z",
+      "createdBy": "storefront", "approvedBy": "system", "externalRef": "order:MC-B03",
+      "fields": { "orderId": "MC-B03", "discountRate": "0" },
+      "lines": [{ "productId": "cookie_box6", "qty": "6", "price": "15.00", "cost": "4.80" }],
+      "journal": [
+        { "account": "1200", "debitCents": 1500, "creditCents": 0 },
+        { "account": "4000", "debitCents": 0, "creditCents": 1500 },
+        { "account": "5000", "debitCents": 480, "creditCents": 0 },
+        { "account": "1300", "debitCents": 0, "creditCents": 480 }
+      ],
+      "movements": [{ "register": "stock", "dims": { "item": "choc_chip_cookie" }, "kind": "out", "qty": 6, "amountCents": 480 }],
+      "reversalOf": null, "note": ""
+    },
+    {
+      "id": "P-203", "docType": "payment_received", "status": "posted", "period": "2026-09",
+      "createdAt": "2026-09-05T10:05:00Z", "postedAt": "2026-09-05T10:05:01Z",
+      "createdBy": "system", "approvedBy": "system", "externalRef": "pi:pi_B03",
+      "fields": { "orderId": "MC-B03", "processorRef": "pi_B03" }, "lines": [],
+      "journal": [
+        { "account": "1010", "debitCents": 1500, "creditCents": 0 },
+        { "account": "1200", "debitCents": 0, "creditCents": 1500 }
+      ],
+      "movements": [], "reversalOf": null, "note": ""
+    },
+    {
+      "id": "S-204", "docType": "sale", "status": "posted", "period": "2026-09",
+      "createdAt": "2026-09-05T10:02:00Z", "postedAt": "2026-09-05T10:03:00Z",
+      "createdBy": "storefront", "approvedBy": "system", "externalRef": "order:MC-B03",
+      "fields": { "orderId": "MC-B03", "discountRate": "0" },
+      "lines": [{ "productId": "cookie_box6", "qty": "6", "price": "15.00", "cost": "4.80" }],
+      "journal": [
+        { "account": "1200", "debitCents": 1500, "creditCents": 0 },
+        { "account": "4000", "debitCents": 0, "creditCents": 1500 },
+        { "account": "5000", "debitCents": 480, "creditCents": 0 },
+        { "account": "1300", "debitCents": 0, "creditCents": 480 }
+      ],
+      "movements": [{ "register": "stock", "dims": { "item": "choc_chip_cookie" }, "kind": "out", "qty": 6, "amountCents": 480 }],
+      "reversalOf": null, "note": "Second sale for MC-B03 created from a retried storefront submit. S-203 was not reversed."
+    },
+    {
+      "id": "S-205", "docType": "sale", "status": "posted", "period": "2026-10",
+      "createdAt": "2026-10-01T09:00:00Z", "postedAt": "2026-10-01T09:02:00Z",
+      "createdBy": "shopkeeper", "approvedBy": "system", "externalRef": "order:MC-B05",
+      "fields": { "orderId": "MC-B05", "discountRate": "0" },
+      "lines": [{ "productId": "cookie_box6", "qty": "12", "price": "15.00", "cost": "4.80" }],
+      "journal": [
+        { "account": "1200", "debitCents": 3000, "creditCents": 0 },
+        { "account": "4000", "debitCents": 0, "creditCents": 3000 },
+        { "account": "5000", "debitCents": 960, "creditCents": 0 },
+        { "account": "1300", "debitCents": 0, "creditCents": 960 }
+      ],
+      "movements": [{ "register": "stock", "dims": { "item": "choc_chip_cookie" }, "kind": "out", "qty": 12, "amountCents": 960 }],
+      "reversalOf": null, "note": "Two boxes for a party. Posted before the October restock."
+    },
+    {
+      "id": "I-102", "docType": "stock_receipt", "status": "posted", "period": "2026-10",
+      "createdAt": "2026-10-03T08:00:00Z", "postedAt": "2026-10-03T08:05:00Z",
+      "createdBy": "bookkeeper_agent", "approvedBy": "owner", "externalRef": "receipt:2026-10-bake-1",
+      "fields": { "supplier": "own bake" },
+      "lines": [{ "stock_item": "choc_chip_cookie", "qty": "24", "unit_cost": "0.80" }],
+      "journal": [
+        { "account": "1300", "debitCents": 1920, "creditCents": 0 },
+        { "account": "2000", "debitCents": 0, "creditCents": 1920 }
+      ],
+      "movements": [{ "register": "stock", "dims": { "item": "choc_chip_cookie" }, "kind": "in", "qty": 24, "amountCents": 1920 }],
+      "reversalOf": null, "note": ""
+    },
+    {
+      "id": "S-206", "docType": "sale", "status": "posted", "period": "2026-10",
+      "createdAt": "2026-10-04T13:00:00Z", "postedAt": "2026-10-04T13:01:00Z",
+      "createdBy": "shopkeeper", "approvedBy": "system", "externalRef": "order:MC-B06",
+      "fields": { "orderId": "MC-B06", "discountRate": "0.20" },
+      "lines": [{ "productId": "cookie_box6", "qty": "6", "price": "15.00", "cost": "4.80", "discount": "3.00" }],
+      "journal": [
+        { "account": "1200", "debitCents": 1200, "creditCents": 0 },
+        { "account": "4000", "debitCents": 0, "creditCents": 1200 },
+        { "account": "5000", "debitCents": 480, "creditCents": 0 },
+        { "account": "1300", "debitCents": 0, "creditCents": 480 }
+      ],
+      "movements": [{ "register": "stock", "dims": { "item": "choc_chip_cookie" }, "kind": "out", "qty": 6, "amountCents": 480 }],
+      "reversalOf": null, "note": "20% off box. Revenue entered net of the discount."
+    },
+    {
+      "id": "P-204", "docType": "payment_received", "status": "posted", "period": "2026-10",
+      "createdAt": "2026-10-04T13:05:00Z", "postedAt": "2026-10-04T13:05:01Z",
+      "createdBy": "system", "approvedBy": "system", "externalRef": "pi:pi_B06",
+      "fields": { "orderId": "MC-B06", "processorRef": "pi_B06" }, "lines": [],
+      "journal": [
+        { "account": "1010", "debitCents": 1200, "creditCents": 0 },
+        { "account": "1200", "debitCents": 0, "creditCents": 1200 }
+      ],
+      "movements": [], "reversalOf": null, "note": ""
+    },
+    {
+      "id": "F-202", "docType": "processor_fee", "status": "posted", "period": "2026-10",
+      "createdAt": "2026-10-04T13:06:00Z", "postedAt": "2026-10-04T13:06:01Z",
+      "createdBy": "bookkeeper_agent", "approvedBy": "owner", "externalRef": "fee:pi_B06",
+      "fields": { "orderId": "MC-B06", "processorRef": "pi_B06" }, "lines": [],
+      "journal": [
+        { "account": "5000", "debitCents": 44, "creditCents": 0 },
+        { "account": "1010", "debitCents": 0, "creditCents": 44 }
+      ],
+      "movements": [], "reversalOf": null, "note": "Fee booked to cost of goods sold."
+    },
+    {
+      "id": "R-210", "docType": "refund", "status": "posted", "period": "2026-10",
+      "createdAt": "2026-10-04T18:00:00Z", "postedAt": "2026-10-04T18:02:00Z",
+      "createdBy": "bookkeeper_agent", "approvedBy": "bookkeeper_agent", "externalRef": "refund:MC-B06",
+      "fields": { "orderId": "MC-B06", "amountCents": "500", "hoursSinceSale": "5", "reason": "one box was stale" },
+      "lines": [],
+      "journal": [
+        { "account": "4200", "debitCents": 500, "creditCents": 0 },
+        { "account": "1010", "debitCents": 0, "creditCents": 500 }
+      ],
+      "movements": [], "reversalOf": null, "note": "Partial refund on MC-B06, created and approved by the bookkeeper agent."
+    }
+  ],
+  "processorStatement": [
+    { "eventId": "evt_B01_pay", "kind": "payment_succeeded", "orderId": "MC-B01", "processorRef": "pi_B01", "amountCents": 1500, "at": "2026-09-03T11:05:00Z" },
+    { "eventId": "evt_B01_fee", "kind": "fee", "orderId": "MC-B01", "processorRef": "pi_B01", "amountCents": 44, "at": "2026-09-03T11:05:00Z" },
+    { "eventId": "evt_B02_pay", "kind": "payment_succeeded", "orderId": "MC-B02", "processorRef": "pi_B02", "amountCents": 600, "at": "2026-09-04T12:05:00Z" },
+    { "eventId": "evt_B03_pay", "kind": "payment_succeeded", "orderId": "MC-B03", "processorRef": "pi_B03", "amountCents": 1500, "at": "2026-09-05T10:05:00Z" },
+    { "eventId": "evt_B06_pay", "kind": "payment_succeeded", "orderId": "MC-B06", "processorRef": "pi_B06", "amountCents": 1200, "at": "2026-10-04T13:05:00Z" },
+    { "eventId": "evt_B06_fee", "kind": "fee", "orderId": "MC-B06", "processorRef": "pi_B06", "amountCents": 44, "at": "2026-10-04T13:05:00Z" },
+    { "eventId": "evt_B06_ref", "kind": "refund_succeeded", "orderId": "MC-B06", "processorRef": "pi_B06", "amountCents": 500, "at": "2026-10-04T18:02:00Z" }
+  ],
+  "answerKey": [
+    { "id": "PE-B-01", "kind": "negative_inventory", "entries": ["S-205"], "description": "Before the October restock (I-102), S-205 sells 12 cookies when only 4 remain, so the choc_chip_cookie register goes to -8.", "invariantIds": [3] },
+    { "id": "PE-B-02", "kind": "missing_reversal", "entries": ["S-204"], "description": "MC-B03 has two sales, S-203 and S-204, for the same order and one payment. S-204 is the retried duplicate and should have been reversed.", "invariantIds": [5] },
+    { "id": "PE-B-03", "kind": "revenue_net_not_gross", "entries": ["S-206"], "description": "S-206 posts the box at its net price of $12.00 to sales revenue (4000) with no entry to discounts given (4100). Revenue should be gross $15.00 with $3.00 in 4100.", "invariantIds": [1] },
+    { "id": "PE-B-04", "kind": "self_approved", "entries": ["R-210"], "description": "R-210 was created and approved by bookkeeper_agent. The creator cannot approve their own document.", "invariantIds": [5] },
+    { "id": "PE-B-05", "kind": "wrong_account", "entries": ["F-202"], "description": "The $0.44 processor fee on pi_B06 is booked to 5000 Cost of goods sold instead of 5100 Processor fees.", "invariantIds": [1] }
+  ]
+}
