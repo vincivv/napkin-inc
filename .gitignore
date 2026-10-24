@@ -12,3 +12,4 @@ coverage/
 platform/target/
 **/module_bindings/.cache
 redteam/out/
+.data/
