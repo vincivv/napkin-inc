@@ -5,15 +5,14 @@
 //   - SimulatorSms: the SMS SIMULATOR used when Twilio keys are absent. It logs the message and keeps it in memory.
 //     It NEVER claims a message was sent (status "simulated_not_sent").
 //
-// Messages go through SmsOutbox: one row per idempotency key, so a retried tool call never texts twice
-// once the first send succeeded. Twilio has no idempotency key for message creation, so a crash between
-// Twilio accepting a message and the row being marked done can, on retry, send a duplicate (at-least-once).
+// Messages are queued on the PLATFORM outbox (reducer enqueueOutbox, kind "sms", idempotency key
+// "paylink:<orderId>") and sent by SmsExecutor under the brain's OutboxWorker. Twilio has no idempotency key
+// for message creation, so a crash between Twilio accepting a message and completeOutbox makes the stale retry
+// send a second text (at-most-twice, logged). See SmsExecutor.
 
-import path from "node:path";
 import { log } from "../log";
 import type { OutboxExecutor, OutboxResult } from "../payments/outbox";
 import type { OutboxView } from "../platform";
-import { JsonFileStore } from "../store";
 import { maskPhone, normalizeE164 } from "./util";
 
 export type SmsStatus = "sent" | "simulated_not_sent";
@@ -113,182 +112,75 @@ export class SimulatorSms implements SmsSender {
   }
 }
 
-// ---------------- outbox ----------------
+// ---------------- platform outbox executor ----------------
 
-export interface SmsOutboxItem {
-  key: string;
-  kind: string; // e.g. "pay_link"
-  businessId: string;
-  orderId?: string;
-  to: string;
-  body: string;
-  status: "pending" | "claimed" | "done" | "failed";
-  attempts: number;
-  createdAt: string;
-  claimedAtMs?: number;
-  result?: { sid?: string; status?: SmsStatus | "failed"; simulated?: boolean; error?: string };
-}
-
-export interface SmsOutboxStore {
-  read(): Record<string, SmsOutboxItem>;
-  update(fn: (all: Record<string, SmsOutboxItem>) => void): Record<string, SmsOutboxItem>;
-}
-
-export class FileSmsOutboxStore extends JsonFileStore<Record<string, SmsOutboxItem>> implements SmsOutboxStore {
-  constructor(dataDir: string) {
-    super(path.join(dataDir, "sms-outbox.json"), () => ({}));
-  }
-}
-
-export class MemorySmsOutboxStore implements SmsOutboxStore {
-  private data: Record<string, SmsOutboxItem> = {};
-  read() {
-    return structuredClone(this.data);
-  }
-  update(fn: (all: Record<string, SmsOutboxItem>) => void) {
-    const next = structuredClone(this.data);
-    fn(next);
-    this.data = next;
-    return structuredClone(next);
-  }
-}
-
+/** After this many transient failures (in one brain process) the row is completed as failed instead of retried again. */
 export const MAX_SMS_ATTEMPTS = 5;
 
-/**
- * Brain-side SMS outbox, keyed by idempotency key. The platform outbox has no reducer the brain can use to
- * queue an "sms" row (only the platform itself inserts outbox rows), so pay-link texts are queued here; the
- * same SmsExecutor also drains platform outbox rows of kind "sms" if the platform ever queues them.
- */
-export class SmsOutbox {
-  private readonly inflight = new Map<string, Promise<SmsOutboxItem>>();
-  private timer: NodeJS.Timeout | undefined;
-
-  constructor(
-    private readonly store: SmsOutboxStore,
-    readonly sender: SmsSender,
-    private readonly opts: { staleMs?: number; now?: () => number } = {},
-  ) {}
-
-  get(key: string): SmsOutboxItem | undefined {
-    return this.store.read()[key];
-  }
-
-  all(): SmsOutboxItem[] {
-    return Object.values(this.store.read());
-  }
-
-  /** Queue once per key. A second enqueue with the same key returns the existing row unchanged. */
-  enqueue(item: Pick<SmsOutboxItem, "key" | "kind" | "businessId" | "orderId" | "to" | "body">): SmsOutboxItem {
-    const to = normalizeE164(item.to);
-    if (!to) throw new PermanentSmsError("refusing to queue an SMS to a number that is not E.164");
-    let out!: SmsOutboxItem;
-    this.store.update((all) => {
-      const existing = all[item.key];
-      if (existing) {
-        out = existing;
-        return;
-      }
-      out = { ...item, to, status: "pending", attempts: 0, createdAt: new Date((this.opts.now ?? Date.now)()).toISOString() };
-      all[item.key] = out;
-    });
-    return out;
-  }
-
-  /** Send one queued row now (if it is pending, or claimed but stale). Concurrent calls for one key share a send. */
-  deliver(key: string): Promise<SmsOutboxItem> {
-    const running = this.inflight.get(key);
-    if (running) return running;
-    const p = this.run(key).finally(() => this.inflight.delete(key));
-    this.inflight.set(key, p);
-    return p;
-  }
-
-  private async run(key: string): Promise<SmsOutboxItem> {
-    const now = (this.opts.now ?? Date.now)();
-    const staleMs = this.opts.staleMs ?? 60_000;
-    let claimed: SmsOutboxItem | undefined;
-    this.store.update((all) => {
-      const it = all[key];
-      if (!it) return;
-      const stale = it.status === "claimed" && it.claimedAtMs !== undefined && now - it.claimedAtMs > staleMs;
-      if (it.status !== "pending" && !stale) return;
-      it.status = "claimed";
-      it.attempts += 1;
-      it.claimedAtMs = now;
-      claimed = { ...it };
-    });
-    if (!claimed) {
-      const cur = this.get(key);
-      if (!cur) throw new Error(`no SMS outbox row ${key}`);
-      return cur;
-    }
-    let patch: Partial<SmsOutboxItem>;
-    try {
-      const r = await this.sender.send({ to: claimed.to, body: claimed.body });
-      patch = { status: "done", result: { sid: r.sid, status: r.status, simulated: r.simulated } };
-      log.info("sms", `${key} -> ${r.status} (${r.simulated ? "SIMULATOR" : r.sid}) to ${maskPhone(claimed.to)}`);
-    } catch (e) {
-      const err = e as Error;
-      const permanent = e instanceof PermanentSmsError || claimed.attempts >= MAX_SMS_ATTEMPTS;
-      patch = permanent ? { status: "failed", result: { status: "failed", error: err.message } } : { status: "pending", result: { error: err.message } };
-      log.error("sms", `${key} attempt ${claimed.attempts} ${permanent ? "failed permanently" : "will be retried"}: ${err.message}`);
-    }
-    let out!: SmsOutboxItem;
-    this.store.update((all) => {
-      out = { ...all[key]!, ...patch };
-      all[key] = out;
-    });
-    return out;
-  }
-
-  /** Retry pending and stale-claimed rows. Returns the keys attempted. */
-  async drain(): Promise<string[]> {
-    const now = (this.opts.now ?? Date.now)();
-    const staleMs = this.opts.staleMs ?? 60_000;
-    const keys = this.all()
-      .filter((i) => i.status === "pending" || (i.status === "claimed" && i.claimedAtMs !== undefined && now - i.claimedAtMs > staleMs))
-      .map((i) => i.key);
-    await Promise.all(keys.map((k) => this.deliver(k).catch(() => undefined)));
-    return keys;
-  }
-
-  start(intervalMs = 15_000): void {
-    this.timer = setInterval(() => void this.drain(), intervalMs);
-    this.timer.unref?.();
-  }
-
-  stop(): void {
-    clearInterval(this.timer);
-  }
+/** The payload the phone line queues with enqueueOutbox (kind "sms"). */
+export interface SmsPayload {
+  to: string;
+  body: string;
+  orderId?: string;
 }
 
 /**
- * Executor for platform outbox rows of kind "sms" ({to, body} payload). The platform does not queue such rows
- * today; registering it means the brain's OutboxWorker will drain them with the row's own idempotency key if it does.
+ * Executor for platform outbox rows of kind "sms" ({to, body, orderId?}). The OutboxWorker claims the row,
+ * calls this, then completes it; a row left "claimed" (brain crash, transient Twilio error) is executed again
+ * after the stale timeout.
+ *
+ * Exactly-once holds up to the Twilio call: the platform row is created once per idempotency key and is
+ * completed once. It does NOT hold at Twilio: message creation has no idempotency key, so a crash after
+ * Twilio accepted the message and before completeOutbox makes the stale retry send a second text (at most
+ * twice per crash). That window is made visible: every send logs the key, attempt number and Twilio SID, and an
+ * attempt after the first logs a loud "possible duplicate" warning.
  */
 export class SmsExecutor implements OutboxExecutor {
-  constructor(private readonly outbox: SmsOutbox) {}
+  private readonly transientFailures = new Map<string, number>();
+  constructor(private readonly sender: SmsSender) {}
+
   handles(kind: string): boolean {
     return kind === "sms";
   }
+
   async execute(item: OutboxView): Promise<OutboxResult> {
-    let p: { to?: string; body?: string; orderId?: string };
+    let p: Partial<SmsPayload>;
     try {
-      p = JSON.parse(item.payloadJson) as typeof p;
+      p = JSON.parse(item.payloadJson) as Partial<SmsPayload>;
     } catch {
       return { ok: false, result: { error: "payloadJson is not JSON" } };
     }
-    if (!p.to || !p.body) return { ok: false, result: { error: "payload needs to and body" } };
-    let row: SmsOutboxItem;
-    try {
-      this.outbox.enqueue({ key: `platform:${item.idempotencyKey}`, kind: "platform_sms", businessId: item.businessId, orderId: p.orderId, to: p.to, body: p.body });
-      row = await this.outbox.deliver(`platform:${item.idempotencyKey}`);
-    } catch (e) {
-      if (e instanceof PermanentSmsError) return { ok: false, result: { error: e.message } };
-      throw e;
+    if (typeof p.to !== "string" || typeof p.body !== "string" || !p.body) return { ok: false, result: { error: "payload needs to and body" } };
+    const to = normalizeE164(p.to);
+    if (!to) return { ok: false, result: { error: "refusing to send an SMS to a number that is not E.164" } };
+
+    const key = item.idempotencyKey;
+    // The worker hands over the row as it saw it: "pending" for a first run, "claimed" for a stale retry.
+    if (item.status === "claimed") {
+      log.warn("sms", `${key}: re-running a stale claimed row. An earlier run may already have reached Twilio (no provider idempotency key), so this text can be a DUPLICATE`);
     }
-    if (row.status === "pending" || row.status === "claimed") throw new TransientSmsError(row.result?.error ?? "SMS not sent yet");
-    return { ok: row.status === "done", result: { ...row.result } };
+    try {
+      const r = await this.sender.send({ to, body: p.body });
+      this.transientFailures.delete(key);
+      // If the brain dies right after this line and before completeOutbox, the row stays "claimed" and is re-sent.
+      log.info("sms", `${key}: ${r.status} (${r.simulated ? "SIMULATOR" : r.sid}) to ${maskPhone(to)}; completeOutbox pending (a crash before it means a re-send after the stale timeout)`);
+      return { ok: true, result: { sid: r.sid, status: r.status, simulated: r.simulated } };
+    } catch (e) {
+      const err = e as Error;
+      if (e instanceof PermanentSmsError) {
+        log.error("sms", `${key} failed permanently: ${err.message}`);
+        return { ok: false, result: { error: err.message } };
+      }
+      // The worker's stale retry does not bump the row's attempts, so count transient failures here (per process).
+      const n = (this.transientFailures.get(key) ?? 0) + 1;
+      this.transientFailures.set(key, n);
+      if (n >= MAX_SMS_ATTEMPTS) {
+        this.transientFailures.delete(key);
+        log.error("sms", `${key} gave up after ${n} transient failures: ${err.message}`);
+        return { ok: false, result: { error: err.message, transientFailures: n } };
+      }
+      log.error("sms", `${key} transient failure ${n}/${MAX_SMS_ATTEMPTS} (${err.message}); retried after the stale timeout`);
+      throw err;
+    }
   }
 }

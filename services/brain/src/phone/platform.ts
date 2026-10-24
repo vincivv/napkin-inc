@@ -43,6 +43,10 @@ export interface PhonePlatform {
   /** IANA zone from the active configuration (business.timezone), if any. */
   timezone(businessId: string): string | undefined;
   openInbox(a: { businessId: string; question: string; contextJson: string; documentRef: string }): Promise<void>;
+  /** system: queue a platform outbox row (reducer enqueueOutbox; only kind "sms"). Idempotent on idempotencyKey. */
+  enqueueOutbox(a: { businessId: string; kind: string; payloadJson: string; idempotencyKey: string }): Promise<void>;
+  /** The queued row's current state from the client cache, if it has arrived. */
+  outboxRow(idempotencyKey: string): { status: string; resultJson: string } | undefined;
 }
 
 const fieldsToRecord = (fs: readonly { name: string; value: string }[]): Record<string, string> => Object.fromEntries(fs.map((f) => [f.name, f.value]));
@@ -155,5 +159,14 @@ export class StdbPhonePlatform implements PhonePlatform {
 
   async openInbox(a: { businessId: string; question: string; contextJson: string; documentRef: string }): Promise<void> {
     await this.hub.call("system", "openInbox", (c) => c.reducers.openInbox(a));
+  }
+
+  async enqueueOutbox(a: { businessId: string; kind: string; payloadJson: string; idempotencyKey: string }): Promise<void> {
+    await this.hub.call("system", "enqueueOutbox", (c) => c.reducers.enqueueOutbox(a));
+  }
+
+  outboxRow(idempotencyKey: string): { status: string; resultJson: string } | undefined {
+    const o = [...(this.sys()?.conn.db.outbox.iter() ?? [])].find((x) => x.idempotencyKey === idempotencyKey);
+    return o ? { status: o.status, resultJson: o.resultJson } : undefined;
   }
 }

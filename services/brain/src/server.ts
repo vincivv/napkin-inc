@@ -16,7 +16,6 @@ import { OutboxWorker, RefundExecutor, type OutboxExecutor } from "./payments/ou
 import { registerM2Routes } from "./m2";
 import { mountCompiler } from "./compiler/routes";
 import { registerPhoneRoutes } from "./phone";
-import { SmsExecutor } from "./phone/sms";
 
 let env: Env;
 try {
@@ -88,8 +87,8 @@ function health(): Record<string, unknown> {
       toolSecret: Boolean(env.phoneToolSecret),
       business: env.phoneBusinessId,
       ownerMode: Boolean(env.ownerPhone && env.ownerPin),
-      sms: phone.sms.sender.mode === "twilio" ? "twilio" : "SMS SIMULATOR (nothing is sent)",
-      smsPending: phone.sms.all().filter((s) => s.status === "pending" || s.status === "claimed").length,
+      sms: phone.deps.smsMode === "twilio" ? "twilio" : "SMS SIMULATOR (nothing is sent)",
+      smsPending: outbox.filter((o) => o.kind === "sms" && (o.status === "pending" || o.status === "claimed")).length,
       payLinkBase: env.brainUrl,
     },
   };
@@ -119,7 +118,7 @@ const m2 = registerM2Routes(app, hub, env.dataDir); // M2: intake + question eng
 mountCompiler(app, hub, env.dataDir); // M2: compiler (POST /compile, SSE)
 // M3-K: phone line webhook tools. Orders go through the same createCheckout path as the storefront.
 const phone = registerPhoneRoutes(app, { env, hub, m2, checkout: { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront } });
-executors.push(new SmsExecutor(phone.sms));
+executors.push(phone.smsExecutor); // drains the platform outbox rows of kind "sms" queued by place_order
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();

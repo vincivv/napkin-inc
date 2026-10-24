@@ -127,7 +127,7 @@ All logic is in brain **webhook tools**; the agent only talks and picks tools. C
 |---|---|---|
 | `menu_lookup` | customer | live catalog prices + availability (`floor(stock / stockUnits)`); never costs |
 | `order_status` | customer / owner | details only if the caller ID placed that phone order (or the owner is verified); otherwise one generic reply, identical for unknown orders |
-| `place_order` | customer | validates lines against the live catalog, then `createCheckout(..., {channel: "phone"})` (the storefront's path). Total = platform pricing. Pay link `BRAIN_URL/p/<orderId>` texted to the **caller ID** via the SMS outbox (key `paylink:<orderId>`). A retry (same conversation + caller + cart) returns the same order and never re-texts |
+| `place_order` | customer | validates lines against the live catalog, then `createCheckout(..., {channel: "phone"})` (the storefront's path). Total = platform pricing. Pay link `BRAIN_URL/p/<orderId>` texted to the **caller ID** via the platform outbox (`enqueueOutbox`, kind `sms`, key `paylink:<orderId>`). A retry (same conversation + caller + cart) returns the same order and never queues a second text. The reply says `queued` (never "texted") until the platform row is done with a real send |
 | `escalate` | customer | `openInbox` with the conversation id, masked caller (`…0111`) and the summary marked `untrusted` (max 3 per call) |
 | `verify_owner` | customer | caller ID == `OWNER_PHONE` (E.164) **and** PIN == `OWNER_PIN`, both compared in constant time; 3 failures per conversation and per caller in 15 min lock it (even with the right PIN); either env var empty = everyone refused |
 | `owner_report` | owner | today (in the active config's `business.timezone`): orders, paid orders, sales, refunds, stock, open inbox, statements awaiting confirmation |
@@ -142,10 +142,21 @@ idempotency index). Money and policy rules are enforced by the platform reducers
 
 **SMS.** `TwilioSms` posts to `https://api.twilio.com/2010-04-01/Accounts/{SID}/Messages.json` (form `To/From/Body`,
 basic auth; the `twilio` SDK is not used). Without all three `TWILIO_*` vars the **SMS SIMULATOR** logs
-`[SMS SIMULATOR] NOT SENT ...`, keeps messages in memory, and the agent is told *no text was sent*. Texts go through
-`.data/sms-outbox.json` (one row per idempotency key, retried every 15 s on 5xx/429/network; 4xx is permanent; max 5
-attempts). Twilio has no idempotency key, so a crash between Twilio accepting and the row being marked done can
-duplicate a text (at-least-once). `SmsExecutor` also drains platform outbox rows of kind `sms` if the platform ever queues them.
+`[SMS SIMULATOR] NOT SENT ...`, keeps messages in memory, and the agent is told *no text was sent*.
+
+Texts use the **platform outbox** (invariant 7); there is no brain-local outbox file any more. `place_order` calls the
+`enqueueOutbox` reducer as the system actor (idempotent on `paylink:<orderId>`), and the brain's `OutboxWorker` drains
+rows of kind `sms` with `SmsExecutor`: `claimOutbox`, send, `completeOutbox`. 4xx from Twilio is permanent (row
+`failed`); 5xx/429/network leave the row claimed and it is retried after `OUTBOX_STALE_SECONDS` (up to 5 transient
+failures per brain process, then `failed`).
+
+**Remaining at-most-twice window.** Exactly-once holds for creating and completing the row, not at Twilio, whose
+message creation has no idempotency key. If the brain crashes (or `completeOutbox` fails) after Twilio accepted the
+message and before the row is completed, the row stays `claimed` and the stale retry sends the text again: the customer
+can get the pay link twice for that order, never more per crash. It is not hidden: every send logs
+`[sms] paylink:<id>: sent (SM...) ...; completeOutbox pending`, and a stale re-run logs a `DUPLICATE` warning (plus the
+worker's "retrying stale claimed item"). Both texts carry the same pay link for the same order, so a duplicate cannot
+double charge. Do not read this as exactly-once at Twilio.
 
 **Setup (real phone).**
 1. `.env`: `PHONE_TOOL_SECRET` (`openssl rand -hex 32`), `OWNER_PHONE=+1...`, `OWNER_PIN`, `TWILIO_ACCOUNT_SID`,
