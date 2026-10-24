@@ -1,11 +1,17 @@
 // A document type instantiated symbolically: every numeric input is a Z3 constant constrained to
-// its valid domain, derived fields are encoded in declaration order (exactly like
-// ledger-core computeDocument), and checks become Z3 booleans. A model of the resulting formula
-// can be turned back into a concrete DocumentInput and replayed through ledger-core post().
+// its valid domain, derived fields are encoded in declaration order (exactly like ledger-core
+// computeDocument), and checks become Z3 booleans. A model of the resulting formula is turned back
+// into a concrete DocumentInput and replayed through ledger-core post().
+//
+// Two modes:
+//   free  - every numeric line field is an unconstrained input of its type (strongest result)
+//   bound - line fields that the platform fills from a catalog entry take that entry's exact
+//           values; the caller fixes WHICH entry each line uses (one solver query per entry
+//           combination), so catalog values are constants and qty * unitPrice stays linear.
 
 import { compile, Rational, type DocumentDef, type DocumentInput, type PostingContext, type Scalar } from "@napkin/ledger-core";
 import type { Configuration } from "@napkin/schema";
-import { encodeBool, encodeNum, rationalOf, realVal, type EncodeScope } from "./encode";
+import { constNV, encodeBool, encodeNum, evalNV, intNV, iteNV, realNV, type EncodeScope, type NV } from "./encode";
 import { exact } from "./format";
 import type { Z3, ZArith, ZBool, ZModel } from "./z3";
 
@@ -18,8 +24,15 @@ export interface Bounds {
   kMax: number;
   qtyMax: number;
   moneyMaxCents: bigint;
+  /**
+   * rates are proven for every multiple of 1/rateDenominator in [0, 1] (default: basis points,
+   * as PLAN section 2 specifies). Encoding rates as Int numerators keeps the arithmetic in
+   * integers; Z3's mixed Int/Real nonlinear reasoning returned spurious models in testing.
+   */
+  rateDenominator: bigint;
 }
-export const DEFAULT_BOUNDS: Bounds = { kMax: 3, qtyMax: 10_000, moneyMaxCents: 100_000_000n };
+export const NICE_TIERS = 4;
+export const DEFAULT_BOUNDS: Bounds = { kMax: 3, qtyMax: 10_000, moneyMaxCents: 100_000_000n, rateDenominator: 10_000n };
 
 /** line.<lineField> is filled by the platform from <catalogId>.<field> of the line's catalog entry. */
 export interface CatalogBinding {
@@ -52,6 +65,12 @@ export function inferCatalogBindings(cfg: Configuration, doc: DocumentType): Cat
   return out;
 }
 
+/** Catalogs whose entry a line chooses directly (its lineKey is a line field not filled from another catalog). */
+export function rootCatalogs(cfg: Configuration, doc: DocumentType, bindings: CatalogBinding[]): CatalogCfg[] {
+  const lineNames = new Set(doc.lineFields.map((f) => f.name));
+  return cfg.catalogs.filter((c) => lineNames.has(c.lineKey) && !bindings.some((b) => b.lineField === c.lineKey));
+}
+
 export function numericPolicies(cfg: Configuration): Record<string, Rational> {
   const out: Record<string, Rational> = {};
   for (const [k, v] of Object.entries(cfg.policies)) {
@@ -75,7 +94,7 @@ export function postingContext(cfg: Configuration): PostingContext {
 
 export const asDef = (d: DocumentType) => d as unknown as DocumentDef;
 
-function catalogValue(v: unknown): Rational | undefined {
+export function catalogValue(v: unknown): Rational | undefined {
   if (v === null || v === undefined || typeof v === "boolean") return undefined;
   if (typeof v === "number") return Rational.from(v);
   if (typeof v === "string") {
@@ -92,6 +111,7 @@ export interface InputVar {
   /** "doc.discountRate", "line[0].qty", "line[0].productId" */
   key: string;
   type: FieldType | "key" | "component";
+  /** the Z3 constant */
   term: ZArith;
   /** extra constraints that make a counterexample human-friendly, by tier (0 = nicest) */
   nice(tier: number): ZBool[];
@@ -102,7 +122,9 @@ export interface SymbolicDoc {
   doc: DocumentType;
   K: number;
   mode: "free" | "bound";
-  /** input domains, catalog-definedness, binding constraints */
+  /** bound mode: the catalog entry each line uses, per root catalog */
+  lineEntries?: Array<Record<string, string>>;
+  /** input domains, catalog-definedness */
   domain: ZBool[];
   /** policy checks (preconditions for posting), each tagged */
   checks: Array<{ id: string; lineIndex: number | null; term: ZBool }>;
@@ -122,10 +144,12 @@ export interface BuildOptions {
   mode: "free" | "bound";
   bounds?: Bounds;
   bindings?: CatalogBinding[];
-  /** replace a doc field by a term (used to model stacked discount components) */
-  docOverrides?: Record<string, { term: ZArith; vars: InputVar[]; domain: ZBool[] }>;
-  /** fix line i's key for a catalog to one entry */
-  fixKeys?: Array<{ line: number; catalogId: string; entryId: string }>;
+  /** bound mode: line i uses entry lineEntries[i][catalogId] of each root catalog */
+  lineEntries?: Array<Record<string, string>>;
+  /** replace a doc field by a value (used to model stacked discount components) */
+  docOverrides?: Record<string, { value: NV; vars: InputVar[]; domain: ZBool[] }>;
+  /** override numeric policies (used to verify suggested fixes) */
+  policyOverrides?: Record<string, Rational>;
   /** skip encoding these checks (by id) */
   omitChecks?: Set<string>;
   prefix?: string;
@@ -133,65 +157,108 @@ export interface BuildOptions {
 
 let uid = 0;
 
+type Entry = CatalogCfg["entries"][number];
+
 export function buildSymbolicDoc(z: Z3, cfg: Configuration, doc: DocumentType, o: BuildOptions): SymbolicDoc {
   const bounds = o.bounds ?? DEFAULT_BOUNDS;
   const P = o.prefix ?? `q${++uid}`;
-  const bindings = o.mode === "bound" ? (o.bindings ?? inferCatalogBindings(cfg, doc)) : [];
   const allBindings = o.bindings ?? inferCatalogBindings(cfg, doc);
-  const policies = numericPolicies(cfg);
+  const bindings = o.mode === "bound" ? allBindings : [];
+  const policies = { ...numericPolicies(cfg), ...(o.policyOverrides ?? {}) };
   const catalogs = new Map(cfg.catalogs.map((c) => [c.id, c]));
+  const roots = new Set(rootCatalogs(cfg, doc, allBindings).map((c) => c.id));
+  const lineFieldNames = new Set(doc.lineFields.map((f) => f.name));
   const domain: ZBool[] = [];
   const side: ZBool[] = [];
   const vars: InputVar[] = [];
   const K = doc.lineFields.length === 0 ? 0 : o.K;
+  if (o.mode === "bound" && K > 0 && (!o.lineEntries || o.lineEntries.length < K)) throw new Error("bound mode needs lineEntries for every line");
 
-  const R = (r: Rational) => realVal(z, r);
-  const isIntR = (x: ZArith) => z.IsInt(x);
+  const C = (r: Rational) => constNV(z, r);
+  const bindingOf = (lf: string, list: CatalogBinding[]) => list.find((b) => b.lineField === lf);
 
-  const typeDomain = (x: ZArith, t: FieldType): ZBool => {
+  // ---------- variables ----------
+  // tiers 0..3, nicest first: [qty cap, money: multiple of 25c and <= $100?, rate step in bp]
+  const TIERS = [
+    { qty: 6, coarseMoney: true, rateBp: 500n },
+    { qty: 24, coarseMoney: false, rateBp: 100n },
+    { qty: 6, coarseMoney: true, rateBp: 50n },
+    { qty: 24, coarseMoney: false, rateBp: 10n },
+  ];
+  const niceInt = (n: ZArith, t: FieldType) => (tier: number): ZBool[] => {
+    const T = TIERS[tier];
+    if (!T) return [];
+    if (t === "money") return T.coarseMoney ? [n.mod(z.Int.val(25)).eq(0), n.le(10_000)] : [n.le(100_000)];
+    if (t === "qty") return [n.le(T.qty)];
+    if (t === "rate") {
+      const step = (bounds.rateDenominator * T.rateBp) / 10_000n;
+      return step > 1n ? [n.mod(z.Int.val(step)).eq(0)] : [];
+    }
+    return [];
+  };
+  const niceReal = (x: ZArith, t: FieldType) => (tier: number): ZBool[] => {
+    const T = TIERS[tier];
+    if (!T) return [];
+    if (t === "rate") return [z.IsInt(x.mul(Number(10_000n / T.rateBp)))];
+    if (t === "number") return [z.IsInt(x), x.ge(0), x.le(T.coarseMoney ? 48 : 1000)];
+    if (t === "money") return [z.IsInt(x.mul(T.coarseMoney ? 4 : 100)), x.le(T.coarseMoney ? 100 : 1000)];
+    if (t === "qty") return [x.le(T.qty)];
+    return [];
+  };
+
+  const mkVar = (key: string, t: FieldType, extras: Rational[] = []): NV => {
+    const name = `${P}.${key}`;
+    if (t === "money" && extras.every((e) => e.mul(Rational.of(100)).isInteger())) {
+      const c = z.Int.const(name) as unknown as ZArith;
+      const dom = z.And(c.ge(0), c.le(z.Int.val(bounds.moneyMaxCents)));
+      domain.push(extras.length ? z.Or(dom, ...extras.map((e) => c.eq(z.Int.val(e.mul(Rational.of(100)).num)))) : dom);
+      vars.push({ key, type: t, term: c, nice: niceInt(c, t) });
+      return intNV(c, 100n);
+    }
+    if (t === "qty" && extras.every((e) => e.isInteger())) {
+      const n = z.Int.const(name) as unknown as ZArith;
+      const dom = z.And(n.ge(1), n.le(bounds.qtyMax));
+      domain.push(extras.length ? z.Or(dom, ...extras.map((e) => n.eq(z.Int.val(e.num)))) : dom);
+      vars.push({ key, type: t, term: n, nice: niceInt(n, t) });
+      return intNV(n, 1n);
+    }
+    const RD = bounds.rateDenominator;
+    if (t === "rate" && extras.every((e) => e.mul(Rational.of(RD)).isInteger())) {
+      const b = z.Int.const(name) as unknown as ZArith;
+      const dom = z.And(b.ge(0), b.le(z.Int.val(RD)));
+      domain.push(extras.length ? z.Or(dom, ...extras.map((e) => b.eq(z.Int.val(e.mul(Rational.of(RD)).num)))) : dom);
+      vars.push({ key, type: t, term: b, nice: niceInt(b, t) });
+      return intNV(b, RD);
+    }
+    const x = z.Real.const(name);
+    const R = (r: Rational) => z.Real.val({ numerator: r.num, denominator: r.den });
+    let dom: ZBool;
     switch (t) {
       case "money":
-        return z.And(isIntR(x.mul(100)), x.ge(0), x.le(R(Rational.of(bounds.moneyMaxCents, 100n))));
+        dom = z.And(z.IsInt(x.mul(100)), x.ge(0), x.le(R(Rational.of(bounds.moneyMaxCents, 100n))));
+        break;
       case "qty":
-        return z.And(isIntR(x), x.ge(1), x.le(bounds.qtyMax));
+        dom = z.And(z.IsInt(x), x.ge(1), x.le(bounds.qtyMax));
+        break;
       case "rate":
-        return z.And(x.ge(0), x.le(1));
+        dom = z.And(x.ge(0), x.le(1));
+        break;
       default:
-        return z.Bool.val(true);
+        dom = z.Bool.val(true);
     }
-  };
-  const niceFor = (x: ZArith, t: FieldType) => (tier: number): ZBool[] => {
-    if (tier >= 2) return [];
-    const small = tier === 0;
-    switch (t) {
-      case "money":
-        return [isIntR(x.mul(small ? 4 : 100)), x.le(small ? 100 : 1000)];
-      case "qty":
-        return [x.le(small ? 6 : 24)];
-      case "rate":
-        return [isIntR(x.mul(small ? 20 : 100))];
-      case "number":
-        return [isIntR(x), x.ge(0), x.le(small ? 48 : 1000)];
-      default:
-        return [];
-    }
-  };
-
-  const mkVar = (key: string, t: FieldType, extraValues: Rational[] = []): ZArith => {
-    const x = z.Real.const(`${P}.${key}`);
-    const extras = extraValues.map((v) => x.eq(R(v)));
-    domain.push(extras.length ? z.Or(typeDomain(x, t), ...extras) : typeDomain(x, t));
-    vars.push({ key, type: t, term: x, nice: niceFor(x, t) });
-    return x;
+    const ex = t === "rate" || t === "number" ? [] : extras.map((e) => x.eq(R(e)));
+    domain.push(ex.length ? z.Or(dom, ...ex) : dom);
+    vars.push({ key, type: t, term: x, nice: niceReal(x, t) });
+    return realNV(x);
   };
 
   // ---------- doc inputs ----------
-  const docInputs: Record<string, ZArith> = {};
+  const docInputs: Record<string, NV> = {};
   for (const f of doc.fields) {
     if (f.type === "string") continue;
     const ov = o.docOverrides?.[f.name];
     if (ov) {
-      docInputs[f.name] = ov.term;
+      docInputs[f.name] = ov.value;
       domain.push(...ov.domain);
       vars.push(...ov.vars);
       continue;
@@ -199,27 +266,32 @@ export function buildSymbolicDoc(z: Z3, cfg: Configuration, doc: DocumentType, o
     docInputs[f.name] = mkVar(`doc.${f.name}`, f.type);
   }
 
-  // ---------- line inputs ----------
-  type LineState = {
-    inputs: Record<string, ZArith>;
-    keyIdx: Map<string, ZArith>; // catalogId -> entry index term
-    computed: Record<string, ZArith>;
+  // ---------- catalog entries per line ----------
+  // bound mode: entries are fixed per line (resolved statically, chains included)
+  const fixedEntry = (i: number, catalogId: string, depth = 0): Entry | undefined => {
+    const cat = catalogs.get(catalogId);
+    if (!cat || depth > 4) return undefined;
+    if (roots.has(catalogId)) {
+      const id = o.lineEntries?.[i]?.[catalogId];
+      return cat.entries.find((e) => e.id === id);
+    }
+    const chain = bindingOf(cat.lineKey, allBindings);
+    if (!chain) return undefined;
+    const src = fixedEntry(i, chain.catalogId, depth + 1);
+    if (!src) return undefined;
+    return cat.entries.find((e) => e.id === String(src.data[chain.field] ?? ""));
   };
-  const lines: LineState[] = [];
-  const lineFieldNames = new Set(doc.lineFields.map((f) => f.name));
-  const bindingOf = (lf: string, list: CatalogBinding[]) => list.find((b) => b.lineField === lf);
 
+  // free mode: symbolic entry index per (line, catalog)
+  const keyIdx: Array<Map<string, ZArith>> = Array.from({ length: K }, () => new Map());
   const keyIndex = (i: number, catalogId: string, depth = 0): ZArith | undefined => {
-    const L = lines[i]!;
-    const have = L.keyIdx.get(catalogId);
+    const have = keyIdx[i]!.get(catalogId);
     if (have) return have;
     const cat = catalogs.get(catalogId);
     if (!cat || !lineFieldNames.has(cat.lineKey) || depth > 4) return undefined;
-    const fixed = o.fixKeys?.find((f) => f.line === i && f.catalogId === catalogId);
-    const chain = bindingOf(cat.lineKey, bindings);
+    const chain = bindingOf(cat.lineKey, allBindings);
     let idx: ZArith;
-    if (chain && !fixed) {
-      // the key itself is filled from another catalog entry (e.g. line.stockItem <- products.stockItem)
+    if (chain && !roots.has(catalogId)) {
       const src = catalogs.get(chain.catalogId)!;
       const srcIdx = keyIndex(i, chain.catalogId, depth + 1);
       if (!srcIdx) return undefined;
@@ -231,85 +303,91 @@ export function buildSymbolicDoc(z: Z3, cfg: Configuration, doc: DocumentType, o
       idx = t;
     } else {
       idx = z.Int.const(`${P}.line[${i}].${cat.lineKey}#${catalogId}`) as unknown as ZArith;
-      if (fixed) {
-        const j = cat.entries.findIndex((e) => e.id === fixed.entryId);
-        domain.push(idx.eq(j));
-      } else domain.push(z.And(idx.ge(0), idx.lt(cat.entries.length)));
+      domain.push(z.And(idx.ge(0), idx.lt(cat.entries.length)));
       vars.push({ key: `line[${i}].${cat.lineKey}`, type: "key", term: idx, nice: () => [] });
     }
-    L.keyIdx.set(catalogId, idx);
+    keyIdx[i]!.set(catalogId, idx);
     return idx;
   };
 
-  /** value of catalogId.field for line i: If-chain over entries; records definedness as a precondition */
-  const catalogTerm = (i: number, catalogId: string, field: string): ZArith | undefined => {
+  /** value of catalogId.field for line i; an undefined value is a precondition (runtime throws, nothing posts) */
+  const catalogNV = (i: number, catalogId: string, field: string): NV | undefined => {
     const cat = catalogs.get(catalogId);
+    if (!cat) return undefined;
+    if (o.mode === "bound" && (roots.has(catalogId) || bindingOf(cat.lineKey, allBindings))) {
+      const e = fixedEntry(i, catalogId);
+      const v = e ? catalogValue(e.data[field]) : undefined;
+      if (v === undefined) {
+        domain.push(z.Bool.val(false));
+        return C(Rational.ZERO);
+      }
+      return C(v);
+    }
     const idx = keyIndex(i, catalogId);
-    if (!cat || !idx) return undefined;
-    let t: ZArith = z.Real.val(0);
+    if (!idx) return undefined;
+    let t: NV = C(Rational.ZERO);
     const defined: ZBool[] = [];
     cat.entries.forEach((e, j) => {
       const v = catalogValue(e.data[field]);
       if (v === undefined) return;
       defined.push(idx.eq(j));
-      t = z.If(idx.eq(j), R(v), t) as ZArith;
+      t = iteNV(z, idx.eq(j), C(v), t);
     });
-    // at runtime an undefined lookup throws, so no posting happens: that is a precondition, not a failure
     domain.push(defined.length ? z.Or(...defined) : z.Bool.val(false));
     return t;
   };
 
+  // ---------- line inputs ----------
+  const lineInputs: Array<Record<string, NV>> = [];
+  const lineComputed: Array<Record<string, NV>> = [];
   for (let i = 0; i < K; i++) {
-    const L: LineState = { inputs: {}, keyIdx: new Map(), computed: {} };
-    lines.push(L);
-  }
-  for (let i = 0; i < K; i++) {
-    const L = lines[i]!;
+    const inputs: Record<string, NV> = {};
     for (const f of doc.lineFields) {
       if (f.type === "string") continue;
       const b = bindingOf(f.name, bindings);
       if (b) {
-        const t = catalogTerm(i, b.catalogId, b.field);
+        const t = catalogNV(i, b.catalogId, b.field);
         if (t) {
-          L.inputs[f.name] = t;
+          inputs[f.name] = t;
           continue;
         }
       }
       // free: the type's domain, widened by any catalog values this field could be filled from
       const fb = bindingOf(f.name, allBindings);
       const extra = fb ? (catalogs.get(fb.catalogId)?.entries ?? []).map((e) => catalogValue(e.data[fb.field])).filter((v): v is Rational => v !== undefined) : [];
-      L.inputs[f.name] = mkVar(`line[${i}].${f.name}`, f.type, extra);
+      inputs[f.name] = mkVar(`line[${i}].${f.name}`, f.type, extra);
     }
-    // bound mode: catalogs referenced only through string bindings still need their index
-    if (o.mode === "bound") for (const b of bindings) if (lineFieldNames.has(b.lineField)) keyIndex(i, b.catalogId);
-    for (const fk of o.fixKeys ?? []) if (fk.line === i) keyIndex(i, fk.catalogId);
+    lineInputs.push(inputs);
+    lineComputed.push({});
   }
 
   // ---------- scopes ----------
-  const computedDoc: Record<string, ZArith> = {};
-  const policy = (name: string) => (policies[name] ? R(policies[name]!) : undefined);
-  const docGet = (name: string): ZArith | undefined => {
+  const computedDoc: Record<string, NV> = {};
+  const docGet = (name: string): NV | undefined => {
     if (name.startsWith("doc.")) {
       const k = name.slice(4);
       return computedDoc[k] ?? docInputs[k];
     }
-    if (name.startsWith("policy.")) return policy(name.slice(7));
+    if (name.startsWith("policy.")) {
+      const p = policies[name.slice(7)];
+      return p ? C(p) : undefined;
+    }
     return undefined;
   };
-  const lineScopes: EncodeScope[] = lines.map((L, i) => ({
+  const lineScopes: EncodeScope[] = lineInputs.map((inputs, i) => ({
     z,
     sideConditions: side,
     get(name) {
       if (name.startsWith("line.")) {
         const k = name.slice(5);
-        return L.computed[k] ?? L.inputs[k];
+        return lineComputed[i]![k] ?? inputs[k];
       }
       return docGet(name);
     },
     lookup(path) {
       const dot = path.indexOf(".");
       if (dot < 0) return undefined;
-      return catalogTerm(i, path.slice(0, dot), path.slice(dot + 1));
+      return catalogNV(i, path.slice(0, dot), path.slice(dot + 1));
     },
   }));
   const docScope: EncodeScope = { z, sideConditions: side, get: docGet, lookup: () => undefined, lines: () => lineScopes };
@@ -317,7 +395,7 @@ export function buildSymbolicDoc(z: Z3, cfg: Configuration, doc: DocumentType, o
   // ---------- derived (declaration order, like computeDocument) ----------
   for (const d of doc.derived) {
     const e = compile(d.expr);
-    if (d.scope === "line") lines.forEach((L, i) => (L.computed[d.name] = encodeNum(e, lineScopes[i]!)));
+    if (d.scope === "line") lineScopes.forEach((s, i) => (lineComputed[i]![d.name] = encodeNum(e, s)));
     else computedDoc[d.name] = encodeNum(e, docScope);
   }
 
@@ -331,37 +409,33 @@ export function buildSymbolicDoc(z: Z3, cfg: Configuration, doc: DocumentType, o
   }
 
   // ---------- model -> concrete input ----------
-  const val = (m: ZModel, t: ZArith) => rationalOf(z, m.eval(t, true));
+  const val = (m: ZModel, v: NV) => evalNV(z, m as never, v);
+  const entryIn = (m: ZModel, i: number, catalogId: string): Entry | undefined => {
+    if (o.mode === "bound") {
+      const e = fixedEntry(i, catalogId);
+      if (e) return e;
+    }
+    const idx = keyIdx[i]!.get(catalogId);
+    if (!idx) return undefined;
+    const j = Number(evalNV(z, m as never, intNV(idx)).num);
+    return catalogs.get(catalogId)!.entries[j];
+  };
   const extract = (m: ZModel): DocumentInput => {
     const fields: Record<string, Scalar> = {};
     for (const f of doc.fields) fields[f.name] = f.type === "string" ? `cx-${f.name}` : exact(val(m, docInputs[f.name]!));
-    const outLines = lines.map((L, i) => {
+    const outLines = lineInputs.map((inputs, i) => {
       const line: Record<string, Scalar> = {};
       for (const f of doc.lineFields) {
         if (f.type !== "string") {
-          line[f.name] = exact(val(m, L.inputs[f.name]!));
+          line[f.name] = exact(val(m, inputs[f.name]!));
           continue;
         }
+        const rootCat = cfg.catalogs.find((c) => c.lineKey === f.name && roots.has(c.id));
         const b = bindingOf(f.name, bindings);
-        const keyCat = cfg.catalogs.find((c) => c.lineKey === f.name && L.keyIdx.has(c.id));
-        if (b && L.keyIdx.has(b.catalogId)) {
-          const j = Number(val(m, L.keyIdx.get(b.catalogId)!).num);
-          const e = catalogs.get(b.catalogId)!.entries[j];
-          line[f.name] = e ? String(e.data[b.field] ?? "") : "";
-        } else if (keyCat) {
-          const j = Number(val(m, L.keyIdx.get(keyCat.id)!).num);
-          line[f.name] = keyCat.entries[j]?.id ?? `cx-unknown`;
-        } else line[f.name] = `cx-${f.name}`;
+        if (rootCat && entryIn(m, i, rootCat.id)) line[f.name] = entryIn(m, i, rootCat.id)!.id;
+        else if (b && entryIn(m, i, b.catalogId)) line[f.name] = String(entryIn(m, i, b.catalogId)!.data[b.field] ?? "");
+        else line[f.name] = `cx-${f.name}`;
       }
-      // a string field that is a catalog key, filled by chain, must agree with the chain
-      for (const c of cfg.catalogs) {
-        const idx = L.keyIdx.get(c.id);
-        if (idx && lineFieldNames.has(c.lineKey) && !bindingOf(c.lineKey, bindings)) {
-          const j = Number(val(m, idx).num);
-          if (c.entries[j]) line[c.lineKey] = c.entries[j]!.id;
-        }
-      }
-      void i;
       return line;
     });
     return { fields, lines: outLines };
@@ -374,19 +448,36 @@ export function buildSymbolicDoc(z: Z3, cfg: Configuration, doc: DocumentType, o
       if (f.type === "string") continue;
       out[`doc.${f.name}`] = show(f.type, Rational.parse(String(input.fields[f.name])));
     }
-    for (const v of vars) if (v.type === "component") out[v.key] = show("rate", val(m, v.term));
+    for (const v of vars) if (v.type === "component") out[v.key] = show("rate", evalNV(z, m as never, realNV(v.term)));
     input.lines.forEach((line, i) => {
       for (const f of doc.lineFields) {
         const raw = line[f.name];
         if (f.type === "string") {
-          if (raw !== undefined && !String(raw).startsWith("cx-")) out[`line[${i}].${f.name}`] = String(raw);
+          if (raw !== undefined && raw !== "" && !String(raw).startsWith("cx-")) out[`line[${i}].${f.name}`] = String(raw);
         } else out[`line[${i}].${f.name}`] = show(f.type, Rational.parse(String(raw)));
       }
     });
     return out;
   };
 
-  return { z, doc, K, mode: o.mode, domain, checks, side, docScope, lineScopes, vars, extract, describe };
+  return { z, doc, K, mode: o.mode, lineEntries: o.lineEntries, domain, checks, side, docScope, lineScopes, vars, extract, describe };
+}
+
+/** All multisets of size K over the per-line choices (lines are order-independent in the DSL). */
+export function entryCombos(cfg: Configuration, doc: DocumentType, K: number, bindings?: CatalogBinding[]): Array<Array<Record<string, string>>> {
+  const roots = rootCatalogs(cfg, doc, bindings ?? inferCatalogBindings(cfg, doc));
+  let perLine: Array<Record<string, string>> = [{}];
+  for (const c of roots) perLine = perLine.flatMap((p) => c.entries.map((e) => ({ ...p, [c.id]: e.id })));
+  const out: Array<Array<Record<string, string>>> = [];
+  const rec = (start: number, acc: Array<Record<string, string>>) => {
+    if (acc.length === K) {
+      out.push(acc);
+      return;
+    }
+    for (let j = start; j < perLine.length; j++) rec(j, [...acc, perLine[j]!]);
+  };
+  rec(0, []);
+  return out;
 }
 
 export function show(t: FieldType, r: Rational): string {

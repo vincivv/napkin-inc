@@ -25,8 +25,12 @@ export interface ProveOptions {
   bindings?: CatalogBinding[];
   /** try to synthesize and verify a fix for failures (default true) */
   suggestFixes?: boolean;
+  /** override numeric policies (used to verify suggested fixes) */
+  policyOverrides?: Record<string, import("@napkin/ledger-core").Rational>;
   /** collect log lines */
   log?: string[];
 }
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
+/** free-mode (unbound line values) queries are an optimisation for documents with lines */
+export const FREE_TIMEOUT_MS = 1_500;

@@ -62,3 +62,12 @@ export async function check(z: Z3, assertions: ZBool[], timeoutMs: number): Prom
   queue = p.catch(() => undefined);
   return p;
 }
+
+/** Validate a model independently: every assertion must evaluate to true under it (with completion). */
+export function modelSatisfies(z: Z3, m: ZModel, assertions: ZBool[]): boolean {
+  for (const a of assertions) {
+    const v = m.eval(a, true);
+    if (!z.isTrue(v)) return false;
+  }
+  return true;
+}

@@ -17,11 +17,11 @@ import {
   type PostingRule,
 } from "@napkin/ledger-core";
 import type { Configuration } from "@napkin/schema";
-import { encodeBool, encodeNum, rationalOf } from "./encode";
+import { addNV, cmpNV, constNV, encodeBool, encodeNum, evalNV, isCents, isWhole, iteNV, type NV } from "./encode";
 import { money } from "./format";
-import { asDef, buildSymbolicDoc, DEFAULT_BOUNDS, postingContext, type Bounds, type DocumentType, type SymbolicDoc } from "./symbolic";
-import { DEFAULT_TIMEOUT_MS, type ProofResult, type ProveOptions, type ProverDetail } from "./types";
-import { check, getZ3, type Z3, type ZArith, type ZBool, type ZModel } from "./z3";
+import { asDef, buildSymbolicDoc, DEFAULT_BOUNDS, entryCombos, NICE_TIERS, postingContext, type Bounds, type DocumentType, type SymbolicDoc } from "./symbolic";
+import { DEFAULT_TIMEOUT_MS, FREE_TIMEOUT_MS, type ProofResult, type ProveOptions, type ProverDetail } from "./types";
+import { check, getZ3, modelSatisfies, type Z3, type ZArith, type ZBool, type ZModel } from "./z3";
 
 type ObligationKind = "balance" | "cents" | "qty" | "div" | "vacuous";
 
@@ -33,12 +33,14 @@ interface Failure {
   sym: SymbolicDoc;
   model?: ZModel;
   unknown?: string;
-  imbalanceTerm?: ZArith;
+  imbalance?: NV;
 }
 
 interface RunResult {
   failures: Failure[];
-  vacuousK: number[];
+  /** number of (K, entry-combination) instances where no input passes the checks */
+  vacuous: number;
+  instances: number;
   checked: number;
 }
 
@@ -62,14 +64,61 @@ function encodeRules(sym: SymbolicDoc) {
   });
 }
 
-async function niceModel(z: Z3, sym: SymbolicDoc, base: ZBool[], model: ZModel, timeoutMs: number): Promise<ZModel> {
-  for (const tier of [0, 1]) {
+interface Obligation {
+  key: string;
+  kind: ObligationKind;
+  ruleId?: string;
+  negation: ZBool;
+  withSide: boolean;
+  imbalance?: NV;
+}
+
+function obligations(sym: SymbolicDoc, want: (k: ObligationKind) => boolean): Obligation[] {
+  const z = sym.z;
+  const rules = encodeRules(sym);
+  const out: Obligation[] = [];
+  const zero = constNV(z, Rational.ZERO);
+  if (want("balance")) {
+    let imb: NV = zero;
+    for (const { rule, inst } of rules) {
+      if (rule.target.kind !== "account") continue;
+      for (const x of inst) imb = addNV(z, imb, iteNV(z, x.when, x.amount, zero), rule.side === "debit" ? 1 : -1);
+    }
+    out.push({ key: "balance", kind: "balance", negation: cmpNV(z, "ne", imb, zero), withSide: true, imbalance: imb });
+  }
+  if (want("cents"))
+    for (const { rule, inst } of rules)
+      out.push({ key: `cents:${rule.id}`, kind: "cents", ruleId: rule.id, negation: z.Or(...inst.map((x) => z.And(x.when, z.Not(isCents(z, x.amount))))), withSide: true });
+  if (want("qty"))
+    for (const { rule, inst } of rules) {
+      if (rule.target.kind !== "register" || !rule.qtyExpr) continue;
+      out.push({ key: `qty:${rule.id}`, kind: "qty", ruleId: rule.id, negation: z.Or(...inst.map((x) => z.And(x.when, z.Not(isWhole(z, x.qty!))))), withSide: true });
+    }
+  if (want("div") && sym.side.length) out.push({ key: "div", kind: "div", negation: z.Not(z.And(...sym.side)), withSide: false });
+  return out;
+}
+
+async function niceModel(z: Z3, sym: SymbolicDoc, base: ZBool[], model: ZModel): Promise<ZModel> {
+  for (let tier = 0; tier < NICE_TIERS; tier++) {
     const extra = sym.vars.flatMap((v) => v.nice(tier));
     if (!extra.length) continue;
-    const r = await check(z, [...base, ...extra], Math.min(3000, timeoutMs));
-    if (r.status === "sat") return r.model;
+    const r = await check(z, [...base, ...extra], 1000);
+    if (r.status === "sat" && modelSatisfies(z, r.model, base)) return r.model;
   }
   return model;
+}
+
+/** The symbolic instances to check: one per K in free mode; one per (K, catalog-entry multiset) in bound mode. */
+function* instances(z: Z3, cfg: Configuration, doc: DocumentType, mode: "free" | "bound", bounds: Bounds, opts: ProveOptions) {
+  const Ks = doc.lineFields.length === 0 ? [0] : Array.from({ length: bounds.kMax }, (_, i) => i + 1);
+  for (const K of Ks) {
+    if (mode === "free" || K === 0) {
+      yield buildSymbolicDoc(z, cfg, doc, { K, mode: "free", bounds, bindings: opts.bindings, policyOverrides: opts.policyOverrides });
+      continue;
+    }
+    for (const lineEntries of entryCombos(cfg, doc, K, opts.bindings))
+      yield buildSymbolicDoc(z, cfg, doc, { K, mode: "bound", bounds, bindings: opts.bindings, lineEntries, policyOverrides: opts.policyOverrides });
+  }
 }
 
 async function runObligations(
@@ -78,78 +127,45 @@ async function runObligations(
   mode: "free" | "bound",
   opts: ProveOptions,
   only?: Set<ObligationKind>,
+  stopOnFirst = false,
 ): Promise<RunResult> {
   const z = await getZ3();
   const bounds = resolveBounds(opts.bounds);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const failures: Failure[] = [];
   const failed = new Set<string>();
-  const vacuousK: number[] = [];
+  let vacuous = 0;
+  let count = 0;
   let checked = 0;
-  const Ks = doc.lineFields.length === 0 ? [0] : Array.from({ length: bounds.kMax }, (_, i) => i + 1);
   const want = (k: ObligationKind) => !only || only.has(k);
 
-  for (const K of Ks) {
-    const sym = buildSymbolicDoc(z, cfg, doc, { K: Math.max(K, 1), mode, bounds, bindings: opts.bindings });
-    const rules = encodeRules(sym);
+  for (const sym of instances(z, cfg, doc, mode, bounds, opts)) {
+    count++;
     const pre: ZBool[] = [...sym.domain, ...sym.checks.map((c) => c.term)];
-
-    const run = async (key: string, kind: ObligationKind, goalNegation: ZBool, extra: Partial<Failure> = {}, withSide = true) => {
-      if (failed.has(key)) return;
-      const base = [...pre, ...(withSide ? sym.side : []), goalNegation];
+    // vacuity: some input must pass the checks here, or "proved" would mean nothing
+    checked++;
+    const v = await check(z, [...pre, ...sym.side], timeoutMs);
+    if (v.status === "unsat") {
+      vacuous++;
+      continue;
+    }
+    for (const ob of obligations(sym, want)) {
+      if (failed.has(ob.key)) continue;
+      const base = [...pre, ...(ob.withSide ? sym.side : []), ob.negation];
       checked++;
       const r = await check(z, base, timeoutMs);
-      if (r.status === "unsat") return;
-      failed.add(key);
-      if (r.status === "unknown") {
-        failures.push({ kind, K, mode, sym, unknown: r.reason, ...extra });
-        return;
-      }
-      const model = await niceModel(z, sym, base, r.model, timeoutMs);
-      failures.push({ kind, K, mode, sym, model, ...extra });
-    };
-
-    // vacuity: some input must pass the checks, or "proved" would mean nothing
-    if (want("vacuous")) {
-      checked++;
-      const r = await check(z, [...pre, ...sym.side], timeoutMs);
-      if (r.status === "unsat") {
-        vacuousK.push(K);
-        continue;
-      }
-      if (r.status === "unknown") failures.push({ kind: "vacuous", K, mode, sym, unknown: r.reason });
-    }
-
-    if (want("balance")) {
-      let imb: ZArith = z.Real.val(0);
-      for (const { rule, inst } of rules) {
-        if (rule.target.kind !== "account") continue;
-        for (const x of inst) {
-          const signed = rule.side === "debit" ? x.amount : x.amount.neg();
-          imb = imb.add(z.If(x.when, signed, z.Real.val(0)) as ZArith);
-        }
-      }
-      await run("balance", "balance", imb.neq(0), { imbalanceTerm: imb });
-    }
-    if (want("cents")) {
-      for (const { rule, inst } of rules) {
-        const bad = z.Or(...inst.map((x) => z.And(x.when, z.Not(z.IsInt(x.amount.mul(100))))));
-        await run(`cents:${rule.id}`, "cents", bad, { ruleId: rule.id });
-      }
-    }
-    if (want("qty")) {
-      for (const { rule, inst } of rules) {
-        if (rule.target.kind !== "register" || !rule.qtyExpr) continue;
-        const bad = z.Or(...inst.map((x) => z.And(x.when, z.Not(z.IsInt(x.qty!)))));
-        await run(`qty:${rule.id}`, "qty", bad, { ruleId: rule.id });
-      }
-    }
-    if (want("div") && sym.side.length) {
-      await run("div", "div", z.Not(z.And(...sym.side)), {}, false);
+      if (r.status === "unsat") continue;
+      failed.add(ob.key);
+      const f: Failure = { kind: ob.kind, ruleId: ob.ruleId, K: sym.K, mode: sym.mode, sym, imbalance: ob.imbalance };
+      if (r.status === "unknown") f.unknown = r.reason;
+      else if (!modelSatisfies(z, r.model, base)) f.unknown = "the solver returned a model that does not satisfy the query (rejected)";
+      else f.model = stopOnFirst ? r.model : await niceModel(z, sym, base, r.model);
+      failures.push(f);
+      if (stopOnFirst) return { failures, vacuous, instances: count, checked };
     }
   }
-  if (want("vacuous") && vacuousK.length === Ks.length) failures.push({ kind: "vacuous", K: 0, mode, sym: undefined as never });
-  return { failures, vacuousK, checked };
+  if (want("vacuous") && vacuous === count) failures.push({ kind: "vacuous", K: 0, mode, sym: undefined as never });
+  return { failures, vacuous, instances: count, checked };
 }
 
 // ---------- replay & explanation ----------
@@ -239,12 +255,13 @@ function withRules(doc: DocumentType, rules: DocumentType["postingRules"]): Docu
 }
 
 async function proves(cfg: Configuration, doc: DocumentType, opts: ProveOptions, kinds: ObligationKind[]): Promise<boolean> {
-  for (const mode of ["free", "bound"] as const) {
-    const r = await runObligations(cfg, doc, mode, { ...opts, suggestFixes: false }, new Set(kinds));
-    if (r.failures.length === 0) return true;
-    if (r.failures.some((f) => f.unknown)) return false;
-  }
-  return false;
+  const o = { ...opts, suggestFixes: false };
+  const hasLines = doc.lineFields.length > 0;
+  const free = await runObligations(cfg, doc, "free", freeOpts(o, hasLines), new Set(kinds), true);
+  if (free.failures.length === 0) return true;
+  if (!hasLines) return false;
+  const bound = await runObligations(cfg, doc, "bound", o, new Set(kinds), true);
+  return bound.failures.length === 0;
 }
 
 async function suggestBalanceFix(cfg: Configuration, doc: DocumentType, input: DocumentInput, imbalance: Rational, opts: ProveOptions) {
@@ -306,14 +323,47 @@ async function suggestBalanceFix(cfg: Configuration, doc: DocumentType, input: D
 }
 
 
-async function suggestCentsFix(cfg: Configuration, doc: DocumentType, ruleId: string, opts: ProveOptions) {
+async function suggestCentsFix(cfg: Configuration, doc: DocumentType, ruleId: string, input: DocumentInput, opts: ProveOptions) {
   const r = doc.postingRules.find((x) => x.id === ruleId)!;
+  // 1) a derived field the rule reads (directly or transitively) that is fractional in the counterexample:
+  //    rounding it where it is defined fixes every rule that posts it.
+  let computed: ReturnType<typeof computeDocument>["computed"] | undefined;
+  try {
+    computed = computeDocument(asDef(doc), input, postingContext(cfg)).computed;
+  } catch {
+    computed = undefined;
+  }
+  const derivedByName = new Map(doc.derived.map((d) => [`${d.scope}.${d.name}`, d]));
+  const deps = (expr: string, seen = new Set<string>()): string[] => {
+    const out: string[] = [];
+    for (const n of names(compile(expr))) {
+      const d = derivedByName.get(n);
+      if (!d || seen.has(n)) continue;
+      seen.add(n);
+      out.push(...deps(d.expr, seen), n);
+    }
+    return out;
+  };
+  const fractional = (n: string) => {
+    if (!computed) return false;
+    const d = derivedByName.get(n)!;
+    const vals = d.scope === "line" ? computed.lines.map((l) => l[d.name]) : [computed.doc[d.name]];
+    return vals.some((v) => v !== undefined && !v.mul(Rational.of(100)).isInteger());
+  };
+  for (const n of deps(r.amountExpr).filter(fractional)) {
+    const d = derivedByName.get(n)!;
+    if (/^round2\(/.test(d.expr.trim())) continue;
+    const fixed: DocumentType = { ...doc, derived: doc.derived.map((x) => (x === d ? { ...x, expr: `round2(${x.expr})` } : x)) };
+    if (await proves(cfg, fixed, opts, ["balance", "cents"]))
+      return `Round ${n} where it is defined: "${d.name} = round2(${d.expr})". Verified: with that change the balance and whole-cents proofs pass.`;
+  }
+  // 2) round the rule amount itself (and every rule posting the same amount)
   const canon = print(compile(r.amountExpr));
   const same = doc.postingRules.filter((x) => print(compile(x.amountExpr)) === canon).map((x) => x.id);
   const fixed = withRules(doc, doc.postingRules.map((x) => (same.includes(x.id) ? { ...x, amountExpr: `round2(${x.amountExpr})` } : x)));
   const ok = await proves(cfg, fixed, opts, ["balance", "cents"]);
   const which = same.length > 1 ? `rules ${same.join(", ")}` : `rule ${ruleId}`;
-  return `Round ${which} to cents: amountExpr "round2(${r.amountExpr})" (or a derived field round2(...) that every rule posting it shares).${ok ? " Verified: with that change the balance and whole-cents proofs pass." : " (that alone does not make the proof pass)"}`;
+  return `Round ${which} to cents: amountExpr "round2(${r.amountExpr})".${ok ? " Verified: with that change the balance and whole-cents proofs pass." : " (that alone does not make the proof pass; the amount must be rounded once, in a derived field every balancing rule shares)"}`;
 }
 
 // ---------- public ----------
@@ -327,25 +377,26 @@ export async function proveBalance(cfg: Configuration, docTypeId: string, opts: 
   const z = await getZ3();
   void z;
 
-  const free = await runObligations(cfg, doc, "free", opts);
+  const hasLines = doc.lineFields.length > 0;
+  // free mode first (strongest claim); for documents with lines it is only an optimisation, so it
+  // stops at the first non-proof and uses a short timeout, and the per-entry bound mode decides.
+  const free = await runObligations(cfg, doc, "free", freeOpts(opts, hasLines), undefined, hasLines);
   let result = free;
   let mode: "free" | "bound" = "free";
-  const hasLines = doc.lineFields.length > 0;
   if (free.failures.length && hasLines) {
-    const bound = await runObligations(cfg, doc, "bound", opts);
-    result = bound;
+    result = await runObligations(cfg, doc, "bound", opts);
     mode = "bound";
   }
-  const kText = hasLines ? `every cart of 1..${bounds.kMax} lines (qty 1..${bounds.qtyMax})` : "every input";
+  const kText = hasLines ? `every document of 1..${bounds.kMax} lines (qty 1..${bounds.qtyMax})` : "every input";
   const details: ProverDetail[] = [];
-  const vacText = result.vacuousK.length && result.vacuousK.length < (hasLines ? bounds.kMax : 1) ? ` (no input passes the checks with ${result.vacuousK.join(", ")} line(s))` : "";
+  const vacText = result.vacuous && result.vacuous < result.instances ? ` (${result.vacuous} of ${result.instances} cases admit no valid input and were skipped)` : "";
 
   if (result.failures.length === 0) {
     const rulesN = doc.postingRules.length;
     const how =
       mode === "free"
         ? "for any line values"
-        : `with line values taken from the catalog (${(opts.bindings ?? []).length ? "given bindings" : "inferred bindings"}); with free-form line values it would fail: ${firstReason(free)}`;
+        : `with line values taken from the catalog (${(opts.bindings ?? []).length ? "given bindings" : "inferred bindings"}), one solver query per catalog-entry combination; with free-form line values: ${firstReason(free)}`;
     details.push({
       subject: doc.id,
       status: "proved",
@@ -353,7 +404,7 @@ export async function proveBalance(cfg: Configuration, docTypeId: string, opts: 
       mode,
       message: `debits = credits for ${kText} that passes the checks, ${how}; all ${rulesN} rule amounts are whole cents${doc.postingRules.some((r) => r.qtyExpr) ? ", register quantities are whole" : ""}${vacText}.`,
     });
-    log?.push(`balance ${doc.id}: proved (${mode}, ${result.checked + (mode === "bound" ? free.checked : 0)} solver checks)`);
+    log?.push(`balance ${doc.id}: proved (${mode}, ${result.checked + (mode === "bound" ? free.checked : 0)} solver checks, ${Math.round(performance.now() - t0)} ms)`);
     return { status: "proved", durationMs: Math.round(performance.now() - t0), details };
   }
 
@@ -362,10 +413,15 @@ export async function proveBalance(cfg: Configuration, docTypeId: string, opts: 
   return { status: "failed", durationMs: Math.round(performance.now() - t0), details };
 }
 
+function freeOpts(opts: ProveOptions, hasLines: boolean): ProveOptions {
+  return hasLines ? { ...opts, timeoutMs: Math.min(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, FREE_TIMEOUT_MS) } : opts;
+}
+
 function firstReason(r: RunResult): string {
   const f = r.failures[0];
   if (!f) return "";
-  return f.kind === "balance" ? "unbalanced" : f.kind === "cents" ? `fractional cents in ${f.ruleId}` : f.kind;
+  if (f.unknown) return `not decided by the solver (${f.unknown})`;
+  return f.kind === "balance" ? "it would not balance" : f.kind === "cents" ? `fractional cents in ${f.ruleId}` : f.kind;
 }
 
 async function explain(cfg: Configuration, doc: DocumentType, f: Failure, opts: ProveOptions): Promise<ProverDetail> {
@@ -386,7 +442,7 @@ async function explain(cfg: Configuration, doc: DocumentType, f: Failure, opts: 
   if (f.kind === "balance") {
     let imb: Rational;
     if (rep.debitCents !== undefined) imb = Rational.of(rep.debitCents! - rep.creditCents!, 100n);
-    else imb = rationalOf(z, f.model.eval(f.imbalanceTerm!, true));
+    else imb = evalNV(z, f.model as never, f.imbalance!);
     cx["imbalance"] = money(imb);
     const shortSide = imb.lt(Rational.ZERO) ? "debits are short" : "credits are short";
     const off = money(imb.lt(Rational.ZERO) ? imb.neg() : imb);
@@ -404,7 +460,7 @@ async function explain(cfg: Configuration, doc: DocumentType, f: Failure, opts: 
     };
   }
   if (f.kind === "cents") {
-    const fix = suggest ? await suggestCentsFix(cfg, doc, f.ruleId!, opts) : undefined;
+    const fix = suggest ? await suggestCentsFix(cfg, doc, f.ruleId!, input, opts) : undefined;
     const rule = doc.postingRules.find((r) => r.id === f.ruleId)!;
     return {
       subject,
