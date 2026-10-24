@@ -67,3 +67,52 @@ Endpoints (businessId = lowercase slug):
 - Env: `ANTHROPIC_API_KEY` (+ `ANTHROPIC_WORKSPACE_ID` if the key is not workspace scoped), `CARTESIA_API_KEY`. Missing keys -> 503, nothing is faked.
 - Dev without keys: `PORT=4010 DEV_ORIGINS=http://localhost:3015 pnpm --filter @napkin/brain exec tsx scripts/dev-fixture-server.ts` (FAKE LLM, serves only M2 routes).
 - Real smoke: `pnpm --filter @napkin/brain exec tsx --env-file=/path/.env scripts/real-intake.ts ../../fixtures/maya/napkin.SYNTHETIC.png [voice.wav]`.
+
+## M2: compiler (`src/compiler`, `POST /compile`)
+`compile(spec, {businessId, version, prover, proposer?, roleLimits?, onStep?}) -> {config, proofReport, dryRun, log}`.
+Steps: facts -> template -> synthesis -> proofs -> configuration -> storefront -> agents (then `submit` in the route).
+
+- **facts**: every money-relevant fact (prices, costs, stock units/initial stock when tracked, all policies) must be
+  `usableForMoney` and well-formed (whole cents, percent <= 100, rates in whole basis points: the platform's and the
+  prover's rate domain). Otherwise `UnconfirmedMoneyFacts` lists every field with an OpenQuestion. Nothing is defaulted or rounded.
+- **template**: `templates/item_seller.ts` (documents, chart of accounts, registers, role permissions, reports, agents)
+  factored out of the fixture. Filled deterministically: catalogs, policies as exact decimal strings, initialStock.
+  Platform rules, not owner facts: backorders off, at most 1 coupon per order (D5). Refund limits for support and
+  bookkeeper are not in the spec: they carry over from the active (owner-approved) configuration, else 0 (every
+  agent refund goes to the owner).
+- **synthesis/proofs**: through a `ProverPort` (`prover-port.ts`). `/compile` uses `Z3Prover` (`z3-prover.ts`,
+  services/prover): balance, discount-stacking/margin-floor (+D4) and flow proofs are real; a failed proof refuses the
+  compile. `COMPILE_PROVER=stub` falls back to `StubProver` (every proof `skipped`, solver "STUB (no prover wired)",
+  shown as "skipped (stub)" in the owner app). Synthesis is reported `skipped`: the spec's document-level examples are
+  not yet mapped to the prover's expression synthesis, so examples are checked deterministically against the
+  template rules instead (a mismatch becomes an owner question). An `ambiguous` synthesis becomes an owner question. Independently of the prover: `parseConfiguration`, `checkConfigurationSemantics`
+  and a ledger-core dry run (per product: sale at 0 and at the max discount, full refund, payment; plus fee, payout,
+  stock receipt, opening balance) must pass.
+- **storefront/agents** (the only LLM step, optional): `LlmCopyProposer` (via `src/llm.ts`, Claude Opus 5.5) proposes
+  theme colors, emoji, font, headline, tagline and agent goal wording, from names only (no prices). Every field is
+  validated (hex, WCAG contrast, font allowlist, no digits/currency/money words/links) and dropped on failure; safety
+  goals are always kept. The money sections are fingerprinted before and after and the compile refuses on any change.
+- `POST /compile {businessId}` streams SSE `step` events, then `result {configId, version, status, activated}` or
+  `error {code, message, questions}`. It submits v(n+1) as **pending**; the owner activates it in the owner app.
+  Only a brand-new business with no owner and no active config is activated by the brain (bootstrap).
+  `GET /compile/:businessId/latest` replays the last run. One run per business at a time (409).
+
+## M2: guards (`src/guards`)
+Every agent tool call: `guard.check({actor:{role,identity}, businessId, tool, args, provenance:{source, text?}})
+-> {allow, outcome, ruleIds, reason, maxAllowed?, wouldChangeIf, checkedArgs, ...}`. `wrapTool(fn, guard)` runs the
+tool only on allow, with the guard's parsed args. `createStdbGuard(hub)` is the live wiring.
+
+Rules (`rules.ts`, pure): unknown tool refused; invariant 6 (only role owner + source owner_app may change price,
+policy or configuration; owner_phone_verified is queued as an owner statement; anything else is refused); role
+permissions and agent tool lists; catalog prices only (caller prices ignored); D5 coupon stacking; rate domain
+(whole basis points); discount cap and margin floor checked with ledger-core `post()` on catalog prices, with the
+exact max discount (`maxAllowed.discountRate`, a fraction) and its basis-point floor; refund window (escalates), D4
+full-or-floor refunds, role refund limits (escalate); segregation of duties on approvals; precedents only tighten.
+Prompt injection in `provenance.text` or order notes never changes a decision (property tested). Each check writes
+exactly one DecisionRecord (`recordDecision`, as the agent's identity when the brain holds it); escalations open an
+inbox item. If the record cannot be written the call is not allowed (`GuardUnavailable`).
+
+Real vs simulated: compiler, dry run, Z3 proofs, guards and the SSE route are real and run against the real
+platform. Posting-rule synthesis from examples is not wired (reported `skipped`). The LLM copy step runs only with `ANTHROPIC_API_KEY`; without it defaults are
+used. Tests: `test/compiler.test.ts`, `test/compile-route.test.ts`, `test/guards.test.ts`, `test/z3-prover.test.ts` (TEST data in
+`test/fixtures/maya-spec.TEST.ts`: the fixture's placeholder costs, marked confirmed for tests only).

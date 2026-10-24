@@ -14,6 +14,7 @@ import { SessionStore } from "./payments/checkout";
 import { SimulatorGateway, StripeGateway, type ProcessorGateway } from "./payments/gateway";
 import { OutboxWorker, RefundExecutor, type OutboxExecutor } from "./payments/outbox";
 import { registerM2Routes } from "./m2";
+import { mountCompiler } from "./compiler/routes";
 import { registerPhoneRoutes } from "./phone";
 import { SmsExecutor } from "./phone/sms";
 
@@ -115,6 +116,7 @@ const app = createApp({
   },
 });
 const m2 = registerM2Routes(app, hub, env.dataDir); // M2: intake + question engine
+mountCompiler(app, hub, env.dataDir); // M2: compiler (POST /compile, SSE)
 // M3-K: phone line webhook tools. Orders go through the same createCheckout path as the storefront.
 const phone = registerPhoneRoutes(app, { env, hub, m2, checkout: { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront } });
 executors.push(new SmsExecutor(phone.sms));
