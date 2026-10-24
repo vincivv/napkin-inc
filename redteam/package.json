@@ -9,7 +9,8 @@
     "sample": "tsx src/fake-sample.ts",
     "results": "tsx src/results.ts",
     "results:sample": "tsx src/fake-sample.ts && tsx src/results.ts examples/sample-run.FAKE.json",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "run:real": "LOG_LEVEL=error tsx src/real/run-real.ts"
   },
   "dependencies": {
     "@napkin/ledger-core": "workspace:*",
