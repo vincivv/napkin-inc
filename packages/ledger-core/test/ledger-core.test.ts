@@ -203,6 +203,14 @@ describe("invariants", () => {
     bad.postingRules = bad.postingRules.filter((r) => r.id !== "sale.discount"); // the classic "forgot the discounts account" bug
     expect(() => post(bad, { fields: { orderId: "x", discountRate: "0.10" }, lines: [saleLine("cookie_box6", 1)] }, ctx)).toThrow(UnbalancedPostingError);
   });
+  it("skipChecks (red-team baseline) skips policy checks but never the balance check", () => {
+    const input = { fields: { orderId: "b", discountRate: "0.25" }, lines: [saleLine("cookie_box6", 1)] };
+    expect(() => post(docDef("sale"), input, ctx)).toThrow(PolicyCheckError);
+    expect(post(docDef("sale"), input, ctx, { skipChecks: true }).computed.doc.total!.toDecimal()).toBe("11.25");
+    const bad = structuredClone(docDef("sale"));
+    bad.postingRules = bad.postingRules.filter((r) => r.id !== "sale.discount");
+    expect(() => post(bad, input, ctx, { skipChecks: true })).toThrow(UnbalancedPostingError);
+  });
   it("property (inv. 3): selling more than stock is detected", () => {
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 60 }), fc.integer({ min: 1, max: 20 }), (stock, boxes) => {

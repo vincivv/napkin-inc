@@ -132,6 +132,9 @@ importers:
       '@napkin/ledger-core':
         specifier: workspace:*
         version: link:../packages/ledger-core
+      '@napkin/schema':
+        specifier: workspace:*
+        version: link:../packages/schema
       spacetimedb:
         specifier: 2.13.0
         version: 2.13.0(react@19.3.1)

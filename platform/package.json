@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "spacetimedb": "2.13.0",
-    "@napkin/ledger-core": "workspace:*"
+    "@napkin/ledger-core": "workspace:*",
+    "@napkin/schema": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

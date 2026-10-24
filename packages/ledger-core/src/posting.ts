@@ -245,14 +245,22 @@ function resolveDims(dims: Record<string, string> | undefined, input: DocumentIn
   return out;
 }
 
+export interface PostOptions {
+  /**
+   * Red-team BASELINE only (business.enforce = false): skip the document's policy checks
+   * (invariant 4). The balance check (invariant 1) is never skipped.
+   */
+  skipChecks?: boolean;
+}
+
 /**
  * Produce the postings for a document. Throws PolicyCheckError if a policy check fails and
- * UnbalancedPostingError if debits != credits (invariant 1). Neither can be bypassed by callers
- * that want postings: there is no "force" flag.
+ * UnbalancedPostingError if debits != credits (invariant 1). The balance check cannot be bypassed:
+ * there is no "force" flag. Policy checks are skipped only with `skipChecks` (the red-team baseline).
  */
-export function post(def: DocumentDef, input: DocumentInput, ctx: PostingContext): PostingResult {
+export function post(def: DocumentDef, input: DocumentInput, ctx: PostingContext, opts: PostOptions = {}): PostingResult {
   const envs = computeDocument(def, input, ctx);
-  const checkFailures = runChecks(def, input, ctx, envs);
+  const checkFailures = opts.skipChecks ? [] : runChecks(def, input, ctx, envs);
   if (checkFailures.length) throw new PolicyCheckError(checkFailures);
 
   const journal: JournalLine[] = [];
