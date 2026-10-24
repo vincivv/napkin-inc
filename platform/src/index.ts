@@ -701,6 +701,23 @@ function processMoneyDoc(ctx: Ctx, biz: BusinessRow, caller: Caller, docType: st
   return postDraft(ctx, biz, row, caller);
 }
 
+/** Every string value in an outbox result (JSON, any depth); a non-JSON result counts as one value. */
+function resultRefs(resultJson: string): Set<string> {
+  const out = new Set<string>();
+  if (resultJson === "") return out;
+  const walk = (v: unknown) => {
+    if (typeof v === "string") out.add(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  try {
+    walk(JSON.parse(resultJson));
+  } catch {
+    out.add(resultJson);
+  }
+  return out;
+}
+
 function processRefundSucceeded(ctx: Ctx, biz: BusinessRow, args: { eventId: string; orderId: string; amountCents: bigint; processorRef: string }): { documentId: bigint; summary: string } {
   const items = [...ctx.db.outbox.businessId.filter(biz.id)].filter((o) => o.kind === "stripe_refund").sort((a, b) => (a.id < b.id ? -1 : 1));
   const payloadOf = (o: (typeof items)[number]) => {
@@ -710,7 +727,9 @@ function processRefundSucceeded(ctx: Ctx, biz: BusinessRow, args: { eventId: str
       return {};
     }
   };
-  let match = args.processorRef !== "" ? items.find((o) => o.idempotencyKey === args.processorRef || (o.resultJson !== "" && o.resultJson.includes(args.processorRef))) : undefined;
+  // Exact match on the idempotency key or on a string value of the stored result (never a substring:
+  // "sim_re_1" must not match an item whose result is "sim_re_12").
+  let match = args.processorRef !== "" ? items.find((o) => o.idempotencyKey === args.processorRef || resultRefs(o.resultJson).has(args.processorRef)) : undefined;
   match ??= items.find((o) => {
     const p = payloadOf(o);
     return o.status !== "done" && o.status !== "cancelled" && p.orderId === args.orderId && p.amountCents !== undefined && BigInt(p.amountCents) === args.amountCents;

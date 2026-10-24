@@ -372,6 +372,26 @@ describe("refunds", () => {
     expect(openInbox(w, BIZ).map((i) => i.question).join()).toMatch(/reversed in the ledger/);
   });
 
+  it("a processor refund matches its outbox item exactly, never by substring of another item's result", () => {
+    sell(b, "r2", [line("cookie_box6", 1)]);
+    w.call(b.actors.support, "requestRefund", { orderId: "r1", amountCents: 1500n, reason: "a" });
+    w.call(b.actors.bookkeeper, "postDocument", { documentId: refundDraft().id });
+    w.call(b.actors.support, "requestRefund", { orderId: "r2", amountCents: 1500n, reason: "b" });
+    w.call(b.actors.bookkeeper, "postDocument", { documentId: refundDraft().id });
+    const [first, second] = w.rows("outbox").sort((x, y) => (x.id < y.id ? -1 : 1));
+    // the second item finished first, with processor refund "re_12"; then "re_1" arrives for the first one
+    w.call(w.system, "claimOutbox", { id: second.id });
+    w.call(w.system, "completeOutbox", { id: second.id, ok: true, resultJson: JSON.stringify({ refundId: "re_12" }) });
+    w.call(w.system, "recordProcessorEvent", { eventId: "refund:re_1", businessId: BIZ, kind: "refund_succeeded", orderId: "r1", amountCents: 1500n, processorRef: "re_1" });
+    expect(w.db.outbox.id.find(first.id).status).toBe("done");
+    expect(JSON.parse(w.db.outbox.id.find(first.id).resultJson)).toMatchObject({ processorRef: "re_1", via: "webhook" });
+    expect(w.db.outbox.id.find(second.id).resultJson).toBe(JSON.stringify({ refundId: "re_12" }));
+    // the exact ref still matches the completed item (idempotent)
+    w.call(w.system, "recordProcessorEvent", { eventId: "refund:re_12", businessId: BIZ, kind: "refund_succeeded", orderId: "r2", amountCents: 1500n, processorRef: "re_12" });
+    expect(w.db.processorEvent.eventId.find("refund:re_12").documentId).toBe(BigInt(JSON.parse(second.payloadJson).documentId));
+    expect(openInbox(w, BIZ)).toHaveLength(0);
+  });
+
   it("two pending refunds are re-checked at posting: the second cannot exceed the sale", () => {
     w.call(b.actors.support, "requestRefund", { orderId: "r1", amountCents: 1500n, reason: "a" });
     const first = refundDraft();
