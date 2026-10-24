@@ -26,8 +26,15 @@ export const wholeCents = (v: unknown): string | undefined => {
 };
 const positiveCents = (v: unknown) => wholeCents(v) ?? (Rational.parse(v as string).isZero() ? "must be more than zero" : undefined);
 const nonNegDecimal = (v: unknown) => (!isDec(v) ? "not an exact decimal" : Rational.parse(v).lt(Rational.ZERO) ? "cannot be negative" : undefined);
-const fraction01 = (v: unknown) => nonNegDecimal(v) ?? (Rational.parse(v as string).ge(Rational.ONE) ? "must be below 1 (a fraction, e.g. 0.0875)" : undefined);
-const percent = (v: unknown) => nonNegDecimal(v) ?? (Rational.parse(v as string).gt(Rational.of(100n)) ? "a percentage cannot exceed 100" : undefined);
+// Rates must land in the platform's (and prover's) rate domain: whole basis points. The compiler never rounds an
+// owner's rate to fit; it refuses and asks (e.g. a sales tax of 8.875% cannot be represented today).
+const BP_NOTE = "the platform supports rates in whole basis points only (at most 4 decimals as a fraction)";
+const fraction01 = (v: unknown) =>
+  nonNegDecimal(v) ??
+  (Rational.parse(v as string).ge(Rational.ONE) ? "must be below 1 (a fraction, e.g. 0.0875)" : !Rational.parse(v as string).mul(Rational.of(10_000n)).isInteger() ? `has more than 4 decimals; ${BP_NOTE}` : undefined);
+const percent = (v: unknown) =>
+  nonNegDecimal(v) ??
+  (Rational.parse(v as string).gt(Rational.of(100n)) ? "a percentage cannot exceed 100" : !Rational.parse(v as string).mul(Rational.of(100n)).isInteger() ? `has more than 2 decimals; ${BP_NOTE}` : undefined);
 const positiveInt = (v: unknown) => (!isDec(v) ? "not an exact decimal" : !Rational.parse(v).isInteger() || Rational.parse(v).lt(Rational.ONE) ? "must be a whole number of at least 1" : undefined);
 const nonNegInt = (v: unknown) => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? undefined : "must be a whole number >= 0");
 const bool = (v: unknown) => (typeof v === "boolean" ? undefined : "must be true or false");

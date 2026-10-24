@@ -5,7 +5,8 @@ import maya from "../../../fixtures/maya/configuration.json";
 import { compile, CompileRefused, moneyFingerprint, NeedsOwnerAnswer, percentToRate, StubProver, UnconfirmedMoneyFacts, type StepEvent } from "../src/compiler";
 import { dryRun } from "../src/compiler/dryrun";
 import type { ProverPort, SynthesisResult } from "../src/compiler/prover-port";
-import { acceptProposal, copyProblem, type CopyProposer } from "../src/compiler/storefront";
+import { acceptProposal, copyProblem, LlmCopyProposer, type CopyProposer } from "../src/compiler/storefront";
+import { LlmUnavailable, type Llm, type ToolRequest } from "../src/llm";
 import * as T from "../src/compiler/templates/item_seller";
 import { guess, mayaTestSpec, ok, TEST_ROLE_LIMITS } from "./fixtures/maya-spec.TEST";
 
@@ -240,5 +241,40 @@ describe("LLM proposals touch only look and wording", () => {
     expect(copyProblem("Warm cookies, made today", 140)).toBeUndefined();
     for (const bad of ["Only $3", "20% off", "Free cookie", "www.x.com", "Buy 2 get 1"]) expect(copyProblem(bad, 140)).toBeDefined();
     expect(acceptProposal({ theme: { primary: "#ffffff", accent: "#000000", background: "#ffffff", text: "#fefefe" } }, { headline: "h", tagline: "t" }).rejected[0]).toMatch(/contrast/);
+  });
+});
+
+describe("LlmCopyProposer (through the shared Llm port)", () => {
+  const input = { businessName: "TEST shop", oneLiner: "TEST", community: "TEST", offerings: ["TEST item"] };
+  const fake = (tool: Llm["tool"]): Llm => ({ tool, text: async () => "" });
+
+  it("sends names only (no prices) and uses the propose_storefront tool", async () => {
+    const seen: ToolRequest[] = [];
+    const p = new LlmCopyProposer(fake(async (req) => (seen.push(req), { headline: "Hello" })));
+    expect(await p.propose(input)).toEqual({ headline: "Hello" });
+    expect(seen[0]!.toolName).toBe("propose_storefront");
+    expect(JSON.stringify(seen[0]!.content)).not.toMatch(/price|cost|\$/i);
+  });
+
+  it("refusal or a malformed answer yields no proposal (defaults are used)", async () => {
+    expect(await new LlmCopyProposer(fake(async () => { throw new LlmUnavailable("declined"); })).propose(input)).toEqual({});
+    expect(await new LlmCopyProposer(fake(async () => ({ theme: "red" }))).propose(input)).toEqual({});
+  });
+});
+
+describe("rate domain (platform: whole basis points)", () => {
+  it("refuses a tax rate with more than 4 decimals instead of rounding it", async () => {
+    const spec = mayaTestSpec();
+    spec.policies.taxRate = ok("0.08875");
+    const e = await compile(spec, base).catch((x) => x);
+    expect(e).toBeInstanceOf(UnconfirmedMoneyFacts);
+    expect(e.fields.map((f: { path: string }) => f.path)).toContain("policies.taxRate");
+  });
+  it("refuses a percentage with more than 2 decimals", async () => {
+    const spec = mayaTestSpec();
+    spec.policies.maxDiscountPct = ok("12.345");
+    const e = await compile(spec, base).catch((x) => x);
+    expect(e).toBeInstanceOf(UnconfirmedMoneyFacts);
+    expect(e.fields.map((f: { path: string }) => f.path)).toContain("policies.maxDiscountPct");
   });
 });

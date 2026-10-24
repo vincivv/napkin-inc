@@ -4,9 +4,8 @@
 // The LLM never sees prices, costs, stock or policies, and no proposal can reach a money field: the
 // compiler fingerprints the money sections before and after this step and refuses on any difference.
 
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
+import { LlmUnavailable, MODELS, type Llm } from "../llm";
 import { AGENT_TEMPLATES, DEFAULT_THEME, type AgentTemplate } from "./templates/item_seller";
 
 export interface CopyInput {
@@ -147,37 +146,66 @@ export function acceptProposal(p: Proposal | undefined, defaults: { headline: st
   return { theme, headline, tagline, goals, rejected, used };
 }
 
-// ---------- Anthropic proposer (optional) ----------
+// ---------- Claude proposer (optional), through the shared Llm port ----------
 
-export const COPY_MODEL = "claude-opus-5-5";
+export const COPY_MODEL = MODELS.opus;
 
-/** Proposes look and wording with Claude. Used only when ANTHROPIC_API_KEY is configured. */
-export class ClaudeCopyProposer implements CopyProposer {
+/** JSON Schema for the propose_storefront tool (small: 9 optional fields, no unions). */
+const GOALS = { type: "array", items: { type: "string" }, maxItems: 5 } as const;
+export const PROPOSAL_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    theme: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        primary: { type: "string", description: "#rrggbb" },
+        accent: { type: "string", description: "#rrggbb" },
+        background: { type: "string", description: "#rrggbb" },
+        text: { type: "string", description: "#rrggbb, readable on background" },
+        emoji: { type: "string", description: "one emoji" },
+        font: { type: "string", enum: [...FONTS] },
+      },
+      required: ["primary", "accent", "background", "text"],
+    },
+    headline: { type: "string", maxLength: 60 },
+    tagline: { type: "string", maxLength: 140 },
+    agentGoals: { type: "object", additionalProperties: false, properties: { shopkeeper: GOALS, support: GOALS, bookkeeper: GOALS } },
+  },
+} as const;
+
+const COPY_SYSTEM =
+  "You design the look of a small business's online storefront. Propose a color theme (hex #rrggbb, readable text on the background), " +
+  "optionally one emoji and a font, a short headline (the business name is fine) and a one-line tagline, and plain-language goal phrases " +
+  "for its three AI staff (shopkeeper, support, bookkeeper). Never mention prices, numbers, discounts, refunds, deals or promises: " +
+  "money rules are set elsewhere and anything like that will be discarded.";
+
+/**
+ * Proposes look and wording with Claude via the brain's Llm port (src/llm.ts: workspace header, no forced
+ * tool_choice, thinking headroom, refusal handling). Used only when ANTHROPIC_API_KEY is configured. The
+ * output is untrusted: it is schema-checked here and then validated field by field by acceptProposal.
+ */
+export class LlmCopyProposer implements CopyProposer {
   readonly name = `${COPY_MODEL} (proposal only)`;
-  private readonly client: Anthropic;
-  /** workspaceId: sent as anthropic-workspace-id (required for keys not scoped to a workspace), like src/llm.ts */
-  constructor(apiKey: string, workspaceId?: string) {
-    this.client = new Anthropic({ apiKey, maxRetries: 2, timeout: 120_000, ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}) });
-  }
+  constructor(private readonly llm: Llm) {}
 
   async propose(input: CopyInput): Promise<Proposal> {
-    const res = await this.client.messages.parse({
-      model: COPY_MODEL,
-      max_tokens: 4000,
-      output_config: { effort: "low", format: zodOutputFormat(ProposalSchema) },
-      system:
-        "You design the look of a small business's online storefront. Propose a color theme (hex #rrggbb, readable text on the background), " +
-        "optionally one emoji and a font, a short headline (the business name is fine) and a one-line tagline, and plain-language goal phrases " +
-        "for its three AI staff (shopkeeper, support, bookkeeper). Never mention prices, numbers, discounts, refunds, deals or promises: " +
-        "money rules are set elsewhere and anything like that will be discarded.",
-      messages: [
-        {
-          role: "user",
-          content: JSON.stringify({ business: input.businessName, oneLiner: input.oneLiner, community: input.community, sells: input.offerings }),
-        },
-      ],
-    });
-    if (res.stop_reason === "refusal" || !res.parsed_output) return {};
-    return res.parsed_output;
+    let raw: unknown;
+    try {
+      raw = await this.llm.tool({
+        model: COPY_MODEL,
+        system: COPY_SYSTEM,
+        content: [{ type: "text", text: JSON.stringify({ business: input.businessName, oneLiner: input.oneLiner, community: input.community, sells: input.offerings }) }],
+        toolName: "propose_storefront",
+        toolDescription: "Record the proposed storefront look, copy and staff goal wording.",
+        schema: PROPOSAL_JSON_SCHEMA as unknown as Record<string, unknown>,
+      });
+    } catch (e) {
+      if (e instanceof LlmUnavailable) return {};
+      throw e;
+    }
+    const parsed = ProposalSchema.safeParse(raw);
+    return parsed.success ? parsed.data : {};
   }
 }

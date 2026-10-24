@@ -17,7 +17,8 @@ import { compile, CompileRefused, type StepEvent } from "./index";
 import { SpecStore } from "../spec/store";
 import { SpecStoreSource, StdbCompilePlatform, type CompilePlatformPort, type SpecSource } from "./platform";
 import { StubProver, type ProverPort } from "./prover-port";
-import { ClaudeCopyProposer, type CopyProposer } from "./storefront";
+import { LlmCopyProposer, type CopyProposer } from "./storefront";
+import { llmFromEnv } from "../llm";
 import type { RoleLimits } from "./templates/item_seller";
 
 export interface CompileRouteDeps {
@@ -127,8 +128,8 @@ export function registerCompileRoutes(app: Hono, deps: CompileRouteDeps): void {
 
 /** Production wiring: stub prover until services/prover is merged; Claude copy proposals only with a key. */
 export function defaultCompileDeps(platform: CompilePlatformPort, specs: SpecSource, prover: ProverPort = new StubProver()): CompileRouteDeps {
-  const key = process.env["ANTHROPIC_API_KEY"]?.trim();
-  const proposer = key ? new ClaudeCopyProposer(key, process.env["ANTHROPIC_WORKSPACE_ID"]?.trim() || undefined) : undefined;
+  const llm = llmFromEnv();
+  const proposer = llm ? new LlmCopyProposer(llm) : undefined;
   if (prover.isStub) log.warn("compile", "PROVER STUB: configurations are compiled with proofs marked 'skipped' until services/prover is wired");
   return { platform, specs, prover, ...(proposer ? { proposer } : {}) };
 }

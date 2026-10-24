@@ -25,6 +25,8 @@ export interface MaxAllowed {
   discountRate?: string;
   /** the same value as a decimal for display (may end in "…") */
   discountRateDecimal?: string;
+  /** the largest rate the platform accepts (whole basis points, its rate domain) that is <= discountRate, e.g. "0.6533" */
+  discountRateBasisPoints?: string;
   refundCents?: string;
 }
 

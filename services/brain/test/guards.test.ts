@@ -52,6 +52,10 @@ function ledgerAccepts(lines: { productId: string; qty: number }[], rate: Ration
   }
 }
 
+/** Platform oracle: the rate is in the platform's domain (whole basis points in [0, 1], platform checkRate) and ledger-core accepts the sale. */
+const inRateDomain = (r: Rational) => !r.lt(Rational.ZERO) && !r.gt(Rational.ONE) && r.mul(Rational.of(10_000n)).isInteger();
+const platformAccepts = (lines: { productId: string; qty: number }[], rate: Rational) => inRateDomain(rate) && ledgerAccepts(lines, rate);
+
 const lineArb = fc.record({ productId: fc.constantFrom(...PRODUCTS), qty: fc.integer({ min: 1, max: 12 }) });
 const rateArb = fc.oneof(
   fc.integer({ min: 0, max: 5000 }).map((bp) => Rational.of(BigInt(bp), 10000n)),
@@ -64,19 +68,20 @@ const strip = (d: GuardDecision) => {
 };
 
 describe("guard: discount cap and margin floor (property)", () => {
-  it("for random discount requests, the guard allows iff ledger-core accepts the sale", async () => {
+  it("for random discount requests, the guard allows iff the platform accepts the sale (rate domain + ledger-core)", async () => {
     const { guard } = setup();
     await fc.assert(
       fc.asyncProperty(fc.array(lineArb, { minLength: 1, maxLength: 4 }), rateArb, fc.boolean(), async (lines, rate, asCoupon) => {
         const d = await guard.check(call("shopkeeper", "quote", { lines, discounts: [{ source: asCoupon ? "coupon" : "manual", rate: rate.toJSON() }] }));
-        expect(d.allow).toBe(ledgerAccepts(lines, rate));
+        expect(d.allow).toBe(platformAccepts(lines, rate));
+        if (!inRateDomain(rate)) expect(d.ruleIds).toContain("rate_domain");
         expect(d.outcome === "escalated").toBe(false); // shopkeeper's limit equals the policy cap
       }),
       { numRuns: 400 },
     );
   });
 
-  it("maxAllowed is an exact fraction the ledger accepts, and every smaller rate is allowed", async () => {
+  it("maxAllowed is an exact fraction the ledger accepts; its basis-point floor and every smaller whole-bp rate are allowed", async () => {
     const { guard } = setup();
     await fc.assert(
       fc.asyncProperty(fc.array(lineArb, { minLength: 1, maxLength: 4 }), fc.integer({ min: 0, max: 1000 }), async (lines, permille) => {
@@ -86,7 +91,10 @@ describe("guard: discount cap and margin floor (property)", () => {
         const m = Rational.parse(max);
         expect(m.le(Rational.parse(cfg.policies.maxDiscount))).toBe(true);
         expect(ledgerAccepts(lines, m)).toBe(true);
-        const r = m.mul(Rational.of(BigInt(permille), 1000n));
+        const bp = Rational.parse(d.maxAllowed!.discountRateBasisPoints!);
+        expect(bp.le(m) && inRateDomain(bp) && ledgerAccepts(lines, bp)).toBe(true);
+        expect(bp.add(Rational.of(1n, 10_000n)).gt(m)).toBe(true); // the largest whole-bp rate <= the exact max
+        const r = Rational.of(bp.mul(Rational.of(BigInt(permille), 1000n)).mul(Rational.of(10_000n)).floor(), 10_000n);
         const d2 = await guard.check(call("shopkeeper", "quote", { lines, discounts: [{ source: "manual", rate: r.toJSON() }] }));
         expect(d2.allow).toBe(true);
       }),

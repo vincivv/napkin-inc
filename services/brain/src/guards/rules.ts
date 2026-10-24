@@ -80,6 +80,10 @@ const permitted = (perms: readonly string[], need: string) => perms.some((p) => 
 
 const fracStr = (r: Rational) => r.toJSON();
 const show = (r: Rational) => r.toDecimal(6);
+const BP = Rational.of(10_000n);
+/** The platform's rate domain (platform checkRate): whole basis points in [0, 1]. */
+const inRateDomain = (r: Rational) => !r.lt(Rational.ZERO) && !r.gt(Rational.ONE) && r.mul(BP).isInteger();
+const bpFloor = (r: Rational) => Rational.of(r.mul(BP).floor(), 10_000n);
 const centsStr = (c: bigint) => fixed2(Rational.fromCents(c));
 
 const minR = (xs: (Rational | undefined)[]) => xs.filter((x): x is Rational => x !== undefined).reduce<Rational | undefined>((m, x) => (!m || x.lt(m) ? x : m), undefined);
@@ -239,13 +243,15 @@ export function evaluate(call: GuardCall, world: GuardWorld | undefined): Evalua
     else if (coupons > cfg.policies.maxCouponsPerOrder) refuse("D5.coupon_stacking", `at most ${cfg.policies.maxCouponsPerOrder} coupon(s) per order, got ${coupons}`, `use at most ${cfg.policies.maxCouponsPerOrder} coupon`);
 
     const total = a.discounts.reduce((s, d) => s.add(Rational.parse(d.rate)), Rational.ZERO);
+    const offDomain = [...a.discounts.map((d) => d.rate).filter((r) => !inRateDomain(Rational.parse(r))), ...(inRateDomain(total) ? [] : [`total ${show(total)}`])];
+    if (offDomain.length) refuse("rate_domain", `discount rates must be whole basis points in [0, 1] (at most 4 decimals): ${offDomain.join(", ")}`, "each rate and the total have at most 4 decimals and are between 0 and 1");
     const policyCap = Rational.parse(cfg.policies.maxDiscount);
     const roleCap = owner ? undefined : roleLimit(cfg, roleId, "maxDiscount");
     const tight = tightened(policyCap, "maxDiscount", ps, notes, rules)!;
     const precCapChecked = tight.lt(policyCap) ? tight : undefined;
     const best = maxDiscountRate(cfg, a.lines, [policyCap, roleCap, precCapChecked]);
-    if (best) maxAllowed = { discountRate: fracStr(best), discountRateDecimal: show(best) };
-    const would = best ? `the total discount is at most ${show(best)} (${fracStr(best)})` : "the owner raises the price or lowers the margin floor";
+    if (best) maxAllowed = { discountRate: fracStr(best), discountRateDecimal: show(best), discountRateBasisPoints: bpFloor(best).toDecimal(4) };
+    const would = best ? `the total discount is at most ${bpFloor(best).toDecimal(4)} (exact limit ${fracStr(best)})` : "the owner raises the price or lowers the margin floor";
 
     try {
       post(docDef(cfg, "sale"), saleInput(cfg, a.lines, fracStr(total)), postingContext(cfg));
