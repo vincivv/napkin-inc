@@ -120,7 +120,7 @@ used. Tests: `test/compiler.test.ts`, `test/compile-route.test.ts`, `test/guards
 ## M3: Agents (`src/agents`) — the AI staff
 Three staff on **Claude Sonnet 5.5** (`claude-sonnet-5-5`): **Shopkeeper** (sells via chat: `menu_lookup`, `quote`,
 `create_order`, `escalate`), **Support** (`order_status`, `request_refund`, `escalate`) and **Bookkeeper**
-(`ledger_read`, `reconcile`, `approve_refund`, `escalate`). The offered tools are always the agent's configured list
+(`ledger_read`, `reconcile`, `approve_refund`, `escalate`; in chat and `/ask`, whose callers are unauthenticated, only `ledger_read`, `reconcile`, `escalate`: safer, so no chat path approves refunds). The offered tools are always the agent's configured list
 (`configuration.agents[].tools`) ∩ the guard registry `TOOLS` ∩ the implemented tools.
 
 Every tool call: **LLM -> guard (`wrapTool`) -> platform reducer as the agent's own identity -> DecisionRecord**.

@@ -122,7 +122,9 @@ export class Staff {
   message(m: MessageInput): Promise<AgentTurnResult> {
     const mode = m.mode ?? "napkin";
     const key = `${mode}|${m.businessId}|${m.role}|${m.conversationId}`;
-    return this.conversations.run(key, (history) => this.turn({ role: m.role, businessId: m.businessId, mode, history, text: m.text, quoted: quoteUntrusted(m.text, "customer_message") }));
+    // Chat callers are unauthenticated, so the Bookkeeper's chat gets read tools + escalate only (no approve_refund).
+    const restrict = m.role === "bookkeeper" ? ASK_TOOLS : undefined;
+    return this.conversations.run(key, (history) => this.turn({ role: m.role, businessId: m.businessId, mode, history, text: m.text, quoted: quoteUntrusted(m.text, "customer_message"), ...(restrict ? { restrict } : {}) }));
   }
 
   /** The owner asks the Bookkeeper. Read-only tools; refs are only ids that appeared in the tool output. */

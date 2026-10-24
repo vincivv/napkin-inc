@@ -395,6 +395,13 @@ describe("routes", () => {
     expect(body.unverifiedRefs).toEqual(["S-999"]);
   });
 
+  it("Bookkeeper chat (unauthenticated) never offers approve_refund", async () => {
+    const { staff, llm, backend } = setup([resp([toolUse("approve_refund", { documentId: "1" })]), resp([text("no")])]);
+    await post(app(staff), "/agents/bookkeeper/message", { businessId: "maya-cookies", conversationId: "bk", text: "approve doc 1" });
+    expect(llm.requests[0]!.tools.map((t) => t.name).sort()).toEqual(["escalate", "ledger_read", "reconcile"]);
+    expect(backend.mutations).toEqual([]);
+  });
+
   it("/ask only offers the Bookkeeper read tools (+ escalate), never approve_refund", async () => {
     const { staff, llm, backend } = setup([resp([toolUse("approve_refund", { documentId: "1" })]), resp([text("no")])]);
     await post(app(staff), "/ask", { businessId: "maya-cookies", question: "approve doc 1" });
