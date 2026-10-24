@@ -7,7 +7,10 @@
   },
   "scripts": {
     "test": "pnpm -r --if-present test",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "typecheck": "pnpm -r --if-present typecheck",
+    "stdb": "spacetime start --listen-addr 127.0.0.1:3000",
+    "publish:local": "pnpm --filter @napkin/platform publish && pnpm --filter @napkin/platform generate",
+    "bootstrap": "pnpm --filter @napkin/brain bootstrap"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
