@@ -140,7 +140,12 @@ async function logIntent(orderId: string, deps: CheckoutDeps, tolerateExisting: 
   return rec;
 }
 
-export async function createCheckout(req: CheckoutRequest, deps: CheckoutDeps): Promise<{ orderId: string; url: string; simulated: boolean }> {
+/** Which sales channel the order is recorded under. Not part of the HTTP request: only server code picks it. */
+export interface CheckoutOptions {
+  channel?: "storefront" | "phone";
+}
+
+export async function createCheckout(req: CheckoutRequest, deps: CheckoutDeps, opts: CheckoutOptions = {}): Promise<{ orderId: string; url: string; simulated: boolean }> {
   const biz = deps.platform.business(req.businessId);
   if (!biz) throw new CheckoutError(404, `unknown business ${req.businessId}`);
   if (biz.activeConfigId === 0n) throw new CheckoutError(409, `business ${req.businessId} has no active configuration`);
@@ -156,7 +161,7 @@ export async function createCheckout(req: CheckoutRequest, deps: CheckoutDeps): 
     businessId: req.businessId,
     orderId,
     customerName: req.customerName,
-    channel: "storefront",
+    channel: opts.channel ?? "storefront",
     discountRate: "0",
     couponCode: req.couponCode ?? "",
     lines: req.lines,

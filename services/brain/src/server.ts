@@ -12,8 +12,10 @@ import { actorKey, StdbHub } from "./stdb";
 import { IdentityStore } from "./store";
 import { SessionStore } from "./payments/checkout";
 import { SimulatorGateway, StripeGateway, type ProcessorGateway } from "./payments/gateway";
-import { OutboxWorker, RefundExecutor } from "./payments/outbox";
+import { OutboxWorker, RefundExecutor, type OutboxExecutor } from "./payments/outbox";
 import { registerM2Routes } from "./m2";
+import { registerPhoneRoutes } from "./phone";
+import { SmsExecutor } from "./phone/sms";
 
 let env: Env;
 try {
@@ -43,7 +45,8 @@ if (env.stripeMode === "test") {
 }
 
 const state: { bootstrapped: boolean; error?: string; lastAttempt?: string; steps: string[] } = { bootstrapped: false, steps: [] };
-const worker = new OutboxWorker({ platform, executors: [new RefundExecutor(platform, gateway)], staleMs: env.outboxStaleSeconds * 1000 });
+const executors: OutboxExecutor[] = [new RefundExecutor(platform, gateway)];
+const worker = new OutboxWorker({ platform, executors, staleMs: env.outboxStaleSeconds * 1000 });
 
 async function runBootstrap(): Promise<void> {
   state.lastAttempt = new Date().toISOString();
@@ -80,18 +83,28 @@ function health(): Record<string, unknown> {
     stripe: { mode: env.stripeMode, simulated: env.stripeMode === "simulator", webhookSecret: Boolean(env.stripeWebhookSecret) },
     bootstrap: { ok: state.bootstrapped, error: state.error, lastAttempt: state.lastAttempt, businesses },
     outbox: { pending: outbox.filter((o) => o.status === "pending").length, claimed: outbox.filter((o) => o.status === "claimed").length },
+    phone: {
+      toolSecret: Boolean(env.phoneToolSecret),
+      business: env.phoneBusinessId,
+      ownerMode: Boolean(env.ownerPhone && env.ownerPin),
+      sms: phone.sms.sender.mode === "twilio" ? "twilio" : "SMS SIMULATOR (nothing is sent)",
+      smsPending: phone.sms.all().filter((s) => s.status === "pending" || s.status === "claimed").length,
+      payLinkBase: env.brainUrl,
+    },
   };
 }
 
+const sessions = new SessionStore(env.dataDir);
+const hasStorefront = (businessId: string) => Boolean(hub.get(actorKey("storefront", businessId)));
 const app = createApp({
   platform,
   gateway,
-  sessions: new SessionStore(env.dataDir),
+  sessions,
   storePublicUrl: env.storePublicUrl,
   corsOrigins: env.corsOrigins,
   webhookSecret: env.stripeWebhookSecret,
   ownerPin: env.ownerPin,
-  hasStorefront: (businessId) => Boolean(hub.get(actorKey("storefront", businessId))),
+  hasStorefront,
   health,
   clientKey: (c) => {
     try {
@@ -101,7 +114,10 @@ const app = createApp({
     }
   },
 });
-registerM2Routes(app, hub, env.dataDir); // M2: intake + question engine
+const m2 = registerM2Routes(app, hub, env.dataDir); // M2: intake + question engine
+// M3-K: phone line webhook tools. Orders go through the same createCheckout path as the storefront.
+const phone = registerPhoneRoutes(app, { env, hub, m2, checkout: { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront } });
+executors.push(new SmsExecutor(phone.sms));
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();
