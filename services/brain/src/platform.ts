@@ -58,6 +58,8 @@ export interface CreateOrderArgs {
   discountRate: string;
   couponCode: string;
   lines: OrderLineInput[];
+  /** which actor identity creates the order (authority comes from that identity's platform role); default storefront */
+  asRole?: "storefront" | "shopkeeper";
 }
 
 export type ProcessorEventKind = "payment_succeeded" | "fee" | "refund_succeeded" | "payout";
@@ -192,7 +194,8 @@ export class StdbPlatform implements PlatformPort {
   }
 
   createOrder(a: CreateOrderArgs): Promise<void> {
-    return this.hub.call(actorKey("storefront", a.businessId), "createOrder", (c) => c.reducers.createOrder(a));
+    const { asRole, ...args } = a;
+    return this.hub.call(actorKey(asRole ?? "storefront", a.businessId), "createOrder", (c) => c.reducers.createOrder(args));
   }
 
   logPaymentIntent(orderId: string, idempotencyKey: string): Promise<void> {
