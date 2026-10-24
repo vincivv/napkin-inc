@@ -63,3 +63,4 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
     - **Not run:** 12 attacks, because they need the phone channel, a sale older than 24 hours, or a name over 64 characters.
   - **Follow-up running now:** count policy-breaking drafts as breaches, fix the invariant labels (new docs/INVARIANTS.md lists the nine from your prompt), and add a **scripted "compromised model"** table. That table tests your principle that guarantees hold even if the LLM is swapped.
   - Also fixed the red team's finding that simulator pay links skipped the payment-intent log. 329 tests pass.
+- **10:5x–15:00:** paused on the Claude session limit. Resumed the red-team follow-up at 3 PM; its labels, draft detectors and compromised-model pass were already committed.
