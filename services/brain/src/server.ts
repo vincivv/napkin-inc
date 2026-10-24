@@ -17,6 +17,7 @@ import { registerM2Routes } from "./m2";
 import { mountCompiler } from "./compiler/routes";
 import { registerPhoneRoutes } from "./phone";
 import { SmsExecutor } from "./phone/sms";
+import { mountAgents } from "./agents";
 
 let env: Env;
 try {
@@ -120,6 +121,7 @@ mountCompiler(app, hub, env.dataDir); // M2: compiler (POST /compile, SSE)
 // M3-K: phone line webhook tools. Orders go through the same createCheckout path as the storefront.
 const phone = registerPhoneRoutes(app, { env, hub, m2, checkout: { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront } });
 executors.push(new SmsExecutor(phone.sms));
+mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront }); // M3: AI staff
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();

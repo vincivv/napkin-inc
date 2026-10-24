@@ -7,7 +7,14 @@ export const MODELS = {
   opus: "claude-opus-5-5",
   /** question phrasing (classification-grade) */
   haiku: "claude-haiku-5-5",
+  /** the AI staff (Shopkeeper, Support, Bookkeeper) */
+  sonnet: "claude-sonnet-5-5",
 } as const;
+
+/** The one Anthropic client construction (workspace header when the key needs it); shared by every LLM port. */
+export function createAnthropicClient(apiKey: string, workspaceId?: string): Anthropic {
+  return new Anthropic({ apiKey, maxRetries: 2, timeout: 300_000, ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}) });
+}
 
 export type UserContent =
   | { type: "text"; text: string }
@@ -41,7 +48,7 @@ const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 export class AnthropicLlm implements Llm {
   private readonly client: Anthropic;
   constructor(apiKey: string, workspaceId?: string) {
-    this.client = new Anthropic({ apiKey, maxRetries: 2, timeout: 300_000, ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}) });
+    this.client = createAnthropicClient(apiKey, workspaceId);
   }
 
   // Current models reject a forced tool_choice ("tool"/"any"), so the tool is offered with tool_choice auto and

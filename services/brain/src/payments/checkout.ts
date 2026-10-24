@@ -146,10 +146,30 @@ export interface CheckoutOptions {
 }
 
 export async function createCheckout(req: CheckoutRequest, deps: CheckoutDeps, opts: CheckoutOptions = {}): Promise<{ orderId: string; url: string; simulated: boolean }> {
+  return checkoutOrder({ ...req, discountRate: "0", channel: opts.channel ?? "storefront", asRole: "storefront" }, deps);
+}
+
+/** An order placed by an actor other than the storefront (the AI Shopkeeper), with a guard-checked discount. */
+export interface ActorCheckoutRequest {
+  businessId: string;
+  lines: { productId: string; qty: number }[];
+  customerName: string;
+  couponCode?: string | undefined;
+  /** exact decimal; the platform re-checks it against the policy and the actor's role limit */
+  discountRate: string;
+  channel: "storefront" | "agent" | "phone";
+  asRole: "storefront" | "shopkeeper";
+}
+
+/**
+ * The one checkout path (storefront and AI Shopkeeper): the platform creates and prices the order as
+ * `asRole`'s identity, then the payment link is made exactly as for the storefront.
+ */
+export async function checkoutOrder(req: ActorCheckoutRequest, deps: CheckoutDeps): Promise<{ orderId: string; url: string; simulated: boolean }> {
   const biz = deps.platform.business(req.businessId);
   if (!biz) throw new CheckoutError(404, `unknown business ${req.businessId}`);
   if (biz.activeConfigId === 0n) throw new CheckoutError(409, `business ${req.businessId} has no active configuration`);
-  if (!deps.hasStorefront(req.businessId)) throw new CheckoutError(503, `storefront for ${req.businessId} is not bootstrapped`);
+  if (req.asRole === "storefront" && !deps.hasStorefront(req.businessId)) throw new CheckoutError(503, `storefront for ${req.businessId} is not bootstrapped`);
 
   const mint = deps.newOrderId ?? newOrderId;
   let orderId = mint(req.businessId);
@@ -161,10 +181,11 @@ export async function createCheckout(req: CheckoutRequest, deps: CheckoutDeps, o
     businessId: req.businessId,
     orderId,
     customerName: req.customerName,
-    channel: opts.channel ?? "storefront",
-    discountRate: "0",
+    channel: req.channel,
+    discountRate: req.discountRate,
     couponCode: req.couponCode ?? "",
     lines: req.lines,
+    ...(req.asRole !== "storefront" ? { asRole: req.asRole } : {}),
   });
   const order = await deps.platform.awaitOrder(orderId);
   if (!order) throw new CheckoutError(502, `order ${orderId} was created but is not visible to the brain`);

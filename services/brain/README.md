@@ -166,3 +166,55 @@ fetch, never called for real yet); the Cartesia setup script (only `--dry-run` h
 missing: SMS (simulator) and payments (DEV SIMULATOR pay links). Tests: `test/phone.test.ts` (auth, privacy, lockout,
 injection, idempotent SMS, Twilio errors, and a fast-check property that no customer-mode call sequence reaches owner
 tools or changes policy).
+
+## M3: Agents (`src/agents`) — the AI staff
+Three staff on **Claude Sonnet 5.5** (`claude-sonnet-5-5`): **Shopkeeper** (sells via chat: `menu_lookup`, `quote`,
+`create_order`, `escalate`), **Support** (`order_status`, `request_refund`, `escalate`) and **Bookkeeper**
+(`ledger_read`, `reconcile`, `approve_refund`, `escalate`; in chat and `/ask`, whose callers are unauthenticated, only `ledger_read`, `reconcile`, `escalate`: safer, so no chat path approves refunds). The offered tools are always the agent's configured list
+(`configuration.agents[].tools`) ∩ the guard registry `TOOLS` ∩ the implemented tools.
+
+Every tool call: **LLM -> guard (`wrapTool`) -> platform reducer as the agent's own identity -> DecisionRecord**.
+- The manual loop (`loop.ts`) caps iterations (8), runs parallel tool calls in order and returns all `tool_result`
+  blocks in one user message. A refusal goes back as `is_error: true` with the guard's reason, rule ids, `maxAllowed`
+  and `wouldChangeIf`, so the model can explain it; an escalation comes back as `status: escalated_to_owner` (the
+  guard already opened the inbox item). A tool the agent was not offered (or an unknown name) is refused by the loop
+  and recorded (`agent_tools.not_offered`). Exactly one DecisionRecord per tool call.
+- History is append-only: the full `response.content` (thinking blocks included) is appended unchanged. `stop_reason`
+  `refusal` / `max_tokens` / context exhaustion are checked before content is read; nothing in such a response runs,
+  a fixed reply is given and a fixed assistant text closes the turn. Model params: `tool_choice` auto, no `thinking`
+  param (adaptive default), no sampling params, no prefill, `output_config.effort: "medium"`, no server-side fallback.
+- The system prompt (`prompt.ts`) comes only from the active configuration (business facts, menu prices, policies,
+  goals, escalation rules; `_unconfirmed`/TBD facts are marked "not confirmed, escalate"; costs are never shown to the
+  Shopkeeper) and the platform `precedent` rows for that role, re-read every turn (owner inbox answers saved as
+  precedents reach the agent on its next turn). Customer text (and anything pasted from web pages) is sent only as a
+  JSON-escaped `<customer_message>` data block. The role comes from the route path and the identity from the brain's
+  identity store; no text or body field can change either.
+- **Shopkeeper orders** go through the storefront checkout path (`payments/checkout.ts` `checkoutOrder`, now shared):
+  the platform prices the order from the catalog as the **shopkeeper** identity, channel `agent`, and the pay link is
+  made exactly as for the storefront. Discounts only with an owner precedent (prompt) and always guard + platform
+  checked. Coupon codes are **not honored** (the configuration has no coupon list to verify them; the tool refuses).
+- **Support** `request_refund` creates a draft as the support identity; over the role limit or outside the window the
+  guard escalates to the inbox and nothing is created. `order_status` returns no customer name (callers are not verified).
+- **Bookkeeper** tools only read and compute facts (`books.ts`): documents with journal totals, trial balance;
+  `reconcile` = unbalanced documents, processor statement vs processor documents (missing / duplicate / amount
+  differences), Stripe clearing 1010 vs statement net, stock running balances, closed periods. The agent decides what
+  is an error. Live books come from the platform (statement = the `processor_event` table, not a fresh Stripe read).
+
+Routes (mounted in `server.ts` with one line): `POST /agents/:role/message {businessId, conversationId, text}` ->
+`{reply, toolCalls:[{tool, args, decision, result}], stopReason}` (conversations in memory, 500 max, one turn at a time
+per conversation); `POST /ask {businessId, question}` -> the Bookkeeper with read tools + escalate only ->
+`{answer, refs, unverifiedRefs, toolCalls}`; `refs` are `[doc <id>]` citations that appeared in tool output,
+anything else is listed as `unverifiedRefs`. 503 without `ANTHROPIC_API_KEY`.
+
+Red team (`harness.ts`): `createAgentHarness({staff})` implements `redteam/src/run.ts` `AgentHarness`
+(`send(target, turns, mode) -> Transcript`). `napkin` = `maya-cookies` with the guard; `baseline` =
+`maya-cookies-baseline` with `BaselineGuard`: the same prompt and tools, args only schema-parsed, no policy checks,
+straight to the platform (enforce=false), still one DecisionRecord per call (`baseline.no_guard`). Target `platform`
+returns a transcript with `error`. Extra: `harness.audit(plantedSet, mode)` runs the Bookkeeper on a provided book
+set (answer key never sent) and returns findings `{kind, entries, note}` for `redteam/src/score.ts`.
+
+Real vs simulated: the agent loop, guards, platform calls and DecisionRecords are real. Tests use a scripted LLM
+(`test/agents.test.ts`, `test/agents.fakes.ts`; fixture costs are placeholders, TEST data). Real smoke run against a
+scratch DB: `cd platform && spacetime publish napkin-j --server local --yes`, then
+`pnpm --filter @napkin/brain exec tsx --env-file=../../.env scripts/agents-smoke.ts [--audit]` (hard-wired to
+`napkin-j`; payments are the DEV SIMULATOR, so pay links are `?simulate=1` order pages, not Stripe).
