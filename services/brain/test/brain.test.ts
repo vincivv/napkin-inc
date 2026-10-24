@@ -156,6 +156,16 @@ describe("checkout", () => {
     expect([...platform.events.keys()].sort()).toEqual(["fee:sim_bt_MC-AAAAA", "sim_evt_MC-AAAAA"]);
     expect(platform.events.get("fee:sim_bt_MC-AAAAA")!.amountCents).toBe(simulatedFeeCents(600n));
   });
+  it("simulator mode: /p/:orderId logs the payment intent for an order created outside checkout", async () => {
+    const { app, platform, gateway } = setup();
+    gateway.mode = "simulator";
+    platform.orders.set("MC-BBBBB", { id: "MC-BBBBB", businessId: "maya-cookies", status: "pending_payment", saleDocumentId: 1n, totalCents: 300n, paidCents: 0n, refundedCents: 0n, customerName: "x", channel: "agent" });
+    const res = await app.request("/p/MC-BBBBB");
+    expect(res.status).toBe(303);
+    expect(platform.intents.map((i) => i.orderId)).toEqual(["MC-BBBBB"]);
+    await app.request("/p/MC-BBBBB");
+    expect(platform.intents).toHaveLength(1);
+  });
   it("simulate endpoint is disabled with a real Stripe key", async () => {
     const { app, platform } = setup();
     platform.orders.set("MC-AAAAA", { id: "MC-AAAAA", businessId: "maya-cookies", status: "pending_payment", saleDocumentId: 1n, totalCents: 600n, paidCents: 0n, refundedCents: 0n, customerName: "x", channel: "storefront" });

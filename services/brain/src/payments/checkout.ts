@@ -212,10 +212,10 @@ export async function resolvePaymentLink(orderId: string, deps: CheckoutDeps, no
   if (!order) throw new CheckoutError(404, `unknown order ${orderId}`);
   const orderPage = orderPageUrl(deps.storePublicUrl, order.businessId, orderId);
   if (order.status !== "pending_payment") return orderPage;
-  if (deps.gateway.mode === "simulator") return `${orderPage}?simulate=1`;
-
   let rec = deps.sessions.get(orderId);
+  // log the intent before any payment path, the simulator included (orders created outside checkout have none yet)
   if (!rec || !rec.intentLogged) rec = await logIntent(orderId, deps, true);
+  if (deps.gateway.mode === "simulator") return `${orderPage}?simulate=1`;
   if (rec.sessionId) {
     const s = await deps.gateway.retrieveCheckoutSession(rec.sessionId);
     if (s.status === "complete") return orderPage;
