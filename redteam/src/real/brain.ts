@@ -23,3 +23,7 @@ export type { ProcessorGateway, CreateRefundParams, RefundInfo, CheckoutSessionI
 export type { FeeInfo } from "../../../services/brain/src/payments/events";
 export { SIM, simulatedFeeCents } from "../../../services/brain/src/payments/ids";
 export { newGrantCode } from "../../../services/brain/src/auth";
+// the AI staff, for the compromised-model pass (the Staff runs with a scripted AgentLlm instead of Claude)
+export { Staff, createAgentHarness, StdbStaffBackend } from "../../../services/brain/src/agents";
+export type { AgentLlm, AgentRequest, AgentResponse } from "../../../services/brain/src/agents";
+export { StdbGuardPlatform } from "../../../services/brain/src/guards/platform";
