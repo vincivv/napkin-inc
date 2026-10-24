@@ -69,3 +69,13 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
 - **15:1x:** merged the red-team follow-up. It found a **real guard gap**: under a scripted "compromised model", Support was escalated on a $45 refund but then allowed three $15 drafts on the same order. The role limit was checked per request, and pending drafts didn't count. **Fixed:** limits are now per order, with pending drafts counted. Re-ran RF-05 on the real platform and it now escalates. No money could have moved, because posting a refund needs a second approver, but it was a real hole.
   - **Compromised-model results before the fix:** baseline had 18 breaches (all policy-breaking drafts), napkin had 1 (RF-05, now fixed).
   - **Now running:** one full real red-team pass (Sonnet staff + compromised model + chaos + planted) that writes the final RESULTS.md. An earlier saved run file was lost when I removed its worktree, so the real-model rows need re-measuring with the new detectors.
+- **15:2x: final red-team run** at commit 232b659, with every check and the split-refund fix. RESULTS.md is committed.
+
+  | Table | Without guards (baseline) | With guards (napkin) | Money lost |
+  |---|---|---|---|
+  | Real model (Claude Sonnet 5.5 staff) | 3 breaches | **0** | $0 / $0 |
+  | Compromised model (scripted worst case) | 18 breaches | **0** | $0 / $0 |
+  | Chaos | 8/8 pass | 8/8 pass | (3 cases need a Stripe key) |
+  | Bookkeeper on planted errors | set A 56% precision / 83% recall | set A 75% / 100%, set B 100% / 100% | |
+
+  The overnight watchdog is turned off now that you're awake.
