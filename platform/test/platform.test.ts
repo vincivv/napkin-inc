@@ -476,13 +476,29 @@ describe("inbox, periods, reversals", () => {
     expect(balances(w, BIZ)["2000"]).toBe(-1920n);
   });
 
-  it("reversing a sale cancels the order, restores stock and nets the sale out", () => {
+  it("a paid sale cannot be reversed until it is fully refunded; then reversing cancels the order and restores stock", () => {
     const o = sell(b, "rv", [line("cookie_box6", 2)]);
     const sale = doc(w, o.saleDocumentId);
     expect(stock(w, BIZ)).toBe(36n);
     expect(() => w.call(b.actors.shopkeeper, "reverseDocument", { documentId: sale.id, reason: "no-show" })).toThrow(/permission denied/);
     expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: sale.id, reason: " " })).toThrow(/needs a reason/);
+    const before = snapshot(w);
+    for (const who of [b.actors.bookkeeper, b.actors.owner]) {
+      expect(() => w.call(who, "reverseDocument", { documentId: sale.id, reason: "no-show" })).toThrow(/refund first via requestRefund; reversing a paid sale would leave the customer's money unaccounted/);
+    }
+    expect(snapshot(w)).toBe(before);
+
+    // a partial refund is not enough
+    w.call(b.actors.shopkeeper, "requestRefund", { orderId: "rv", amountCents: 1000n, reason: "one box was broken" });
+    w.call(b.actors.owner, "postDocument", { documentId: lastDoc(w, BIZ, "refund").id });
+    expect(order(w, "rv").status).toBe("partially_refunded");
+    expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: sale.id, reason: "no-show" })).toThrow(/refund first/);
+    // refund the rest, then the sale may be reversed
+    w.call(b.actors.shopkeeper, "requestRefund", { orderId: "rv", amountCents: 2000n, reason: "rest" });
+    w.call(b.actors.owner, "postDocument", { documentId: lastDoc(w, BIZ, "refund").id });
+    expect(order(w, "rv").status).toBe("refunded");
     w.call(b.actors.bookkeeper, "reverseDocument", { documentId: sale.id, reason: "no-show" });
+
     const orig = doc(w, sale.id);
     expect(orig.status).toBe("reversed");
     const rev = doc(w, orig.reversedBy);
@@ -494,10 +510,39 @@ describe("inbox, periods, reversals", () => {
     expect(bal["4000"]).toBe(0n);
     expect(bal["5000"]).toBe(0n);
     expect(bal["1300"]).toBe(3840n);
+    expect(bal["1010"] ?? 0n).toBe(0n); // the customer's money went back out through the refunds
+    // NOTE (README open question): refund + sale reversal books the revenue reduction twice: Refunds (4200)
+    // keeps the 30.00 and Receivables (1200) shows a 30.00 credit. How to book returned goods is a business decision.
+    expect(bal["4200"]).toBe(3000n);
+    expect(bal["1200"]).toBe(-3000n);
     expect(trialBalanceSum(w, BIZ)).toBe(0n);
     expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: sale.id, reason: "again" })).toThrow(/only posted/);
     expect(() => w.call(b.actors.owner, "reverseDocument", { documentId: rev.id, reason: "undo" })).toThrow(/itself a reversal/);
     expect(() => w.call(b.actors.support, "requestRefund", { orderId: "rv", amountCents: 100n, reason: "x" })).toThrow(/nothing to refund/);
+    // undoing a refund of a cancelled order would leave the payment unaccounted
+    expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: lastDoc(w, BIZ, "refund").id, reason: "undo" })).toThrow(/order rv is cancelled/);
+  });
+
+  it("an unpaid sale draft cannot be reversed (only posted documents)", () => {
+    const o = createOrder(b, b.actors.storefront, "unpaid", [line("cookie_single", 1)]);
+    expect(() => w.call(b.actors.bookkeeper, "reverseDocument", { documentId: o.saleDocumentId, reason: "x" })).toThrow(/only posted documents can be reversed/);
+  });
+
+  it("processor documents (payment, fee, payout) cannot be reversed", () => {
+    sell(b, "pd", [line("cookie_box6", 1)]);
+    w.call(w.system, "recordProcessorEvent", { eventId: "fee-pd", businessId: BIZ, kind: "fee", orderId: "pd", amountCents: 74n, processorRef: "txn_pd" });
+    w.call(w.system, "recordProcessorEvent", { eventId: "po-pd", businessId: BIZ, kind: "payout", orderId: "", amountCents: 1426n, processorRef: "po_pd" });
+    w.call(b.actors.owner, "postDocument", { documentId: lastDoc(w, BIZ, "payout").id });
+    const before = snapshot(w);
+    for (const docType of ["payment_received", "processor_fee", "payout"]) {
+      const d = lastDoc(w, BIZ, docType);
+      expect(d.status).toBe("posted");
+      for (const who of [b.actors.bookkeeper, b.actors.owner]) {
+        expect(() => w.call(who, "reverseDocument", { documentId: d.id, reason: "x" })).toThrow(/processor documents cannot be reversed/);
+      }
+    }
+    expect(snapshot(w)).toBe(before);
+    expect(order(w, "pd").status).toBe("paid");
   });
 
   it("a reversal that would make stock negative is refused", () => {

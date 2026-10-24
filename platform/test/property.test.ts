@@ -22,7 +22,7 @@ const opArb = fc.oneof(
   },
   { weight: 4, arbitrary: fc.record({ t: fc.constant("pay" as const), i: fc.nat(), mode: fc.constantFrom("exact", "exact", "wrong", "dup") }) },
   { weight: 2, arbitrary: fc.record({ t: fc.constant("refund" as const), i: fc.nat(), full: fc.boolean(), cents: fc.integer({ min: 1, max: 3000 }) }) },
-  { weight: 1, arbitrary: fc.record({ t: fc.constant("reverse" as const), i: fc.nat() }) },
+  { weight: 2, arbitrary: fc.record({ t: fc.constant("reverse" as const), i: fc.nat(), what: fc.constantFrom("sale", "sale", "refund", "payment") }) },
   { weight: 1, arbitrary: fc.record({ t: fc.constant("receipt" as const), qty: fc.integer({ min: 1, max: 24 }) }) },
 );
 type Op = typeof opArb extends fc.Arbitrary<infer T> ? T : never;
@@ -60,8 +60,13 @@ function step(b: Biz, op: Op, orders: string[], events: Map<string, string>, k: 
       return;
     }
     case "reverse": {
-      const o = order(w, pick(op.i, ["paid"]));
-      w.call(b.actors.bookkeeper, "reverseDocument", { documentId: o ? o.saleDocumentId : 0n, reason: "test" });
+      // sale: paid / partially refunded ones must be refused (refund first), fully refunded ones reverse;
+      // refund: the order's latest posted refund; payment: always refused (processor document).
+      const id = pick(op.i, op.what === "sale" ? ["refunded", "paid", "partially_refunded"] : ["refunded", "partially_refunded", "cancelled"]);
+      const o = order(w, id);
+      const docType = op.what === "refund" ? "refund" : "payment_received";
+      const target = op.what === "sale" ? (o ? o.saleDocumentId : 0n) : (docsOf(w, BIZ, docType).filter((d) => d.externalRef === id && d.status === "posted").at(-1)?.id ?? 0n);
+      w.call(b.actors.bookkeeper, "reverseDocument", { documentId: target, reason: "test" });
       return;
     }
     case "receipt": {
@@ -78,7 +83,7 @@ const live = (d: any) => d.status === "posted" && d.reversalOf === 0n;
 
 describe("property: random order/payment/refund sequences", () => {
   it("keep the trial balance at zero, stock >= 0, refusals atomic, ledger == documents", () => {
-    const seen = { sales: 0, refunds: 0, reversals: 0, refused: 0 };
+    const seen = { sales: 0, refunds: 0, reversals: 0, saleReversals: 0, refused: 0 };
     fc.assert(
       fc.property(fc.array(opArb, { minLength: 1, maxLength: 40, size: "large" }), (ops) => {
         const w = new World();
@@ -119,6 +124,19 @@ describe("property: random order/payment/refund sequences", () => {
           expect(o.refundedCents <= o.totalCents).toBe(true);
           if (o.status === "pending_payment") expect(o.paidCents).toBe(0n);
         }
+        // processor documents are never reversed; a sale is reversed only once its payment was fully refunded,
+        // and it stays that way (the customer's money is always accounted for)
+        for (const t of ["payment_received", "processor_fee", "payout"]) {
+          expect(docsOf(w, BIZ, t).filter((d) => d.status === "reversed" || d.reversalOf !== 0n)).toHaveLength(0);
+        }
+        for (const id of orders) {
+          const o = order(w, id);
+          if (!o || o.saleDocumentId === 0n) continue;
+          if (docsOf(w, BIZ, "sale").find((d) => d.id === o.saleDocumentId)!.status !== "reversed") continue;
+          expect(o.status).toBe("cancelled");
+          const liveRefunds = docsOf(w, BIZ, "refund").filter((d) => live(d) && d.externalRef === id).reduce((s, d) => s + d.totalCents, 0n);
+          expect(liveRefunds).toBe(o.paidCents);
+        }
         // every posted sale is approved by someone other than its creator (SoD) and respects the 20% cap
         for (const d of docsOf(w, BIZ, "sale").filter(live)) {
           expect(d.approvedBy.toHexString()).not.toBe(d.createdBy.toHexString());
@@ -127,6 +145,7 @@ describe("property: random order/payment/refund sequences", () => {
         seen.sales += docsOf(w, BIZ, "sale").filter(live).length;
         seen.refunds += docsOf(w, BIZ, "refund").filter(live).length;
         seen.reversals += docsOf(w, BIZ).filter((d) => d.reversalOf !== 0n).length;
+        seen.saleReversals += docsOf(w, BIZ, "sale").filter((d) => d.reversalOf !== 0n).length;
       }),
       { numRuns: 80 },
     );
@@ -135,5 +154,6 @@ describe("property: random order/payment/refund sequences", () => {
     expect(seen.sales).toBeGreaterThan(100);
     expect(seen.refunds).toBeGreaterThan(10);
     expect(seen.reversals).toBeGreaterThan(10);
+    expect(seen.saleReversals).toBeGreaterThan(5);
   });
 });

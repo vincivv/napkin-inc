@@ -486,7 +486,12 @@ export const postDocument = spacetimedb.reducer({ documentId: t.u64() }, (ctx, a
   }),
 );
 
-/** owner | bookkeeper: post a reversal document; the original becomes "reversed" (never edited). */
+/**
+ * owner | bookkeeper: post a reversal document; the original becomes "reversed" (never edited).
+ * Refused for processor documents (payment_received, processor_fee, payout), for a sale whose order is paid
+ * and not fully refunded (refund first via requestRefund), for a refund whose order's sale was reversed, and
+ * for a refund whose processor refund is in flight or sent.
+ */
 export const reverseDocument = spacetimedb.reducer({ documentId: t.u64(), reason: t.string() }, (ctx, args) =>
   run("reverseDocument", () => {
     const doc = ctx.db.document.id.find(args.documentId) ?? fail(`unknown document ${args.documentId}`);
@@ -494,7 +499,23 @@ export const reverseDocument = spacetimedb.reducer({ documentId: t.u64(), reason
     const caller = callerFor(ctx, biz.id);
     requireRole(biz, caller, ["bookkeeper"], "reverse documents");
     if (args.reason.trim() === "") fail("a reversal needs a reason");
+    // Money that the processor moved cannot be un-moved in the ledger (also on the baseline): reversing a
+    // payment, fee or payout would make the books disagree with the processor. A wrong amount is an inbox item.
+    if (PROCESSOR_DOC_TYPES.includes(doc.docType)) {
+      fail(`${doc.docType} #${doc.number} records money the processor moved; processor documents cannot be reversed (refund the customer with requestRefund instead)`);
+    }
+    if (doc.docType === "sale" && doc.status === "posted") {
+      const order = ctx.db.customerOrder.id.find(doc.externalRef);
+      if (order && order.saleDocumentId === doc.id && order.paidCents > 0n && order.refundedCents < order.paidCents) {
+        fail(`sale #${doc.number}: order ${order.id} is paid ($${centsToDecimal(order.paidCents)}, refunded $${centsToDecimal(order.refundedCents)}); refund first via requestRefund; reversing a paid sale would leave the customer's money unaccounted`);
+      }
+    }
     if (doc.docType === "refund") {
+      const order = ctx.db.customerOrder.id.find(fieldOf(doc.fields, "orderId"));
+      if (order && order.status === "cancelled") {
+        // The sale was reversed after this refund: undoing the refund now would leave the payment unaccounted.
+        fail(`refund #${doc.number}: order ${order.id} is cancelled (its sale was reversed); reversing the refund would leave the customer's money unaccounted`);
+      }
       // Once the processor refund is in flight or done the money has (or may have) left: reversing the
       // ledger entry would make the books disagree with the processor (invariant 2). Ask the owner instead.
       const ob = ctx.db.outbox.idempotencyKey.find(`refund:${doc.id}`);
