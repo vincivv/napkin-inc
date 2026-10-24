@@ -1,0 +1,100 @@
+[
+  {
+    "id": "CH-01",
+    "kind": "duplicate_webhook",
+    "title": "Same payment event id delivered twice in sequence",
+    "steps": [
+      { "op": "create_order", "orderId": "MC-CH01A", "items": [{ "productId": "cookie_box6", "qty": 1 }] },
+      { "op": "start_checkout", "orderId": "MC-CH01A" },
+      { "op": "webhook", "event": { "eventId": "evt_ch01_pay", "kind": "payment_succeeded", "orderId": "MC-CH01A", "amountCents": 1500, "processorRef": "pi_ch01" }, "repeat": 2 },
+      { "op": "drain_outbox" }
+    ],
+    "expected": {
+      "orderStatus": { "MC-CH01A": "paid" },
+      "postedDocs": { "MC-CH01A": { "payment_received": 1 } },
+      "processorEventsRecorded": 1,
+      "journalBalanced": true,
+      "clearingMatchesProcessor": true
+    },
+    "safeBehavior": "The second delivery of evt_ch01_pay is a no-op. Exactly one processor_event row and one payment_received document exist for MC-CH01A, the order is paid once, and the journal balances.",
+    "invariantIds": [7, 1, 2]
+  },
+  {
+    "id": "CH-02",
+    "kind": "concurrent_duplicate_webhook",
+    "title": "Same payment event id delivered ten times concurrently",
+    "steps": [
+      { "op": "create_order", "orderId": "MC-CH02A", "items": [{ "productId": "cookie_box6", "qty": 1 }, { "productId": "sea_salt", "qty": 1 }] },
+      { "op": "start_checkout", "orderId": "MC-CH02A" },
+      { "op": "webhook", "event": { "eventId": "evt_ch02_pay", "kind": "payment_succeeded", "orderId": "MC-CH02A", "amountCents": 1600, "processorRef": "pi_ch02" }, "repeat": 10, "concurrent": true },
+      { "op": "drain_outbox" }
+    ],
+    "expected": {
+      "orderStatus": { "MC-CH02A": "paid" },
+      "postedDocs": { "MC-CH02A": { "payment_received": 1 } },
+      "processorEventsRecorded": 1,
+      "journalBalanced": true,
+      "clearingMatchesProcessor": true
+    },
+    "safeBehavior": "Ten concurrent deliveries of the same event id produce exactly one processor_event and one payment_received. Concurrency never double-posts, and no balance changes beyond the single payment.",
+    "invariantIds": [7, 1],
+    "simulatedValues": "Amounts are simulator test-mode values ($16.00 = box $15 + sea salt $1), not real Stripe numbers."
+  },
+  {
+    "id": "CH-03",
+    "kind": "amount_mismatch",
+    "title": "Payment webhook amount is $10 but the order total is $15",
+    "steps": [
+      { "op": "create_order", "orderId": "MC-CH03A", "items": [{ "productId": "cookie_box6", "qty": 1 }] },
+      { "op": "start_checkout", "orderId": "MC-CH03A" },
+      { "op": "webhook", "event": { "eventId": "evt_ch03_pay", "kind": "payment_succeeded", "orderId": "MC-CH03A", "amountCents": 1000, "processorRef": "pi_ch03" } },
+      { "op": "drain_outbox" }
+    ],
+    "expected": {
+      "orderStatus": { "MC-CH03A": "pending_payment" },
+      "postedDocs": { "MC-CH03A": { "payment_received": 0 } },
+      "inboxOpenedFor": ["MC-CH03A"],
+      "journalBalanced": true
+    },
+    "safeBehavior": "The platform does not post payment_received or mark the order paid for a $10 charge against a $15 order. It opens one owner inbox item for MC-CH03A describing the mismatch and posts nothing else.",
+    "invariantIds": [4, 2]
+  },
+  {
+    "id": "CH-10",
+    "kind": "out_of_order",
+    "title": "Processor fee event arrives before the payment it belongs to",
+    "steps": [
+      { "op": "create_order", "orderId": "MC-CH10A", "items": [{ "productId": "cookie_box6", "qty": 1 }] },
+      { "op": "start_checkout", "orderId": "MC-CH10A" },
+      { "op": "webhook", "event": { "eventId": "evt_ch10_fee", "kind": "fee", "orderId": "MC-CH10A", "amountCents": 44, "processorRef": "pi_ch10" } },
+      { "op": "webhook", "event": { "eventId": "evt_ch10_pay", "kind": "payment_succeeded", "orderId": "MC-CH10A", "amountCents": 1500, "processorRef": "pi_ch10" } },
+      { "op": "drain_outbox" }
+    ],
+    "expected": {
+      "orderStatus": { "MC-CH10A": "paid" },
+      "postedDocs": { "MC-CH10A": { "payment_received": 1, "processor_fee": 1 } },
+      "processorEventsRecorded": 2,
+      "journalBalanced": true,
+      "clearingMatchesProcessor": true
+    },
+    "safeBehavior": "The fee event is recorded and not lost, and it is posted once the payment it belongs to is posted. The order ends paid, the fee lands in Processor fees, and the journal balances whatever the arrival order.",
+    "invariantIds": [2, 7, 1],
+    "simulatedValues": "The $0.44 fee is a simulated test-mode value, not a real Stripe fee."
+  },
+  {
+    "id": "CH-11",
+    "kind": "unknown_order",
+    "title": "Payment webhook references an order that does not exist",
+    "steps": [
+      { "op": "webhook", "event": { "eventId": "evt_ch11_pay", "kind": "payment_succeeded", "orderId": "MC-CH11Z", "amountCents": 1500, "processorRef": "pi_ch11" } },
+      { "op": "drain_outbox" }
+    ],
+    "expected": {
+      "postedDocs": { "MC-CH11Z": {} },
+      "inboxOpenedFor": ["MC-CH11Z"],
+      "journalBalanced": true
+    },
+    "safeBehavior": "A payment for an unknown order posts no documents and creates no order. It opens an owner inbox item, so the money is noticed and not silently lost.",
+    "invariantIds": [2, 9]
+  }
+]
