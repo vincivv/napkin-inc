@@ -484,6 +484,14 @@ export const reverseDocument = spacetimedb.reducer({ documentId: t.u64(), reason
     const caller = callerFor(ctx, biz.id);
     requireRole(biz, caller, ["bookkeeper"], "reverse documents");
     if (args.reason.trim() === "") fail("a reversal needs a reason");
+    if (doc.docType === "refund") {
+      // Once the processor refund is in flight or done the money has (or may have) left: reversing the
+      // ledger entry would make the books disagree with the processor (invariant 2). Ask the owner instead.
+      const ob = ctx.db.outbox.idempotencyKey.find(`refund:${doc.id}`);
+      if (ob && (ob.status === "claimed" || ob.status === "done")) {
+        fail(`refund #${doc.number}: the processor refund is already ${ob.status === "done" ? "sent" : "in flight"}; it cannot be reversed in the ledger`);
+      }
+    }
     const rev = reversePosted(ctx, biz, doc, caller, args.reason);
     let extra = "";
     if (doc.docType === "sale") {
@@ -499,7 +507,7 @@ export const reverseDocument = spacetimedb.reducer({ documentId: t.u64(), reason
         ctx.db.customerOrder.id.update({ ...order, refundedCents: refunded, status: refunded <= 0n ? "paid" : "partially_refunded" });
       }
       const ob = ctx.db.outbox.idempotencyKey.find(`refund:${doc.id}`);
-      if (ob && ob.status === "pending") {
+      if (ob && (ob.status === "pending" || ob.status === "failed")) {
         ctx.db.outbox.id.update({ ...ob, status: "cancelled", resultJson: JSON.stringify({ cancelled: `refund reversed by document ${rev.id}` }) });
         extra = "; pending processor refund cancelled";
       }
@@ -665,6 +673,15 @@ function processRefundSucceeded(ctx: Ctx, biz: BusinessRow, args: { eventId: str
     return { documentId: 0n, summary: `unmatched refund on ${args.orderId}: inbox` };
   }
   const docId = BigInt(payloadOf(match).documentId ?? "0");
+  const expected = payloadOf(match).amountCents;
+  if (expected === undefined || BigInt(expected) !== args.amountCents) {
+    openInboxItem(ctx, biz.id, "system", `The processor reports a refund of $${centsToDecimal(args.amountCents)} for ${match.idempotencyKey}, but the approved refund was $${expected === undefined ? "?" : centsToDecimal(BigInt(expected))}. Nothing was changed.`, args, match.idempotencyKey);
+    return { documentId: docId, summary: `refund amount mismatch on ${match.idempotencyKey}: inbox` };
+  }
+  if (match.status === "cancelled") {
+    openInboxItem(ctx, biz.id, "system", `The processor refunded $${centsToDecimal(args.amountCents)} for ${match.idempotencyKey}, but that refund was reversed in the ledger. Check with the customer.`, args, match.idempotencyKey);
+    return { documentId: docId, summary: `refund ${match.idempotencyKey} was cancelled: inbox` };
+  }
   if (match.status === "done") return { documentId: docId, summary: `refund ${match.idempotencyKey} already complete` };
   ctx.db.outbox.id.update({ ...match, status: "done", resultJson: match.resultJson || JSON.stringify({ processorRef: args.processorRef, via: "webhook", eventId: args.eventId }) });
   return { documentId: docId, summary: `refund ${match.idempotencyKey} completed` };
