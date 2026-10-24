@@ -4,3 +4,5 @@ packages:
   - "packages/*"
   - "platform"
   - "redteam"
+onlyBuiltDependencies:
+  - esbuild

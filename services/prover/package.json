@@ -1,0 +1,11 @@
+{
+  "name": "@napkin/prover",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc -p ." },
+  "dependencies": { "@napkin/ledger-core": "workspace:*", "@napkin/schema": "workspace:*", "z3-solver": "5.3.1" }
+}

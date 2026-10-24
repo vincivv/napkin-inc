@@ -1,0 +1,29 @@
+{
+  "name": "@napkin/owner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@napkin/ledger-core": "workspace:*",
+    "@napkin/schema": "workspace:*",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "spacetimedb": "2.13.0",
+    "qrcode": "1.5.4",
+    "@napkin/stdb-bindings": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/qrcode": "^1.5.5",
+    "tailwindcss": "4.3.3",
+    "@tailwindcss/postcss": "4.3.3"
+  }
+}

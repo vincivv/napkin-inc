@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "balanceProof": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "proved",
+            "failed",
+            "skipped"
+          ]
+        },
+        "durationMs": {
+          "type": "number"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "subject": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "proved",
+                  "failed"
+                ]
+              },
+              "counterexample": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "message": {
+                "type": "string"
+              },
+              "suggestedFix": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "subject",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "status",
+        "details"
+      ],
+      "additionalProperties": false
+    },
+    "discountProof": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "proved",
+            "failed",
+            "skipped"
+          ]
+        },
+        "durationMs": {
+          "type": "number"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "subject": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "proved",
+                  "failed"
+                ]
+              },
+              "counterexample": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "message": {
+                "type": "string"
+              },
+              "suggestedFix": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "subject",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "status",
+        "details"
+      ],
+      "additionalProperties": false
+    },
+    "flowCheck": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "proved",
+            "failed",
+            "skipped"
+          ]
+        },
+        "durationMs": {
+          "type": "number"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "subject": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "proved",
+                  "failed"
+                ]
+              },
+              "counterexample": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "message": {
+                "type": "string"
+              },
+              "suggestedFix": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "subject",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "status",
+        "details"
+      ],
+      "additionalProperties": false
+    },
+    "synthesisLog": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "solver": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "balanceProof",
+    "discountProof",
+    "flowCheck",
+    "synthesisLog",
+    "generatedAt"
+  ],
+  "additionalProperties": false
+}

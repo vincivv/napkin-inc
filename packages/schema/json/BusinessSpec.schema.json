@@ -1,0 +1,2913 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "business": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "oneLiner": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "community": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "location": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "hours": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "timezone": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "name",
+        "oneLiner",
+        "community",
+        "location",
+        "hours",
+        "timezone"
+      ],
+      "additionalProperties": false
+    },
+    "pattern": {
+      "type": "string",
+      "const": "item_seller"
+    },
+    "offerings": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:@-]+$"
+          },
+          "name": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "provenance": {
+                "type": "string",
+                "enum": [
+                  "owner_said",
+                  "paper",
+                  "inferred"
+                ]
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "voice",
+                      "chat",
+                      "phone"
+                    ]
+                  },
+                  "ref": {
+                    "type": "string"
+                  },
+                  "region": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "w": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "h": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y",
+                      "w",
+                      "h"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "quote": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "ref"
+                ],
+                "additionalProperties": false
+              },
+              "confirmed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "provenance",
+              "confidence",
+              "source",
+              "confirmed"
+            ],
+            "additionalProperties": false
+          },
+          "description": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "provenance": {
+                "type": "string",
+                "enum": [
+                  "owner_said",
+                  "paper",
+                  "inferred"
+                ]
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "voice",
+                      "chat",
+                      "phone"
+                    ]
+                  },
+                  "ref": {
+                    "type": "string"
+                  },
+                  "region": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "w": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "h": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y",
+                      "w",
+                      "h"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "quote": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "ref"
+                ],
+                "additionalProperties": false
+              },
+              "confirmed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "provenance",
+              "confidence",
+              "source",
+              "confirmed"
+            ],
+            "additionalProperties": false
+          },
+          "variants": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    },
+                    "provenance": {
+                      "type": "string",
+                      "enum": [
+                        "owner_said",
+                        "paper",
+                        "inferred"
+                      ]
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "photo",
+                            "voice",
+                            "chat",
+                            "phone"
+                          ]
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "confirmed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "provenance",
+                    "confidence",
+                    "source",
+                    "confirmed"
+                  ],
+                  "additionalProperties": false
+                },
+                "price": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "provenance": {
+                      "type": "string",
+                      "enum": [
+                        "owner_said",
+                        "paper",
+                        "inferred"
+                      ]
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "photo",
+                            "voice",
+                            "chat",
+                            "phone"
+                          ]
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "confirmed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "provenance",
+                    "confidence",
+                    "source",
+                    "confirmed"
+                  ],
+                  "additionalProperties": false
+                },
+                "cost": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "provenance": {
+                      "type": "string",
+                      "enum": [
+                        "owner_said",
+                        "paper",
+                        "inferred"
+                      ]
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "photo",
+                            "voice",
+                            "chat",
+                            "phone"
+                          ]
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "confirmed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "provenance",
+                    "confidence",
+                    "source",
+                    "confirmed"
+                  ],
+                  "additionalProperties": false
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9_.:@-]+$"
+                },
+                "stockUnits": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "provenance": {
+                      "type": "string",
+                      "enum": [
+                        "owner_said",
+                        "paper",
+                        "inferred"
+                      ]
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "photo",
+                            "voice",
+                            "chat",
+                            "phone"
+                          ]
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "confirmed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "provenance",
+                    "confidence",
+                    "source",
+                    "confirmed"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "name",
+                "price",
+                "cost",
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "addOns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    },
+                    "provenance": {
+                      "type": "string",
+                      "enum": [
+                        "owner_said",
+                        "paper",
+                        "inferred"
+                      ]
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "photo",
+                            "voice",
+                            "chat",
+                            "phone"
+                          ]
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "confirmed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "provenance",
+                    "confidence",
+                    "source",
+                    "confirmed"
+                  ],
+                  "additionalProperties": false
+                },
+                "price": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "provenance": {
+                      "type": "string",
+                      "enum": [
+                        "owner_said",
+                        "paper",
+                        "inferred"
+                      ]
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "photo",
+                            "voice",
+                            "chat",
+                            "phone"
+                          ]
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "confirmed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "provenance",
+                    "confidence",
+                    "source",
+                    "confirmed"
+                  ],
+                  "additionalProperties": false
+                },
+                "cost": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "provenance": {
+                      "type": "string",
+                      "enum": [
+                        "owner_said",
+                        "paper",
+                        "inferred"
+                      ]
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "photo",
+                            "voice",
+                            "chat",
+                            "phone"
+                          ]
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "confirmed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "provenance",
+                    "confidence",
+                    "source",
+                    "confirmed"
+                  ],
+                  "additionalProperties": false
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9_.:@-]+$"
+                }
+              },
+              "required": [
+                "name",
+                "price",
+                "cost",
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "stockTracked": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "boolean"
+              },
+              "provenance": {
+                "type": "string",
+                "enum": [
+                  "owner_said",
+                  "paper",
+                  "inferred"
+                ]
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "voice",
+                      "chat",
+                      "phone"
+                    ]
+                  },
+                  "ref": {
+                    "type": "string"
+                  },
+                  "region": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "w": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "h": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y",
+                      "w",
+                      "h"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "quote": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "ref"
+                ],
+                "additionalProperties": false
+              },
+              "confirmed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "provenance",
+              "confidence",
+              "source",
+              "confirmed"
+            ],
+            "additionalProperties": false
+          },
+          "initialStock": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "provenance": {
+                "type": "string",
+                "enum": [
+                  "owner_said",
+                  "paper",
+                  "inferred"
+                ]
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "voice",
+                      "chat",
+                      "phone"
+                    ]
+                  },
+                  "ref": {
+                    "type": "string"
+                  },
+                  "region": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "w": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "h": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y",
+                      "w",
+                      "h"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "quote": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "ref"
+                ],
+                "additionalProperties": false
+              },
+              "confirmed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "provenance",
+              "confidence",
+              "source",
+              "confirmed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "variants",
+          "addOns",
+          "stockTracked"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "policies": {
+      "type": "object",
+      "properties": {
+        "currency": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "const": "USD"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "taxRate": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "pattern": "^-?\\d+(\\.\\d+)?$"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "marginFloorPct": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "pattern": "^-?\\d+(\\.\\d+)?$"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "refundWindowHours": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "pattern": "^-?\\d+(\\.\\d+)?$"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "refundMethod": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "maxDiscountPct": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "pattern": "^-?\\d+(\\.\\d+)?$"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "couponsAllowed": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "boolean"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "paymentMethods": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "const": "card"
+              }
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "currency",
+        "taxRate",
+        "marginFloorPct",
+        "refundWindowHours",
+        "refundMethod",
+        "maxDiscountPct",
+        "couponsAllowed",
+        "paymentMethods"
+      ],
+      "additionalProperties": false
+    },
+    "operations": {
+      "type": "object",
+      "properties": {
+        "fulfillment": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "enum": [
+                "pickup",
+                "delivery"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "pickupLocation": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "owner_said",
+                "paper",
+                "inferred"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "voice",
+                    "chat",
+                    "phone"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "w": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "h": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "provenance",
+            "confidence",
+            "source",
+            "confirmed"
+          ],
+          "additionalProperties": false
+        },
+        "suppliers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "provenance": {
+                    "type": "string",
+                    "enum": [
+                      "owner_said",
+                      "paper",
+                      "inferred"
+                    ]
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "source": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "photo",
+                          "voice",
+                          "chat",
+                          "phone"
+                        ]
+                      },
+                      "ref": {
+                        "type": "string"
+                      },
+                      "region": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "w": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "h": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y",
+                          "w",
+                          "h"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "quote": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "ref"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "confirmed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "value",
+                  "provenance",
+                  "confidence",
+                  "source",
+                  "confirmed"
+                ],
+                "additionalProperties": false
+              },
+              "items": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "provenance": {
+                    "type": "string",
+                    "enum": [
+                      "owner_said",
+                      "paper",
+                      "inferred"
+                    ]
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "source": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "photo",
+                          "voice",
+                          "chat",
+                          "phone"
+                        ]
+                      },
+                      "ref": {
+                        "type": "string"
+                      },
+                      "region": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "w": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "h": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y",
+                          "w",
+                          "h"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "quote": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "ref"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "confirmed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "value",
+                  "provenance",
+                  "confidence",
+                  "source",
+                  "confirmed"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "name",
+              "items"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "fulfillment",
+        "pickupLocation",
+        "suppliers"
+      ],
+      "additionalProperties": false
+    },
+    "examples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "sale",
+              "refund",
+              "purchase"
+            ]
+          },
+          "inputs": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "expectedPostings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "account": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": [
+                    "debit",
+                    "credit"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$"
+                }
+              },
+              "required": [
+                "account",
+                "side",
+                "amount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "photo",
+                  "voice",
+                  "chat",
+                  "phone"
+                ]
+              },
+              "ref": {
+                "type": "string"
+              },
+              "region": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "w": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "h": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "w",
+                  "h"
+                ],
+                "additionalProperties": false
+              },
+              "quote": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "ref"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "kind",
+          "inputs",
+          "expectedPostings",
+          "source"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "openQuestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:@-]+$"
+          },
+          "fieldPath": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "impactScore": {
+            "type": "number",
+            "minimum": 0
+          },
+          "moneyRelevant": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "asked",
+              "answered",
+              "dismissed"
+            ]
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "answer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fieldPath",
+          "question",
+          "impactScore",
+          "moneyRelevant",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "business",
+    "pattern",
+    "offerings",
+    "policies",
+    "operations",
+    "examples",
+    "openQuestions"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,1129 @@
+{
+  "id": "maya-cookies@1",
+  "businessId": "maya-cookies",
+  "version": 1,
+  "pattern": "item_seller",
+  "source": "hand-written (M1 fixture)",
+  "_unconfirmed": {
+    "note": "PLACEHOLDERS, provenance=inferred, confirmed=false. The owner has not supplied these yet. Replace with owner-stated values; do not present them as Maya's real numbers.",
+    "paths": [
+      "catalogs.products.entries.cookie_single.data.cost",
+      "catalogs.products.entries.cookie_box6.data.cost",
+      "catalogs.products.entries.sea_salt.data.cost",
+      "catalogs.products.entries.cookie_box6.data.stockUnits",
+      "policies.taxRate",
+      "business.pickupLocation",
+      "business.hours",
+      "business.timezone",
+      "initialStock.choc_chip_cookie"
+    ]
+  },
+  "business": {
+    "name": "Maya's Cookies",
+    "slug": "maya-cookies",
+    "oneLiner": "Fresh chocolate chip cookies, pickup only.",
+    "community": "student side-hustlers selling through Instagram messages and Venmo",
+    "pickupLocation": "TBD (placeholder)",
+    "hours": "TBD (placeholder)",
+    "timezone": "America/Los_Angeles"
+  },
+  "catalogs": [
+    {
+      "id": "products",
+      "name": "Products",
+      "lineKey": "productId",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "kind",
+          "type": "string"
+        },
+        {
+          "name": "price",
+          "type": "money"
+        },
+        {
+          "name": "cost",
+          "type": "money"
+        },
+        {
+          "name": "stockItem",
+          "type": "string"
+        },
+        {
+          "name": "stockUnits",
+          "type": "qty"
+        },
+        {
+          "name": "description",
+          "type": "string"
+        }
+      ],
+      "entries": [
+        {
+          "id": "cookie_single",
+          "data": {
+            "name": "Chocolate chip cookie",
+            "kind": "variant",
+            "price": "3.00",
+            "cost": "0.80",
+            "stockItem": "choc_chip_cookie",
+            "stockUnits": "1",
+            "description": "One fresh chocolate chip cookie."
+          }
+        },
+        {
+          "id": "cookie_box6",
+          "data": {
+            "name": "Box of 6",
+            "kind": "variant",
+            "price": "15.00",
+            "cost": "4.80",
+            "stockItem": "choc_chip_cookie",
+            "stockUnits": "6",
+            "description": "Six chocolate chip cookies in a box."
+          }
+        },
+        {
+          "id": "sea_salt",
+          "data": {
+            "name": "Sea-salt topping",
+            "kind": "addon",
+            "price": "1.00",
+            "cost": "0.20",
+            "stockItem": "",
+            "stockUnits": "0",
+            "description": "Flaky sea salt on top (+$1)."
+          }
+        }
+      ]
+    },
+    {
+      "id": "stock_items",
+      "name": "Stock items",
+      "lineKey": "stockItem",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "unitCost",
+          "type": "money"
+        }
+      ],
+      "entries": [
+        {
+          "id": "choc_chip_cookie",
+          "data": {
+            "name": "Chocolate chip cookie (baked)",
+            "unitCost": "0.80"
+          }
+        }
+      ]
+    }
+  ],
+  "initialStock": {
+    "choc_chip_cookie": 48
+  },
+  "chartOfAccounts": [
+    {
+      "code": "1000",
+      "name": "Cash (bank)",
+      "type": "asset"
+    },
+    {
+      "code": "1010",
+      "name": "Stripe clearing",
+      "type": "asset"
+    },
+    {
+      "code": "1200",
+      "name": "Receivables",
+      "type": "asset"
+    },
+    {
+      "code": "1300",
+      "name": "Inventory",
+      "type": "asset"
+    },
+    {
+      "code": "2000",
+      "name": "Payables",
+      "type": "liability"
+    },
+    {
+      "code": "2100",
+      "name": "Sales tax payable",
+      "type": "liability"
+    },
+    {
+      "code": "3000",
+      "name": "Owner equity",
+      "type": "equity"
+    },
+    {
+      "code": "4000",
+      "name": "Sales revenue",
+      "type": "revenue"
+    },
+    {
+      "code": "4100",
+      "name": "Discounts given",
+      "type": "contra_revenue"
+    },
+    {
+      "code": "4200",
+      "name": "Refunds",
+      "type": "contra_revenue"
+    },
+    {
+      "code": "5000",
+      "name": "Cost of goods sold",
+      "type": "expense"
+    },
+    {
+      "code": "5100",
+      "name": "Processor fees",
+      "type": "expense"
+    }
+  ],
+  "registers": [
+    {
+      "id": "stock",
+      "name": "Stock",
+      "kind": "balance",
+      "dimensions": [
+        "item"
+      ],
+      "resources": [
+        "qty",
+        "amount"
+      ],
+      "allowNegative": false
+    },
+    {
+      "id": "sales",
+      "name": "Sales by product",
+      "kind": "turnover",
+      "dimensions": [
+        "product"
+      ],
+      "resources": [
+        "qty",
+        "amount"
+      ],
+      "allowNegative": true
+    }
+  ],
+  "policies": {
+    "currency": "USD",
+    "taxRate": "0",
+    "marginFloor": "0.30",
+    "refundWindowHours": "24",
+    "refundMethod": "original_payment",
+    "maxDiscount": "0.20",
+    "couponsAllowed": true,
+    "maxCouponsPerOrder": 1,
+    "backordersAllowed": false,
+    "paymentMethods": [
+      "card"
+    ],
+    "fulfillment": "pickup"
+  },
+  "documents": [
+    {
+      "id": "sale",
+      "name": "Sale",
+      "approval": {
+        "creatorRoles": [
+          "storefront",
+          "shopkeeper",
+          "owner"
+        ],
+        "approverRoles": [
+          "system",
+          "bookkeeper",
+          "owner"
+        ],
+        "cannotApproveOwn": true,
+        "postOn": "payment"
+      },
+      "fields": [
+        {
+          "name": "orderId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "customerRef",
+          "type": "string"
+        },
+        {
+          "name": "discountRate",
+          "type": "rate",
+          "required": true
+        },
+        {
+          "name": "couponCode",
+          "type": "string"
+        }
+      ],
+      "lineFields": [
+        {
+          "name": "productId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "qty",
+          "type": "qty",
+          "required": true
+        },
+        {
+          "name": "unitPrice",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "unitCost",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "stockItem",
+          "type": "string"
+        },
+        {
+          "name": "stockUnits",
+          "type": "qty",
+          "required": true
+        }
+      ],
+      "derived": [
+        {
+          "name": "gross",
+          "scope": "line",
+          "expr": "line.qty * line.unitPrice"
+        },
+        {
+          "name": "discount",
+          "scope": "line",
+          "expr": "round2(line.gross * doc.discountRate)"
+        },
+        {
+          "name": "net",
+          "scope": "line",
+          "expr": "line.gross - line.discount"
+        },
+        {
+          "name": "tax",
+          "scope": "line",
+          "expr": "round2(line.net * policy.taxRate)"
+        },
+        {
+          "name": "cost",
+          "scope": "line",
+          "expr": "line.qty * line.unitCost"
+        },
+        {
+          "name": "units",
+          "scope": "line",
+          "expr": "line.qty * line.stockUnits"
+        },
+        {
+          "name": "total",
+          "scope": "doc",
+          "expr": "sum(line.net + line.tax)"
+        },
+        {
+          "name": "costTotal",
+          "scope": "doc",
+          "expr": "sum(line.cost)"
+        }
+      ],
+      "checks": [
+        {
+          "id": "qty_positive",
+          "scope": "line",
+          "assert": "line.qty >= 1",
+          "message": "quantity must be at least 1"
+        },
+        {
+          "id": "discount_cap",
+          "scope": "doc",
+          "assert": "doc.discountRate >= 0 && doc.discountRate <= policy.maxDiscount",
+          "message": "total discount exceeds the maximum discount policy"
+        },
+        {
+          "id": "margin_floor",
+          "scope": "line",
+          "assert": "line.net >= line.cost * (1 + policy.marginFloor)",
+          "message": "price after discounts is below cost plus the margin floor"
+        }
+      ],
+      "postingRules": [
+        {
+          "id": "sale.revenue",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "4000"
+          },
+          "side": "credit",
+          "amountExpr": "line.gross",
+          "memo": "sales revenue"
+        },
+        {
+          "id": "sale.discount",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "4100"
+          },
+          "side": "debit",
+          "amountExpr": "line.discount",
+          "memo": "discounts given"
+        },
+        {
+          "id": "sale.receivable",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "1200"
+          },
+          "side": "debit",
+          "amountExpr": "line.net + line.tax",
+          "memo": "customer owes"
+        },
+        {
+          "id": "sale.tax",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "2100"
+          },
+          "side": "credit",
+          "amountExpr": "line.tax",
+          "memo": "sales tax collected"
+        },
+        {
+          "id": "sale.cogs",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "5000"
+          },
+          "side": "debit",
+          "amountExpr": "line.cost",
+          "memo": "cost of goods sold"
+        },
+        {
+          "id": "sale.inventory",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "1300"
+          },
+          "side": "credit",
+          "amountExpr": "line.cost",
+          "memo": "inventory used"
+        },
+        {
+          "id": "sale.stock_out",
+          "scope": "line",
+          "target": {
+            "kind": "register",
+            "id": "stock",
+            "dims": {
+              "item": "line.stockItem"
+            }
+          },
+          "side": "out",
+          "amountExpr": "line.cost",
+          "qtyExpr": "line.units",
+          "when": "line.units > 0"
+        },
+        {
+          "id": "sale.by_product",
+          "scope": "line",
+          "target": {
+            "kind": "register",
+            "id": "sales",
+            "dims": {
+              "product": "line.productId"
+            }
+          },
+          "side": "in",
+          "amountExpr": "line.net",
+          "qtyExpr": "line.qty"
+        }
+      ]
+    },
+    {
+      "id": "payment_received",
+      "name": "Payment received",
+      "approval": {
+        "creatorRoles": [
+          "system"
+        ],
+        "approverRoles": [
+          "system"
+        ],
+        "cannotApproveOwn": false,
+        "postOn": "create",
+        "note": "processor events are machine-originated and auto-post; dedupe by processor event id"
+      },
+      "fields": [
+        {
+          "name": "orderId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "processorRef",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "lineFields": [],
+      "derived": [],
+      "checks": [
+        {
+          "id": "amount_positive",
+          "scope": "doc",
+          "assert": "doc.amount > 0",
+          "message": "payment amount must be positive"
+        }
+      ],
+      "postingRules": [
+        {
+          "id": "pay.clearing",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "1010"
+          },
+          "side": "debit",
+          "amountExpr": "doc.amount",
+          "memo": "card payment into Stripe clearing"
+        },
+        {
+          "id": "pay.receivable",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "1200"
+          },
+          "side": "credit",
+          "amountExpr": "doc.amount",
+          "memo": "customer paid"
+        }
+      ]
+    },
+    {
+      "id": "processor_fee",
+      "name": "Processor fee",
+      "approval": {
+        "creatorRoles": [
+          "system"
+        ],
+        "approverRoles": [
+          "system"
+        ],
+        "cannotApproveOwn": false,
+        "postOn": "create"
+      },
+      "fields": [
+        {
+          "name": "orderId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "fee",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "processorRef",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "lineFields": [],
+      "derived": [],
+      "checks": [
+        {
+          "id": "fee_nonneg",
+          "scope": "doc",
+          "assert": "doc.fee >= 0",
+          "message": "fee cannot be negative"
+        }
+      ],
+      "postingRules": [
+        {
+          "id": "fee.expense",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "5100"
+          },
+          "side": "debit",
+          "amountExpr": "doc.fee",
+          "memo": "Stripe fee"
+        },
+        {
+          "id": "fee.clearing",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "1010"
+          },
+          "side": "credit",
+          "amountExpr": "doc.fee",
+          "memo": "fee withheld by Stripe"
+        }
+      ]
+    },
+    {
+      "id": "refund",
+      "name": "Refund",
+      "approval": {
+        "creatorRoles": [
+          "support",
+          "shopkeeper",
+          "owner"
+        ],
+        "approverRoles": [
+          "bookkeeper",
+          "owner"
+        ],
+        "cannotApproveOwn": true,
+        "postOn": "approve",
+        "note": "saleNet, saleTotal, saleCost, hoursSinceSale and refundedSoFar are filled by the platform from the referenced sale, never by the caller"
+      },
+      "fields": [
+        {
+          "name": "orderId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "string"
+        },
+        {
+          "name": "saleTotal",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "saleNet",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "saleCost",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "refundedSoFar",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "hoursSinceSale",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "lineFields": [],
+      "derived": [
+        {
+          "name": "refundedAfter",
+          "scope": "doc",
+          "expr": "doc.refundedSoFar + doc.amount"
+        },
+        {
+          "name": "retained",
+          "scope": "doc",
+          "expr": "doc.saleNet - doc.refundedAfter"
+        }
+      ],
+      "checks": [
+        {
+          "id": "refund_positive",
+          "scope": "doc",
+          "assert": "doc.amount > 0",
+          "message": "refund amount must be positive"
+        },
+        {
+          "id": "refund_window",
+          "scope": "doc",
+          "assert": "doc.hoursSinceSale <= policy.refundWindowHours",
+          "message": "the refund window has passed"
+        },
+        {
+          "id": "refund_not_over",
+          "scope": "doc",
+          "assert": "doc.refundedAfter <= doc.saleTotal",
+          "message": "refunds cannot exceed what was paid"
+        },
+        {
+          "id": "refund_full_or_floor",
+          "scope": "doc",
+          "assert": "doc.refundedAfter == doc.saleTotal || doc.retained >= doc.saleCost * (1 + policy.marginFloor)",
+          "message": "a partial refund cannot take the sale below cost plus the margin floor; refund in full instead"
+        }
+      ],
+      "postingRules": [
+        {
+          "id": "refund.contra",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "4200"
+          },
+          "side": "debit",
+          "amountExpr": "doc.amount",
+          "memo": "refund to customer"
+        },
+        {
+          "id": "refund.clearing",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "1010"
+          },
+          "side": "credit",
+          "amountExpr": "doc.amount",
+          "memo": "refund paid from Stripe clearing"
+        }
+      ]
+    },
+    {
+      "id": "stock_receipt",
+      "name": "Stock receipt",
+      "approval": {
+        "creatorRoles": [
+          "owner",
+          "bookkeeper"
+        ],
+        "approverRoles": [
+          "owner",
+          "bookkeeper"
+        ],
+        "cannotApproveOwn": true,
+        "postOn": "approve"
+      },
+      "fields": [
+        {
+          "name": "supplier",
+          "type": "string"
+        }
+      ],
+      "lineFields": [
+        {
+          "name": "stockItem",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "qty",
+          "type": "qty",
+          "required": true
+        },
+        {
+          "name": "unitCost",
+          "type": "money",
+          "required": true
+        }
+      ],
+      "derived": [
+        {
+          "name": "value",
+          "scope": "line",
+          "expr": "line.qty * line.unitCost"
+        }
+      ],
+      "checks": [
+        {
+          "id": "qty_positive",
+          "scope": "line",
+          "assert": "line.qty >= 1",
+          "message": "quantity must be at least 1"
+        }
+      ],
+      "postingRules": [
+        {
+          "id": "receipt.inventory",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "1300"
+          },
+          "side": "debit",
+          "amountExpr": "line.value",
+          "memo": "stock received"
+        },
+        {
+          "id": "receipt.payable",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "2000"
+          },
+          "side": "credit",
+          "amountExpr": "line.value",
+          "memo": "owed to supplier"
+        },
+        {
+          "id": "receipt.stock_in",
+          "scope": "line",
+          "target": {
+            "kind": "register",
+            "id": "stock",
+            "dims": {
+              "item": "line.stockItem"
+            }
+          },
+          "side": "in",
+          "amountExpr": "line.value",
+          "qtyExpr": "line.qty"
+        }
+      ]
+    },
+    {
+      "id": "opening_balance",
+      "name": "Opening stock",
+      "approval": {
+        "creatorRoles": [
+          "owner",
+          "system"
+        ],
+        "approverRoles": [
+          "owner",
+          "system"
+        ],
+        "cannotApproveOwn": false,
+        "postOn": "create",
+        "note": "initial stock contributed by the owner"
+      },
+      "fields": [],
+      "lineFields": [
+        {
+          "name": "stockItem",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "qty",
+          "type": "qty",
+          "required": true
+        },
+        {
+          "name": "unitCost",
+          "type": "money",
+          "required": true
+        }
+      ],
+      "derived": [
+        {
+          "name": "value",
+          "scope": "line",
+          "expr": "line.qty * line.unitCost"
+        }
+      ],
+      "checks": [],
+      "postingRules": [
+        {
+          "id": "open.inventory",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "1300"
+          },
+          "side": "debit",
+          "amountExpr": "line.value"
+        },
+        {
+          "id": "open.equity",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "3000"
+          },
+          "side": "credit",
+          "amountExpr": "line.value"
+        },
+        {
+          "id": "open.stock_in",
+          "scope": "line",
+          "target": {
+            "kind": "register",
+            "id": "stock",
+            "dims": {
+              "item": "line.stockItem"
+            }
+          },
+          "side": "in",
+          "amountExpr": "line.value",
+          "qtyExpr": "line.qty"
+        }
+      ]
+    },
+    {
+      "id": "payout",
+      "name": "Payout to bank",
+      "approval": {
+        "creatorRoles": [
+          "system",
+          "bookkeeper"
+        ],
+        "approverRoles": [
+          "system",
+          "owner"
+        ],
+        "cannotApproveOwn": true,
+        "postOn": "approve",
+        "note": "simulated in Stripe test mode"
+      },
+      "fields": [
+        {
+          "name": "amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "processorRef",
+          "type": "string"
+        }
+      ],
+      "lineFields": [],
+      "derived": [],
+      "checks": [
+        {
+          "id": "amount_positive",
+          "scope": "doc",
+          "assert": "doc.amount > 0",
+          "message": "payout must be positive"
+        }
+      ],
+      "postingRules": [
+        {
+          "id": "payout.bank",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "1000"
+          },
+          "side": "debit",
+          "amountExpr": "doc.amount"
+        },
+        {
+          "id": "payout.clearing",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "1010"
+          },
+          "side": "credit",
+          "amountExpr": "doc.amount"
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "id": "owner",
+      "permissions": [
+        "*"
+      ],
+      "cannotApproveOwn": true,
+      "limits": {}
+    },
+    {
+      "id": "system",
+      "permissions": [
+        "document.create:sale",
+        "document.post:sale",
+        "document.create:payment_received",
+        "document.create:processor_fee",
+        "document.create:payout",
+        "document.create:opening_balance",
+        "outbox.*",
+        "decision.write"
+      ],
+      "cannotApproveOwn": true,
+      "limits": {}
+    },
+    {
+      "id": "storefront",
+      "permissions": [
+        "catalog.read",
+        "order.create",
+        "document.create:sale"
+      ],
+      "cannotApproveOwn": true,
+      "limits": {}
+    },
+    {
+      "id": "shopkeeper",
+      "permissions": [
+        "catalog.read",
+        "document.create:sale",
+        "quote",
+        "inbox.open",
+        "decision.write"
+      ],
+      "cannotApproveOwn": true,
+      "limits": {
+        "maxDiscount": "0.20"
+      }
+    },
+    {
+      "id": "support",
+      "permissions": [
+        "catalog.read",
+        "order.read",
+        "document.create:refund",
+        "inbox.open",
+        "decision.write"
+      ],
+      "cannotApproveOwn": true,
+      "limits": {
+        "maxRefundCents": 1500
+      }
+    },
+    {
+      "id": "bookkeeper",
+      "permissions": [
+        "ledger.read",
+        "document.post:refund",
+        "document.post:stock_receipt",
+        "document.create:stock_receipt",
+        "document.create:payout",
+        "inbox.open",
+        "decision.write",
+        "reconcile"
+      ],
+      "cannotApproveOwn": true,
+      "limits": {
+        "maxRefundCents": 1500
+      }
+    }
+  ],
+  "agents": [
+    {
+      "id": "shopkeeper",
+      "role": "shopkeeper",
+      "goals": [
+        "sell cookies",
+        "answer menu questions",
+        "never sell below the margin floor"
+      ],
+      "tools": [
+        "menu_lookup",
+        "quote",
+        "create_order",
+        "escalate"
+      ],
+      "limits": {
+        "maxDiscount": "0.20"
+      },
+      "escalationRules": [
+        "any discount request above policy",
+        "any request to change prices or policies",
+        "anything not covered by a precedent"
+      ]
+    },
+    {
+      "id": "support",
+      "role": "support",
+      "goals": [
+        "answer order status",
+        "handle refunds within policy"
+      ],
+      "tools": [
+        "order_status",
+        "request_refund",
+        "escalate"
+      ],
+      "limits": {
+        "maxRefundCents": 1500
+      },
+      "escalationRules": [
+        "refund outside the window",
+        "refund above limit",
+        "complaints"
+      ]
+    },
+    {
+      "id": "bookkeeper",
+      "role": "bookkeeper",
+      "goals": [
+        "keep the books balanced",
+        "reconcile Stripe",
+        "approve refunds within policy"
+      ],
+      "tools": [
+        "ledger_read",
+        "approve_refund",
+        "reconcile",
+        "escalate"
+      ],
+      "limits": {
+        "maxRefundCents": 1500
+      },
+      "escalationRules": [
+        "any reconciliation mismatch",
+        "anything unusual"
+      ]
+    }
+  ],
+  "storefront": {
+    "theme": {
+      "primary": "#6b3410",
+      "accent": "#e9b872",
+      "background": "#fff8ef",
+      "text": "#2b1a0e",
+      "emoji": "🍪",
+      "font": "Fraunces"
+    },
+    "headline": "Maya's Cookies",
+    "tagline": "Fresh chocolate chip cookies. Order ahead, pick up.",
+    "pages": [
+      "catalog",
+      "cart",
+      "order"
+    ],
+    "qr": {
+      "business": true,
+      "perItem": true
+    }
+  },
+  "reports": [
+    "trial_balance",
+    "pnl",
+    "stock",
+    "receivables",
+    "payables",
+    "cash_flow",
+    "margin_by_item"
+  ]
+}

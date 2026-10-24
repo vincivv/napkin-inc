@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "actor": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "agent",
+            "owner",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "string"
+    },
+    "documentRef": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ruleIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "inputsHash": {
+      "type": "string"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "allowed",
+        "refused",
+        "escalated",
+        "executed",
+        "failed"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "wouldChangeIf": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timestamp": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "actor",
+    "action",
+    "documentRef",
+    "ruleIds",
+    "evidenceRefs",
+    "inputsHash",
+    "outcome",
+    "reason",
+    "wouldChangeIf",
+    "timestamp"
+  ],
+  "additionalProperties": false
+}

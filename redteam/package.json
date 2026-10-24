@@ -1,0 +1,8 @@
+{
+  "name": "@napkin/redteam",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "vitest run", "run": "tsx --env-file=../.env src/run.ts", "typecheck": "tsc -p ." },
+  "dependencies": { "@napkin/ledger-core": "workspace:*", "@napkin/schema": "workspace:*", "@napkin/prover": "workspace:*" }
+}
