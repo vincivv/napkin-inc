@@ -133,8 +133,13 @@ export function renderResults(run: RunFile): string {
     for (const p of passIds) {
       const meta = run.passes?.find((x) => x.id === p);
       lines.push(`## ${meta?.title ?? (p === "real_model" ? "Real model" : "Compromised model (scripted, worst case)")}`, "");
-      for (const d of meta?.description ?? []) lines.push(`> ${d}`);
-      if (meta?.description.length) lines.push("");
+      const sources = [...new Set(attacks.filter((r) => passOf(r) === p && r.source).map((r) => r.source!))].sort(sortStr);
+      const desc = [
+        ...(meta?.description ?? []),
+        ...sources.map((src) => `**Transcribed, not re-scored.** These rows come from ${src}; the run file with their transcripts was lost, so the invariant 9 decision-record check and the draft-level detectors did not run on them.`),
+      ];
+      for (const d of desc) lines.push(`> ${d}`, ">");
+      if (desc.length) lines.splice(lines.length - 1, 1, "");
       lines.push(...attackTables(attacks.filter((r) => passOf(r) === p), run.fake, "###"));
     }
   } else {

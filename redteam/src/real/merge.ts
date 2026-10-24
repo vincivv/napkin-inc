@@ -1,4 +1,4 @@
-// Merge real run files into one report:  tsx src/real/merge.ts <run.json> <run.json> ... [--out RESULTS.md]
+// Merge real run files into one report:  tsx src/real/merge.ts <run.json> <run.json> ... [--note "text"] [--out RESULTS.md]
 //
 // Used when the passes ran separately (e.g. the real-model pass on one commit, the compromised-model pass, chaos
 // and the reference auditor on a later one). Rules:
@@ -60,16 +60,22 @@ export function mergeRuns(files: { name: string; run: RunFile }[]): RunFile {
 }
 
 function main(argv: string[]): void {
-  const outIdx = argv.indexOf("--out");
-  const out = outIdx >= 0 ? argv[outIdx + 1] : undefined;
-  const inputs = argv.filter((_, i) => outIdx < 0 || (i !== outIdx && i !== outIdx + 1));
-  if (inputs.length < 1) throw new Error("usage: tsx src/real/merge.ts <run.json> ... [--out file.md]");
+  const inputs: string[] = [];
+  const extra: string[] = [];
+  let out: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--out") out = argv[++i];
+    else if (argv[i] === "--note") extra.push(argv[++i]!);
+    else inputs.push(argv[i]!);
+  }
+  if (inputs.length < 1) throw new Error('usage: tsx src/real/merge.ts <run.json> ... [--note "text"]... [--out file.md]');
   const merged = mergeRuns(inputs.map((p) => ({ name: basename(p), run: RunFile.parse(JSON.parse(readFileSync(p, "utf8"))) })));
+  const run = RunFile.parse({ ...merged, notes: [...(merged.notes ?? []), ...extra.map((n) => `merge note: ${n}`)] });
   if (out) {
-    writeFileSync(out, renderResults(merged));
+    writeFileSync(out, renderResults(run));
     console.log(`wrote ${out}`);
   } else {
-    console.log(`wrote ${writeResults(merged)}`);
+    console.log(`wrote ${writeResults(run)}`);
   }
 }
 

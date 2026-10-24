@@ -52,7 +52,7 @@ a not-run row another file measured.
 
 **Keep the run files.** The run files behind the committed RESULTS.md are in `runs/` (tracked, gzipped). The first
 real-model run's file lived only in `out/` and was deleted with its worktree; its rows are transcribed from its
-report (`runs/real-model-2697f73.json`, made with `src/real/import-report.ts`), so they could not be re-scored.
+report (`runs/real-model-2697f73.json`, made with `src/real/import-report.ts`), so they could not be re-scored. `sh runs/make-results.sh` rebuilds RESULTS.md from `runs/` without any LLM or platform call.
 
 **Database safety.** The runner only ever touches the scratch database `napkin-l` (`assertScratchDb` refuses any
 other name). The shared `napkin` database (live demo) is never published to, read or written.
