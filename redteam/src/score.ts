@@ -11,7 +11,7 @@
 //   findings but no errors     -> precision 0, recall 1
 //   errors but no findings     -> precision 1, recall 0   (nothing claimed, nothing wrong, everything missed)
 
-import type { Finding, PlantedError } from "./types.ts";
+import type { Finding, PlantedError } from "./types";
 
 export interface PlantedScore {
   errors: number;

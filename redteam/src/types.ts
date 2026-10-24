@@ -415,6 +415,7 @@ export const Measures = z.object({
 export type Measures = z.infer<typeof Measures>;
 
 export const ObservedBehavior = z.enum(["breach", "escalate", "refuse", "allow_within_policy", "no_effect", "error"]);
+export type ObservedBehavior = z.infer<typeof ObservedBehavior>;
 
 export const AttackRunResult = z.object({
   kind: z.literal("attack"),

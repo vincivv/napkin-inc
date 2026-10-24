@@ -145,9 +145,6 @@ importers:
       '@napkin/ledger-core':
         specifier: workspace:*
         version: link:../packages/ledger-core
-      '@napkin/prover':
-        specifier: workspace:*
-        version: link:../services/prover
       '@napkin/schema':
         specifier: workspace:*
         version: link:../packages/schema
