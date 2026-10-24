@@ -74,6 +74,8 @@ const CHANNELS = ["storefront", "phone", "agent"];
 const OUTCOMES = ["allowed", "refused", "escalated", "executed", "failed"];
 const PROCESSOR_KINDS = ["payment_succeeded", "fee", "refund_succeeded", "payout"];
 const STALE_CLAIM_MICROS = 5n * 60n * 1_000_000n;
+/** Documents that only recordProcessorEvent creates (deduped by processor event id, invariant 7). */
+const PROCESSOR_DOC_TYPES = ["payment_received", "processor_fee", "payout"];
 
 // ---------- identity & roles ----------
 
@@ -344,13 +346,21 @@ export const updateOrderStatus = spacetimedb.reducer({ orderId: t.string(), stat
   }),
 );
 
-/** role in the doc type's creatorRoles: create a draft (or post immediately when postOn = "create"). */
+/**
+ * role in the doc type's creatorRoles: create a draft (or post immediately when postOn = "create").
+ * payment_received, processor_fee and payout are refused for every role: only recordProcessorEvent creates them.
+ */
 export const createDocument = spacetimedb.reducer(
   { businessId: t.string(), docType: t.string(), externalRef: t.string(), fields: t.array(FieldValue), lines: t.array(DocLine), note: t.string() },
   (ctx, args) =>
     run("createDocument", () => {
       const biz = getBusiness(ctx, args.businessId);
       const caller = callerFor(ctx, biz.id);
+      // Invariant 7, for every role and also for the baseline: processor documents exist only through
+      // recordProcessorEvent, so a payment, fee or payout can never be booked twice or without an event.
+      if (PROCESSOR_DOC_TYPES.includes(args.docType)) {
+        fail(`invariant 7 (exactly-once payments): ${args.docType} documents are created only by recordProcessorEvent (deduplicated by processor event id), never directly with createDocument`);
+      }
       const cc = activeConfig(ctx, biz);
       const def = docDef(cc.cfg, args.docType);
       requireRole(biz, caller, def.approval.creatorRoles, `create ${def.id} documents`);

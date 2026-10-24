@@ -543,3 +543,33 @@ describe("red-team baseline (enforce=false)", () => {
     expect(() => createOrder(real, base.actors.storefront, "cross", [line("cookie_single", 1)])).toThrow(/not an actor of business/);
   });
 });
+
+describe("invariant 7: processor documents only through recordProcessorEvent", () => {
+  const processorDocs = (orderId: string) => ({
+    payment_received: [{ name: "orderId", value: orderId }, { name: "amount", value: "3.00" }, { name: "processorRef", value: "pi_x" }],
+    processor_fee: [{ name: "orderId", value: orderId }, { name: "fee", value: "0.10" }, { name: "processorRef", value: "txn_x" }],
+    payout: [{ name: "amount", value: "1.00" }, { name: "processorRef", value: "po_x" }],
+  });
+
+  it("createDocument refuses payment_received, processor_fee and payout for every role, also on the baseline", () => {
+    const w = new World();
+    const real = bootMaya(w);
+    const base = bootMaya(w, { id: "maya-baseline", enforce: false, claim: false });
+    for (const b of [real, base]) {
+      const orderId = `${b.id}-o`;
+      createOrder(b, b.actors.storefront, orderId, [line("cookie_single", 1)]);
+      for (const [docType, fields] of Object.entries(processorDocs(orderId))) {
+        for (const who of [w.system, ...Object.values(b.actors)]) {
+          const before = snapshot(w);
+          expect(() => w.call(who, "createDocument", { businessId: b.id, docType, externalRef: orderId, fields, lines: [], note: "" })).toThrow(/invariant 7.*only by recordProcessorEvent/);
+          expect(snapshot(w)).toBe(before);
+        }
+      }
+      // the processor path still works and still dedupes
+      pay(b, orderId, 300n, `evt-${b.id}`);
+      pay(b, orderId, 300n, `evt-${b.id}`);
+      expect(docsOf(w, b.id, "payment_received")).toHaveLength(1);
+      expect(order(w, orderId).status).toBe("paid");
+    }
+  });
+});
