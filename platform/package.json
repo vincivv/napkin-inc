@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc -p .",
+    "typecheck": "tsc -p . && tsc -p test",
     "build": "spacetime build",
     "publish": "spacetime publish napkin --server local --yes",
     "generate": "spacetime generate --lang typescript --out-dir ../packages/stdb-bindings/src --module-path ."
   },
   "dependencies": {
     "spacetimedb": "2.13.0",
-    "@napkin/ledger-core": "workspace:*"
+    "@napkin/ledger-core": "workspace:*",
+    "@napkin/schema": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^7.0.2"
