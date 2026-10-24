@@ -339,7 +339,11 @@ describe("refunds", () => {
   it("refund limits: support may request at most $15; a refund over the sale is refused", () => {
     sell(b, "r2", [line("cookie_box6", 2)]); // 30.00
     expect(() => w.call(b.actors.support, "requestRefund", { orderId: "r2", amountCents: 1600n, reason: "x" })).toThrow(/role limit/);
-    w.call(b.actors.owner, "requestRefund", { orderId: "r2", amountCents: 3000n, reason: "owner decides" });
+    w.call(b.actors.shopkeeper, "requestRefund", { orderId: "r2", amountCents: 3000n, reason: "owner decides" });
+    const big = lastDoc(w, BIZ, "refund");
+    expect(() => w.call(b.actors.bookkeeper, "postDocument", { documentId: big.id })).toThrow(/role limit: bookkeeper/);
+    w.call(b.actors.owner, "postDocument", { documentId: big.id });
+    expect(order(w, "r2").status).toBe("refunded");
     expect(() => w.call(b.actors.owner, "requestRefund", { orderId: "r1", amountCents: 1501n, reason: "x" })).toThrow(/exceed/);
   });
 
