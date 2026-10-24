@@ -618,3 +618,72 @@ describe("invariant 7: processor documents only through recordProcessorEvent", (
     }
   });
 });
+
+describe("rates are whole basis points in [0, 1] (the prover's domain)", () => {
+  it("createOrder refuses discount rates with more than 4 decimal places or outside [0, 1], for every role and the baseline", () => {
+    const w = new World();
+    const real = bootMaya(w);
+    const base = bootMaya(w, { id: "maya-baseline", enforce: false, claim: false });
+    let n = 0;
+    for (const b of [real, base]) {
+      for (const who of [b.actors.storefront, b.actors.shopkeeper, b.actors.owner]) {
+        const before = snapshot(w);
+        expect(() => createOrder(b, who, `x${++n}`, [line("cookie_box6", 1)], "0.12345")).toThrow(/discountRate: rate "0.12345" has more than 4 decimal places/);
+        expect(() => createOrder(b, who, `x${++n}`, [line("cookie_box6", 1)], "1/3")).toThrow(/more than 4 decimal places/);
+        expect(() => createOrder(b, who, `x${++n}`, [line("cookie_box6", 1)], "1.5")).toThrow(/outside \[0, 1\]/);
+        expect(() => createOrder(b, who, `x${++n}`, [line("cookie_box6", 1)], "-0.1")).toThrow(/outside \[0, 1\]/);
+        expect(snapshot(w)).toBe(before);
+      }
+      // exactly 4 decimal places (and a fraction that is whole basis points) are fine
+      expect(createOrder(b, b.actors.storefront, `${b.id}-bp`, [line("cookie_box6", 1)], "0.1234").totalCents).toBe(1315n); // 15 - round2(1.851)
+      expect(createOrder(b, b.actors.storefront, `${b.id}-frac`, [line("cookie_box6", 1)], "1/8").totalCents).toBe(1312n); // 15 - round2(1.875) = 15 - 1.88
+    }
+  });
+
+  it("createDocument refuses any field typed rate outside the domain (sale discountRate and other document types)", () => {
+    const w = new World();
+    w.call(w.system, "claimSystem", {} as never);
+    w.call(w.system, "registerBusiness", { id: BIZ, name: "Maya's Cookies", enforce: true });
+    // a configuration whose stock receipt also carries a rate field
+    const json = mayaConfig(BIZ, (c) => c.documents.find((d: any) => d.id === "stock_receipt").fields.push({ name: "vatRate", type: "rate" }));
+    w.call(w.system, "submitConfiguration", { businessId: BIZ, json, proofReportJson: "" });
+    w.call(w.system, "activateConfiguration", { configId: w.rows("configVersion")[0].id });
+    const bookkeeper = w.identity("bk");
+    const shopkeeper = w.identity("sk");
+    grant(w, w.system, bookkeeper, BIZ, "bookkeeper");
+    grant(w, w.system, shopkeeper, BIZ, "shopkeeper");
+
+    const sale = (rate: string) => ({ businessId: BIZ, docType: "sale", externalRef: "", fields: [{ name: "orderId", value: `cd-${rate.replace(/\W/g, "")}` }, { name: "discountRate", value: rate }], lines: [{ values: [{ name: "productId", value: "cookie_box6" }, { name: "qty", value: "1" }] }], note: "" });
+    expect(() => w.call(shopkeeper, "createDocument", sale("0.00001"))).toThrow(/more than 4 decimal places/);
+    expect(() => w.call(shopkeeper, "createDocument", sale("2"))).toThrow(/outside \[0, 1\]/);
+    w.call(shopkeeper, "createDocument", sale("0.0001"));
+
+    const receipt = (vatRate: string) => ({ businessId: BIZ, docType: "stock_receipt", externalRef: "", fields: [{ name: "vatRate", value: vatRate }], lines: [{ values: [{ name: "stockItem", value: "choc_chip_cookie" }, { name: "qty", value: "1" }, { name: "unitCost", value: "0.80" }] }], note: "" });
+    const before = snapshot(w);
+    expect(() => w.call(bookkeeper, "createDocument", receipt("0.08875"))).toThrow(/stock_receipt document: field "vatRate": rate "0.08875" has more than 4 decimal places/);
+    expect(() => w.call(bookkeeper, "createDocument", receipt("1.01"))).toThrow(/outside \[0, 1\]/);
+    expect(() => w.call(bookkeeper, "createDocument", receipt("-1/2"))).toThrow(/outside \[0, 1\]/);
+    expect(snapshot(w)).toBe(before);
+    w.call(bookkeeper, "createDocument", receipt("0.0825"));
+    expect(lastDoc(w, BIZ, "stock_receipt").status).toBe("draft");
+  });
+
+  it("submitConfiguration refuses rate policies with more than 4 decimal places or outside [0, 1]", () => {
+    const w = new World();
+    bootMaya(w);
+    const sub = (patch: (c: any) => void) => w.call(w.system, "submitConfiguration", { businessId: BIZ, json: mayaConfig(BIZ, patch), proofReportJson: "" });
+    const before = snapshot(w);
+    expect(() => sub((c) => (c.policies.marginFloor = "0.30001"))).toThrow(/policy marginFloor: rate "0.30001" has more than 4 decimal places/);
+    expect(() => sub((c) => (c.policies.maxDiscount = "0.123456"))).toThrow(/policy maxDiscount.*more than 4 decimal places/);
+    expect(() => sub((c) => (c.policies.taxRate = "0.08875"))).toThrow(/policy taxRate.*more than 4 decimal places/);
+    expect(() => sub((c) => (c.policies.maxDiscount = "1.5"))).toThrow(/policy maxDiscount: rate "1.5" is outside \[0, 1\]/);
+    expect(() => sub((c) => (c.policies.marginFloor = "-0.1"))).toThrow(/policy marginFloor.*outside \[0, 1\]/);
+    expect(snapshot(w)).toBe(before);
+    sub((c) => {
+      c.policies.taxRate = "0.0825";
+      c.policies.maxDiscount = "0.1999";
+      c.policies.marginFloor = "1";
+    });
+    expect(w.rows("configVersion").filter((c) => c.status === "pending")).toHaveLength(1);
+  });
+});

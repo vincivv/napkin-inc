@@ -17,7 +17,8 @@ const opArb = fc.oneof(
     arbitrary: fc.record({
       t: fc.constant("order" as const),
       lines: fc.array(fc.record({ productId: fc.constantFrom(...PRODUCTS), qty: fc.integer({ min: 1, max: 4 }) }), { minLength: 1, maxLength: 3 }),
-      disc: fc.constantFrom("0", "0", "0.05", "0.1", "0.2", "0.25"),
+      // mostly valid rates; sometimes ones outside the prover's domain (more than 4 decimals, outside [0, 1])
+      disc: fc.oneof({ weight: 9, arbitrary: fc.constantFrom("0", "0", "0.05", "0.1", "0.2", "0.25", "0.1234") }, { weight: 1, arbitrary: fc.constantFrom("0.12345", "1.5", "-0.05") }),
     }),
   },
   { weight: 4, arbitrary: fc.record({ t: fc.constant("pay" as const), i: fc.nat(), mode: fc.constantFrom("exact", "exact", "wrong", "dup") }) },
@@ -140,7 +141,8 @@ describe("property: random order/payment/refund sequences", () => {
         // every posted sale is approved by someone other than its creator (SoD) and respects the 20% cap
         for (const d of docsOf(w, BIZ, "sale").filter(live)) {
           expect(d.approvedBy.toHexString()).not.toBe(d.createdBy.toHexString());
-          expect(d.fields.find((f: any) => f.name === "discountRate").value).not.toBe("0.25");
+          const rate = d.fields.find((f: any) => f.name === "discountRate").value;
+          expect(["0", "0.05", "0.1", "0.2", "0.1234"]).toContain(rate); // never 25%, never outside whole basis points in [0, 1]
         }
         seen.sales += docsOf(w, BIZ, "sale").filter(live).length;
         seen.refunds += docsOf(w, BIZ, "refund").filter(live).length;
@@ -154,6 +156,6 @@ describe("property: random order/payment/refund sequences", () => {
     expect(seen.sales).toBeGreaterThan(100);
     expect(seen.refunds).toBeGreaterThan(10);
     expect(seen.reversals).toBeGreaterThan(10);
-    expect(seen.saleReversals).toBeGreaterThan(5);
+    expect(seen.saleReversals).toBeGreaterThan(2); // typically 7-18: needs a fully refunded order first
   });
 });

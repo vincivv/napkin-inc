@@ -24,6 +24,8 @@ import {
   catalogData,
   centsToDecimal,
   checkCanApprove,
+  checkRate,
+  checkRatePolicies,
   declaredFields,
   docDef,
   fail,
@@ -148,7 +150,8 @@ export const registerBusiness = spacetimedb.reducer({ id: t.string(), name: t.st
 
 /**
  * system: store a compiled Configuration as "pending". Rejects JSON that does not parse, documents whose
- * expressions do not compile, and any proof report containing a "failed" proof (never accept failed proofs).
+ * expressions do not compile, any proof report containing a "failed" proof (never accept failed proofs), and
+ * rate policies (marginFloor, maxDiscount, taxRate) outside [0, 1] or with more than 4 decimal places.
  */
 export const submitConfiguration = spacetimedb.reducer({ businessId: t.string(), json: t.string(), proofReportJson: t.string() }, (ctx, args) =>
   run("submitConfiguration", () => {
@@ -159,6 +162,7 @@ export const submitConfiguration = spacetimedb.reducer({ businessId: t.string(),
     if (cfg.businessId !== biz.id) fail(`configuration is for "${cfg.businessId}", not "${biz.id}"`);
     validateProofReport(args.proofReportJson);
     if (cfg.proofReport) validateProofReport(JSON.stringify(cfg.proofReport));
+    checkRatePolicies(cfg); // marginFloor, maxDiscount, taxRate: whole basis points in [0, 1] (prover domain)
     openingLines(cfg); // initialStock must be valued from the catalog (fails early, never assumed)
     let version = 0;
     for (const c of ctx.db.configVersion.businessId.filter(biz.id)) if (c.version > version) version = c.version;
@@ -265,6 +269,7 @@ function createSale(ctx: Ctx, biz: BusinessRow, caller: Caller, req: SaleRequest
   if (req.customerName.length > 64) fail("customerName is too long (first name only)");
   if (req.lines.length === 0) fail("an order needs at least one line");
   const rate = parseExact(req.discountRate, "discountRate");
+  checkRate(rate, req.discountRate, "discountRate"); // also on the baseline: the input domain, not a policy
   if (biz.enforce && caller.role !== "owner") {
     const lim = roleLimit(cc.cfg, caller.role, "maxDiscount");
     if (lim && rate.gt(lim)) fail(`role limit: ${caller.role} may give at most ${lim.toDecimal()} discount, asked ${rate.toDecimal()}`);
@@ -295,7 +300,8 @@ function createSale(ctx: Ctx, biz: BusinessRow, caller: Caller, req: SaleRequest
 /**
  * storefront | shopkeeper | owner: create a customer_order ("pending_payment") and its sale draft.
  * Prices, costs and stock units are filled from the ACTIVE catalog, never from the caller.
- * discountRate is an exact decimal string; the sale's policy checks (discount cap, margin floor) run now
+ * discountRate is an exact decimal string in [0, 1] with at most 4 decimal places (rates are proven in basis
+ * points; any document field typed "rate" is checked the same way); the sale's policy checks (discount cap, margin floor) run now
  * so a below-floor order is refused before payment. Stock availability is checked now too.
  */
 export const createOrder = spacetimedb.reducer(
