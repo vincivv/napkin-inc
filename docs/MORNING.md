@@ -26,3 +26,4 @@ Claude keeps this updated overnight. Newest items at the bottom of each list.
     - **Forced tool calls:** Opus 5.5 rejects them, so calls now use auto + instruction + zod validation. Structured outputs can't take a schema this big.
     - **Money-question wording:** Haiku rephrased "cost for the sea-salt add-on" as "cost of a batch". Money questions now always use the exact template wording. Test added.
   - **Tests:** 166 passing.
+- **05:5x:** merged **platform hardening** (5 fixes). One was a real bug: refund id `sim_re_1` matched outbox item `sim_re_12`. 172 tests pass. Republished locally, and the M1 money path still works: checkout MC-FMKYH, paid $6.00, a double payment was a no-op with 1 payment event + 1 fee event.
