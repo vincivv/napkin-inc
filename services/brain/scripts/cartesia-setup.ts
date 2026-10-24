@@ -7,7 +7,7 @@
 // --dry-run makes NO network calls: it prints every request it would send, with the bearer secret redacted.
 //
 // Real run (requires CARTESIA_API_KEY and PHONE_TOOL_SECRET in the env):
-//   1. GET   /v1/agents/tools?limit=100[&starting_after=...]   find our tools by name (url contains /phone/tools/)
+//   1. GET   /v1/agents/tools?type=webhook&limit=100[&starting_after=...]  find our tools by name (url contains /phone/tools/)
 //   2. POST  /v1/agents/tools            for each missing tool   | PATCH /v1/agents/tools/{tool_id} for each existing one
 //   3. GET   /v1/agents?q=<name>&limit=100                        find the agent by exact name
 //   4. POST  /v1/agents                   if missing             | PATCH /v1/agents/{agent_id} with the new config
@@ -168,7 +168,7 @@ async function main(): Promise<void> {
     if (!secret || secret.length < MIN_PHONE_TOOL_SECRET_LENGTH) console.log(`# NOTE: PHONE_TOOL_SECRET is missing or shorter than ${MIN_PHONE_TOOL_SECRET_LENGTH} chars; a real run would refuse.`);
     if (!a.model) console.log("# NOTE: --model is missing; a real run would refuse. Pick a Claude id from --list-models.");
     if (!a.voice) console.log("# NOTE: --voice is missing; a real run would refuse. Pick a voice id in the Cartesia Playground.");
-    printReq("GET", "/v1/agents/tools?limit=100");
+    printReq("GET", "/v1/agents/tools?type=webhook&limit=100");
     const tools = redact(buildCartesiaTools({ brainUrl, businessId: a.businessId, secret: undefined }));
     for (const t of tools) printReq("POST", "/v1/agents/tools", t);
     console.log(`\n# (for a tool that already exists, the same body without "type" goes to PATCH /v1/agents/tools/{tool_id})`);
