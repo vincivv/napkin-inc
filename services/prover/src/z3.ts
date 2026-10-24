@@ -45,7 +45,9 @@ export async function check(z: Z3, assertions: ZBool[], timeoutMs: number): Prom
     const s = new z.Solver();
     s.set("timeout", timeoutMs);
     for (const a of assertions) s.add(a);
+    const t0 = performance.now();
     const r = await s.check();
+    if (process.env.PROVER_DEBUG) console.error(`[z3] ${r} ${Math.round(performance.now() - t0)}ms (${assertions.length} assertions)`);
     if (r === "unsat") return { status: "unsat" };
     if (r === "sat") return { status: "sat", model: s.model() };
     let reason = "unknown";
