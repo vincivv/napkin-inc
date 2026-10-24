@@ -17,7 +17,7 @@ these guarantees would still hold, because the platform re-checks them on `ctx.s
 | 4 | policy checks: discount cap, margin floor, refund window, full-or-floor refunds (D4) | the configuration's `checks`, run by `post()` |
 | 5 | segregation of duties: the creator cannot approve (`cannotApproveOwn`) | `checkCanApprove` |
 | 6 | prices, costs and stock units come from the active catalog; they change only when the owner activates a configuration | `fillSaleLine`, `activateConfiguration` |
-| 7 | exactly-once payments: `processor_event.eventId` dedupe; `payment_received`, `processor_fee` and `payout` exist only through `recordProcessorEvent` (`createDocument` refuses them for every role, baseline included); side effects go through `outbox` keyed `refund:<docId>`; a processor refund matches its outbox item by exact ref | `recordProcessorEvent`, `createDocument`, `afterRefundPosted`, `processRefundSucceeded` |
+| 7 | exactly-once payments: `processor_event.eventId` dedupe; `payment_received`, `processor_fee` and `payout` exist only through `recordProcessorEvent` (`createDocument` refuses them for every role, baseline included); side effects go through `outbox` keyed `refund:<docId>` (refunds) or queued by the system actor via `enqueueOutbox` (kind `sms` only, idempotent on the key); a processor refund matches its outbox item by exact ref | `recordProcessorEvent`, `createDocument`, `afterRefundPosted`, `processRefundSucceeded` |
 | 8 | nothing posts into a closed period; only months that have ended can be closed (`closePeriod` refuses the current and future months), so postings, including processor events, always land in an open month; posted documents are never edited (reversal documents only) | `closePeriod`, `openPeriod`, `reversePosted` |
 | — | money the customer paid stays accounted for: processor documents cannot be reversed; a paid sale can be reversed only after it is fully refunded (refund first via `requestRefund`); a refund cannot be reversed once its order's sale was reversed, or once its processor refund is in flight or sent | `reverseDocument` |
 | — | rates are whole basis points in [0, 1], the domain the prover proves (`services/prover`): `createOrder`'s `discountRate`, every document field typed `rate`, and the `marginFloor`, `maxDiscount`, `taxRate` policies in `submitConfiguration`. Enforced on the baseline too (input domain, not a policy) | `checkRate`, `checkRatePolicies` |
@@ -36,7 +36,7 @@ businesses, role grants) are still enforced.
 - `src/schema.ts`: tables (contract).
 - `src/index.ts`: reducers (contract signatures; their doc comments are the spec).
 - `src/core.ts`: shared machinery. All posting math is delegated to `@napkin/ledger-core`.
-- `test/platform.test.ts`: reducer tests (41 scenarios).
+- `test/platform.test.ts`: reducer tests (including `enqueueOutbox`).
 - `test/property.test.ts`: fast-check property test (150 random sequences of orders, payments, refunds,
   reversals of sales/refunds/payments, stock receipts, clock advances across month ends and period closes).
 - `test/helpers.ts`: test harness.
@@ -76,6 +76,15 @@ Refund: `requestRefund` (support/shopkeeper/owner) creates a draft; the platform
 `postDocument` by bookkeeper/owner (not the requester) posts it and queues exactly one `stripe_refund` outbox
 item. The brain then calls `claimOutbox` and `completeOutbox`. The `refund_succeeded` webhook completes the
 item idempotently.
+
+Brain-queued side effects: `enqueueOutbox(businessId, kind, payloadJson, idempotencyKey)` (system only, refused
+for every other role, the red-team baseline included) inserts a pending outbox row. Only kind `sms` is allowed
+(refunds are queued only by posting a refund document). `payloadJson` must be a JSON object of at most 2048
+bytes; `idempotencyKey` is 1..200 characters. It is idempotent on the key (the existing `idempotencyKey` unique
+index, no schema change): the same business, kind and payload is a no-op, anything different under that key
+is refused. The brain's outbox worker drains it with `claimOutbox`/`completeOutbox` like any other row (the phone
+line queues pay-link texts as `paylink:<orderId>`). A failed `sms` completion opens no inbox item; that is only
+for refunds.
 
 Reversal: `reverseDocument` (bookkeeper/owner) posts a mirror document. It refuses processor documents
 (`payment_received`, `processor_fee`, `payout`) and a sale whose order is paid and not fully refunded
