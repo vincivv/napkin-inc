@@ -24,7 +24,7 @@
       "forbiddenOutcomes": ["leaked_canary"]
     },
     "measures": ["data_leak"],
-    "invariantIds": [9]
+    "invariantIds": []
   },
   {
     "id": "DE-02",
@@ -50,7 +50,7 @@
       "forbiddenOutcomes": ["leaked_canary"]
     },
     "measures": ["data_leak"],
-    "invariantIds": [9]
+    "invariantIds": []
   },
   {
     "id": "DE-03",
@@ -76,7 +76,7 @@
       "forbiddenOutcomes": ["leaked_canary"]
     },
     "measures": ["data_leak"],
-    "invariantIds": [9]
+    "invariantIds": []
   },
   {
     "id": "DE-04",
@@ -103,6 +103,6 @@
       "forbiddenOutcomes": ["leaked_canary"]
     },
     "measures": ["data_leak"],
-    "invariantIds": [9]
+    "invariantIds": []
   }
 ]

@@ -12,7 +12,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { REDTEAM_ROOT } from "./load";
-import { INVARIANTS, RunFile, type RunResult, type AttackRunResult, type ChaosRunResult, type NotRunResult, type PlantedRunResult } from "./types";
+import { INVARIANTS, RunFile, type Pass, type RunResult, type AttackRunResult, type ChaosRunResult, type NotRunResult, type PlantedRunResult } from "./types";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
@@ -35,7 +35,7 @@ function isNotRun(r: RunResult): r is NotRunResult {
 function notRunTable(rows: NotRunResult[]): string {
   const groups = new Map<string, { r: NotRunResult; modes: string[] }>();
   for (const r of rows) {
-    const k = `${r.subject}\u0000${r.id}\u0000${r.category}\u0000${r.reason}`;
+    const k = `${r.subject}\u0000${r.pass ?? ""}\u0000${r.id}\u0000${r.category}\u0000${r.reason}`;
     const g = groups.get(k) ?? { r, modes: [] };
     g.modes.push(r.mode);
     groups.set(k, g);
@@ -43,13 +43,42 @@ function notRunTable(rows: NotRunResult[]): string {
   const order = { attack: 0, chaos: 1, planted: 2 } as const;
   const lines = [...groups.values()]
     .sort((a, b) => order[a.r.subject] - order[b.r.subject] || sortStr(a.r.id, b.r.id) || sortStr(a.r.category, b.r.category) || sortStr(a.r.reason, b.r.reason))
-    .map(({ r, modes }) => [r.subject, r.id, r.category, [...modes].sort(sortStr).join(", "), r.reason.replace(/\|/g, "/")]);
+    .map(({ r, modes }) => [r.subject === "attack" && r.pass === "compromised_model" ? "attack (compromised model)" : r.subject, r.id, r.category, [...modes].sort(sortStr).join(", "), r.reason.replace(/\|/g, "/")]);
   return table(["Subject", "Id", "Category", "Modes", "Reason"], lines);
 }
 
 function table(headers: string[], rows: string[][]): string {
   const line = (cells: string[]) => `| ${cells.join(" | ")} |`;
   return [line(headers), line(headers.map(() => "---")), ...rows.map(line)].join("\n");
+}
+
+const PASS_ORDER: Pass[] = ["real_model", "compromised_model"];
+
+/** Category table and (real runs) the per-row table for one set of attack rows. */
+function attackTables(attacks: AttackRunResult[], fake: boolean, h: string): string[] {
+  const lines: string[] = [];
+  const categories = [...new Set(attacks.map((r) => r.category))].sort(sortStr);
+  lines.push(fake ? `${h} Attacks by category` : `${h} Attacks by category (measured rows only)`, "");
+  const sum = (rs: AttackRunResult[]) => rs.reduce((s, r) => s + r.measures.money_lost_cents, 0);
+  const catRows = categories.map((cat) => {
+    const rs = attacks.filter((r) => r.category === cat);
+    const base = rs.filter((r) => r.mode === "baseline");
+    const nap = rs.filter((r) => r.mode === "napkin");
+    const invs = [...new Set(rs.flatMap((r) => r.invariantIds))].sort((a, b) => a - b);
+    return [cat, String(new Set(rs.map((r) => r.attackId)).size), String(base.filter((r) => r.breached).length), String(nap.filter((r) => r.breached).length), money(sum(base)), money(sum(nap)), invs.map((i) => `#${i}`).join(", ") || "none (data_leak only)"];
+  });
+  const totalBase = attacks.filter((r) => r.mode === "baseline");
+  const totalNap = attacks.filter((r) => r.mode === "napkin");
+  catRows.push(["**total**", String(new Set(attacks.map((r) => r.attackId)).size), String(totalBase.filter((r) => r.breached).length), String(totalNap.filter((r) => r.breached).length), money(sum(totalBase)), money(sum(totalNap)), ""]);
+  lines.push(table(["Category", "Attacks", "Baseline breaches", "Napkin breaches", "Money lost (baseline)", "Money lost (Napkin)", "Invariants covered"], catRows), "");
+  if (attacks.length > 0 && !fake) {
+    lines.push(`${h}# Measured attack rows`, "");
+    const rows = [...attacks]
+      .sort((a, b) => sortStr(a.attackId, b.attackId) || sortStr(a.mode, b.mode))
+      .map((r) => [r.attackId, r.category, r.mode, r.breached ? "**BREACH**" : "held", r.breachCodes.join(", ") || "none", r.observed, r.expected, r.behaviorOk ? "yes" : "no", money(r.measures.money_lost_cents)]);
+    lines.push(table(["Attack", "Category", "Mode", "Result", "Breach codes", "Observed", "Expected (Napkin)", "Behaviour OK", "Money lost"], rows), "");
+  }
+  return lines;
 }
 
 export function renderResults(run: RunFile): string {
@@ -81,58 +110,43 @@ export function renderResults(run: RunFile): string {
 
   const notRun = run.results.filter(isNotRun);
   const measured = run.results.filter((r) => !isNotRun(r));
+  const attacks = run.results.filter(isAttack);
+  const passOf = (r: { pass?: Pass }): Pass => r.pass ?? "real_model";
+  const passIds = PASS_ORDER.filter((p) => attacks.some((r) => passOf(r) === p) || notRun.some((r) => r.subject === "attack" && passOf(r) === p));
+  const multiPass = passIds.length > 1 || passIds.some((p) => p !== "real_model");
+  const passLabel = (p: Pass) => (p === "real_model" ? "real model" : "compromised model, scripted");
   if (!run.fake || notRun.length > 0) {
-    const count = (subject: NotRunResult["subject"], kind: RunResult["kind"]) => {
-      const m = measured.filter((r) => r.kind === kind).length;
-      const sk = notRun.filter((r) => r.subject === subject && r.status === "skipped").length;
-      const nr = notRun.filter((r) => r.subject === subject && r.status === "not_run").length;
-      return [subject, String(m), String(sk), String(nr)];
-    };
+    const count = (label: string, m: number, rows: NotRunResult[]) => [label, String(m), String(rows.filter((r) => r.status === "skipped").length), String(rows.filter((r) => r.status === "not_run").length)];
+    const rows: string[][] = [];
+    if (multiPass) {
+      for (const p of passIds) rows.push(count(`attack (${passLabel(p)})`, attacks.filter((r) => passOf(r) === p).length, notRun.filter((r) => r.subject === "attack" && passOf(r) === p)));
+    } else {
+      rows.push(count("attack", attacks.length, notRun.filter((r) => r.subject === "attack")));
+    }
+    rows.push(count("chaos", measured.filter((r) => r.kind === "chaos").length, notRun.filter((r) => r.subject === "chaos")));
+    rows.push(count("planted", measured.filter((r) => r.kind === "planted").length, notRun.filter((r) => r.subject === "planted")));
     lines.push("## Coverage (rows = item x mode)", "");
-    lines.push(table(["Subject", "Measured", "Skipped", "Not run"], [count("attack", "attack"), count("chaos", "chaos"), count("planted", "planted")]), "");
+    lines.push(table(["Subject", "Measured", "Skipped", "Not run"], rows), "");
   }
 
-  // ---- attacks by category ----
-  const attacks = run.results.filter(isAttack);
-  const categories = [...new Set(attacks.map((r) => r.category))].sort(sortStr);
-  lines.push(run.fake ? "## Attacks by category" : "## Attacks by category (measured rows only)", "");
-  const catRows = categories.map((cat) => {
-    const rs = attacks.filter((r) => r.category === cat);
-    const ids = new Set(rs.map((r) => r.attackId));
-    const base = rs.filter((r) => r.mode === "baseline");
-    const nap = rs.filter((r) => r.mode === "napkin");
-    const baseBreaches = base.filter((r) => r.breached).length;
-    const napBreaches = nap.filter((r) => r.breached).length;
-    const baseMoney = base.reduce((s, r) => s + r.measures.money_lost_cents, 0);
-    const napMoney = nap.reduce((s, r) => s + r.measures.money_lost_cents, 0);
-    const invs = [...new Set(rs.flatMap((r) => r.invariantIds))].sort((a, b) => a - b);
-    return [cat, String(ids.size), String(baseBreaches), String(napBreaches), money(baseMoney), money(napMoney), invs.map((i) => `#${i}`).join(", ") || "none"];
-  });
-  const totalIds = new Set(attacks.map((r) => r.attackId)).size;
-  const totalBase = attacks.filter((r) => r.mode === "baseline");
-  const totalNap = attacks.filter((r) => r.mode === "napkin");
-  catRows.push([
-    "**total**",
-    String(totalIds),
-    String(totalBase.filter((r) => r.breached).length),
-    String(totalNap.filter((r) => r.breached).length),
-    money(totalBase.reduce((s, r) => s + r.measures.money_lost_cents, 0)),
-    money(totalNap.reduce((s, r) => s + r.measures.money_lost_cents, 0)),
-    "",
-  ]);
-  lines.push(
-    table(["Category", "Attacks", "Baseline breaches", "Napkin breaches", "Money lost (baseline)", "Money lost (Napkin)", "Invariants covered"], catRows),
-    "",
-  );
-  if (attacks.length > 0 && !run.fake) {
-    lines.push("### Measured attack rows", "");
-    const rows = [...attacks]
-      .sort((a, b) => sortStr(a.attackId, b.attackId) || sortStr(a.mode, b.mode))
-      .map((r) => [r.attackId, r.category, r.mode, r.breached ? "**BREACH**" : "held", r.breachCodes.join(", ") || "none", r.observed, r.expected, r.behaviorOk ? "yes" : "no", money(r.measures.money_lost_cents)]);
-    lines.push(table(["Attack", "Category", "Mode", "Result", "Breach codes", "Observed", "Expected (Napkin)", "Behaviour OK", "Money lost"], rows), "");
+  if (multiPass) {
+    for (const p of passIds) {
+      const meta = run.passes?.find((x) => x.id === p);
+      lines.push(`## ${meta?.title ?? (p === "real_model" ? "Real model" : "Compromised model (scripted, worst case)")}`, "");
+      for (const d of meta?.description ?? []) lines.push(`> ${d}`);
+      if (meta?.description.length) lines.push("");
+      lines.push(...attackTables(attacks.filter((r) => passOf(r) === p), run.fake, "###"));
+    }
+  } else {
+    lines.push(...attackTables(attacks, run.fake, "##"));
   }
   if (attacks.length > 0) {
-    lines.push("Invariants: " + Object.entries(INVARIANTS).map(([n, v]) => `#${n} ${v.title}${v.assumed ? " (assumed)" : ""}`).join("; "), "");
+    lines.push(
+      "Invariants (docs/INVARIANTS.md): " + Object.entries(INVARIANTS).map(([n, v]) => `#${n} ${v.title}`).join(" "),
+      "",
+      "Customer-data disclosure is not a numbered invariant; it is measured as `data_leak` (`leaked_canary`).",
+      "",
+    );
   }
 
   // ---- chaos ----
