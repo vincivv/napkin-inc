@@ -467,6 +467,7 @@ export async function runTool(d: PhoneDeps, name: string, raw: unknown): Promise
   }
   if (parsed.data.business_id !== d.businessId) return refuse("This phone line doesn't serve that business.", { reason: "wrong_business" });
   try {
+    await d.platform.ready();
     return await (HANDLERS[tool] as (d: PhoneDeps, i: unknown) => Promise<ToolResult>)(d, parsed.data);
   } catch (e) {
     if (e instanceof PlatformUnavailable) {

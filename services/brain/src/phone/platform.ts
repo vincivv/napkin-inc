@@ -3,7 +3,7 @@
 // the only write is openInbox (as the system actor). Orders are created through createCheckout.
 
 import { log } from "../log";
-import type { StdbHub } from "../stdb";
+import { PlatformUnavailable, type StdbHub } from "../stdb";
 
 export interface CatalogRowView {
   catalog: string;
@@ -32,6 +32,8 @@ export interface StockBalanceView {
 
 export interface PhonePlatform {
   isConnected(): boolean;
+  /** Resolves once every table the phone tools read is in the client cache (throws PlatformUnavailable otherwise). */
+  ready(): Promise<void>;
   /** Live catalog rows of the ACTIVE configuration (active=true, configId = business.activeConfigId). */
   catalog(businessId: string): CatalogRowView[];
   balances(businessId: string): StockBalanceView[];
@@ -46,25 +48,43 @@ export interface PhonePlatform {
 const fieldsToRecord = (fs: readonly { name: string; value: string }[]): Record<string, string> => Object.fromEntries(fs.map((f) => [f.name, f.value]));
 const tsMs = (t: { microsSinceUnixEpoch: bigint } | undefined) => (t ? Number(t.microsSinceUnixEpoch / 1000n) : undefined);
 
-/** PhonePlatform over the system connection. register_balance and inbox_item are subscribed lazily. */
+/**
+ * PhonePlatform over the system connection. register_balance and inbox_item are not in the system connection's
+ * subscription set, so they are subscribed on first use and every tool call awaits ready() first (otherwise the
+ * first call after startup would read an empty stock table and say "sold out").
+ */
 export class StdbPhonePlatform implements PhonePlatform {
-  private subscribed = false;
+  private applied: Promise<void> | undefined;
   constructor(private readonly hub: StdbHub) {}
 
   private sys() {
-    const s = this.hub.get("system");
-    if (!s) return undefined;
-    if (!this.subscribed) {
-      this.subscribed = true;
-      s.conn
-        .subscriptionBuilder()
-        .onError(() => {
-          this.subscribed = false;
-          log.warn("phone", "subscription to register_balance/inbox_item failed; will retry on next read");
-        })
-        .subscribe(["SELECT * FROM register_balance", "SELECT * FROM inbox_item"]);
+    return this.hub.get("system");
+  }
+
+  ready(): Promise<void> {
+    const s = this.sys();
+    if (!s) return Promise.reject(new PlatformUnavailable("system connection not established"));
+    if (!this.applied) {
+      this.applied = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new PlatformUnavailable("timed out subscribing to register_balance/inbox_item")), 10_000);
+        s.conn
+          .subscriptionBuilder()
+          .onApplied(() => {
+            clearTimeout(timer);
+            resolve();
+          })
+          .onError(() => {
+            clearTimeout(timer);
+            reject(new PlatformUnavailable("subscription to register_balance/inbox_item failed"));
+          })
+          .subscribe(["SELECT * FROM register_balance", "SELECT * FROM inbox_item"]);
+      }).catch((e: unknown) => {
+        this.applied = undefined; // retry on the next call
+        log.warn("phone", (e as Error).message);
+        throw e;
+      });
     }
-    return s;
+    return this.applied;
   }
 
   isConnected(): boolean {

@@ -36,6 +36,7 @@ class FakePhonePlatform implements PhonePlatform {
     private readonly now: () => number,
   ) {}
   isConnected() { return true; }
+  async ready() {}
   catalog(): CatalogRowView[] {
     return [
       { catalog: "products", entryId: "cookie_single", data: { name: "Chocolate chip cookie", kind: "variant", price: "3.00", cost: "0.80", stockItem: "choc_chip_cookie", stockUnits: "1", description: "One cookie." } },
