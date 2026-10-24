@@ -222,6 +222,7 @@ export async function proveDiscountStacking(cfg: Configuration, opts: ProveOptio
       subject,
       status: "failed",
       counterexample: cx,
+      input,
       message: `${cx["line[0].qty"] ?? "?"} × ${id} with a ${rate(totalRate)} total discount (${stackText}) passes the discount checks but${netText || " breaks the margin floor"}.${replay}`,
       suggestedFix: fixes.length ? fixes.join("; ") + "." : undefined,
     });

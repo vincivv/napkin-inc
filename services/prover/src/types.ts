@@ -13,6 +13,8 @@ export type ProverDetail = ProofDetail & {
   imbalance?: string;
   /** number of document lines in the counterexample */
   lines?: number;
+  /** the concrete document input of the counterexample (replayable with ledger-core post()) */
+  input?: import("@napkin/ledger-core").DocumentInput;
   /** "free" = line values unconstrained; "bound" = line values taken from the catalog */
   mode?: "free" | "bound";
 };
