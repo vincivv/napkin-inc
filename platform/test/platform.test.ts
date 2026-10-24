@@ -9,6 +9,7 @@ import {
   mayaConfig,
   trialBalanceSum,
   balances,
+  journal,
   stock,
   order,
   doc,
@@ -442,28 +443,56 @@ describe("inbox, periods, reversals", () => {
     expect(w.rows("decisionRecord")[0]).toMatchObject({ actorKind: "agent", actorId: "shopkeeper", outcome: "refused" });
   });
 
-  it("a closed period refuses posting; the next month is open", () => {
+  it("only ended months can be closed; documents and processor events post into the open current month", () => {
     const o = createOrder(b, b.actors.storefront, "p1", [line("cookie_single", 1)]);
-    expect(() => w.call(b.actors.shopkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/permission denied/);
-    w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" });
-    expect(() => w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/already closed/);
-
-    const before = snapshot(w);
-    expect(() => pay(b, "p1", o.totalCents)).toThrow(/invariant 8/);
     const receipt = { businessId: BIZ, docType: "stock_receipt", externalRef: "", fields: [], lines: [{ values: [{ name: "stockItem", value: "choc_chip_cookie" }, { name: "qty", value: "12" }, { name: "unitCost", value: "0.80" }] }], note: "" };
     w.call(b.actors.bookkeeper, "createDocument", receipt);
     const rec = lastDoc(w, BIZ, "stock_receipt");
-    expect(() => w.call(b.actors.owner, "postDocument", { documentId: rec.id })).toThrow(/invariant 8/);
-    expect(doc(w, rec.id).status).toBe("draft");
-    void before;
+    expect(() => w.call(b.actors.shopkeeper, "closePeriod", { businessId: BIZ, month: "2026-09" })).toThrow(/permission denied/);
 
-    w.setTime(1_793_577_600_000_000n); // 2026-11-02T00:00Z
-    w.call(b.actors.owner, "postDocument", { documentId: rec.id });
-    expect(doc(w, rec.id).period).toBe("2026-11");
-    expect(stock(w, BIZ)).toBe(60n);
+    // 2026-10-24: October is the current month, November and later are in the future
+    const before = snapshot(w);
+    for (const who of [b.actors.bookkeeper, b.actors.owner]) {
+      expect(() => w.call(who, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/2026-10 is the current month; only months that have ended can be closed/);
+      expect(() => w.call(who, "closePeriod", { businessId: BIZ, month: "2026-11" })).toThrow(/2026-11 is in the future/);
+      expect(() => w.call(who, "closePeriod", { businessId: BIZ, month: "2027-01" })).toThrow(/in the future/);
+    }
+    expect(snapshot(w)).toBe(before);
+    w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-09" }); // an ended month
+
+    // the last microsecond of October is still October
+    const NOV1 = 1_793_491_200_000_000n; // 2026-11-01T00:00Z
+    w.setTime(NOV1 - 1n);
+    expect(() => w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/current month/);
+    w.setTime(NOV1 + 24n * HOUR);
+    w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" });
+    expect(() => w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-10" })).toThrow(/already closed/);
+    expect(() => w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: "2026-11" })).toThrow(/current month/);
+
+    // an October order and an October draft post into November; the payment is never refused for a closed period
     pay(b, "p1", o.totalCents);
     expect(order(w, "p1").status).toBe("paid");
+    expect(doc(w, o.saleDocumentId).period).toBe("2026-11");
+    w.call(w.system, "recordProcessorEvent", { eventId: "fee-p1", businessId: BIZ, kind: "fee", orderId: "p1", amountCents: 9n, processorRef: "txn_p1" });
+    w.call(b.actors.owner, "postDocument", { documentId: rec.id });
+    expect(doc(w, rec.id).period).toBe("2026-11");
+    expect(stock(w, BIZ)).toBe(60n - 1n);
+    const openingId = docsOf(w, BIZ, "opening_balance")[0].id;
+    expect(journal(w, BIZ).filter((j) => j.period === "2026-10").every((j) => j.documentId === openingId)).toBe(true); // only the opening stock (Oct 24)
+    expect(journal(w, BIZ).filter((j) => j.period === "2026-11").length).toBeGreaterThan(0);
     expect(trialBalanceSum(w, BIZ)).toBe(0n);
+  });
+
+  it("defence in depth: a closed current period (e.g. from older data) still refuses posting (invariant 8)", () => {
+    const o = createOrder(b, b.actors.storefront, "p2", [line("cookie_single", 1)]);
+    // closePeriod can no longer produce this state; write it directly to check the posting guard itself
+    w.h.withReducerTx(w.system, (ctx: any) => {
+      const key = `${BIZ}|2026-10`;
+      ctx.db.period.key.update({ ...ctx.db.period.key.find(key), status: "closed", closedBy: ctx.sender, closedAt: ctx.timestamp });
+    });
+    const before = snapshot(w);
+    expect(() => pay(b, "p2", o.totalCents)).toThrow(/invariant 8/);
+    expect(snapshot(w)).toBe(before);
   });
 
   it("stock receipts: creator cannot approve their own (SoD)", () => {

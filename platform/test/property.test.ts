@@ -1,11 +1,13 @@
 // Property test: random sequences of orders, payments (exact, wrong amount, replayed), refunds,
-// reversals and stock receipts against the real reducers. After every step, accepted or refused:
+// reversals, stock receipts, clock advances and period closes against the real reducers. After every step,
+// accepted or refused (and never refused because of a closed period):
 //   - the trial balance sums to zero (invariant 1) and stock never goes negative (invariant 3);
 //   - a refused call changed nothing (the transaction rolled back);
 // and at the end the ledger agrees with the documents (stock, Stripe clearing, outbox exactly once).
 
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
+import { periodOf } from "@napkin/ledger-core";
 import { World, bootMaya, trialBalanceSum, stock, balances, order, docsOf, snapshot, lastDoc, type Biz } from "./helpers";
 
 const BIZ = "maya-cookies";
@@ -25,6 +27,9 @@ const opArb = fc.oneof(
   { weight: 2, arbitrary: fc.record({ t: fc.constant("refund" as const), i: fc.nat(), full: fc.boolean(), cents: fc.integer({ min: 1, max: 3000 }) }) },
   { weight: 2, arbitrary: fc.record({ t: fc.constant("reverse" as const), i: fc.nat(), what: fc.constantFrom("sale", "sale", "refund", "payment") }) },
   { weight: 1, arbitrary: fc.record({ t: fc.constant("receipt" as const), qty: fc.integer({ min: 1, max: 24 }) }) },
+  // periods: the clock moves forward (crossing month ends) and the bookkeeper tries to close a month
+  { weight: 1, arbitrary: fc.record({ t: fc.constant("advance" as const), hours: fc.oneof({ weight: 3, arbitrary: fc.integer({ min: 1, max: 6 }) }, { weight: 1, arbitrary: fc.integer({ min: 100, max: 300 }) }) }) },
+  { weight: 1, arbitrary: fc.record({ t: fc.constant("close" as const), month: fc.constantFrom("2026-09", "2026-10", "2026-11", "2026-12", "2027-01") }) },
 );
 type Op = typeof opArb extends fc.Arbitrary<infer T> ? T : never;
 
@@ -76,6 +81,12 @@ function step(b: Biz, op: Op, orders: string[], events: Map<string, string>, k: 
       w.call(b.actors.owner, "postDocument", { documentId: lastDoc(w, BIZ, "stock_receipt").id });
       return;
     }
+    case "advance":
+      w.advance(BigInt(op.hours) * 3_600_000_000n);
+      return;
+    case "close":
+      w.call(b.actors.bookkeeper, "closePeriod", { businessId: BIZ, month: op.month });
+      return;
   }
 }
 
@@ -84,7 +95,7 @@ const live = (d: any) => d.status === "posted" && d.reversalOf === 0n;
 
 describe("property: random order/payment/refund sequences", () => {
   it("keep the trial balance at zero, stock >= 0, refusals atomic, ledger == documents", () => {
-    const seen = { sales: 0, refunds: 0, reversals: 0, saleReversals: 0, refused: 0 };
+    const seen = { sales: 0, refunds: 0, reversals: 0, saleReversals: 0, closedPeriods: 0, refused: 0 };
     fc.assert(
       fc.property(fc.array(opArb, { minLength: 1, maxLength: 40, size: "large" }), (ops) => {
         const w = new World();
@@ -100,6 +111,8 @@ describe("property: random order/payment/refund sequences", () => {
             // refunds/receipts are two calls; a refused second call leaves the first (a draft) in place
             if (op.t !== "refund" && op.t !== "receipt") expect(snapshot(w)).toBe(before);
             expect(String(e)).not.toMatch(/cannot post: |rule error|is not a function|undefined/);
+            // only ended months can be closed, so nothing (payments included) is ever refused for a closed period
+            expect(String(e)).not.toMatch(/invariant 8 \(closed period\)/);
           }
           expect(trialBalanceSum(w, BIZ)).toBe(0n);
           expect(stock(w, BIZ) >= 0n).toBe(true);
@@ -148,8 +161,14 @@ describe("property: random order/payment/refund sequences", () => {
         seen.refunds += docsOf(w, BIZ, "refund").filter(live).length;
         seen.reversals += docsOf(w, BIZ).filter((d) => d.reversalOf !== 0n).length;
         seen.saleReversals += docsOf(w, BIZ, "sale").filter((d) => d.reversalOf !== 0n).length;
+        // a closed month ended before it was closed, and nothing was posted into it after closing
+        for (const p of w.rows("period").filter((p) => p.status === "closed")) {
+          seen.closedPeriods++;
+          expect(p.month < periodOf(p.closedAt.microsSinceUnixEpoch)).toBe(true);
+          for (const j of w.rows("journalLine").filter((j) => j.period === p.month)) expect(j.postedAt.microsSinceUnixEpoch < p.closedAt.microsSinceUnixEpoch).toBe(true);
+        }
       }),
-      { numRuns: 80 },
+      { numRuns: 150 },
     );
     process.stdout.write(`\nproperty runs exercised: ${JSON.stringify(seen)}\n`);
     // the generator must actually reach the interesting states, not just refusals
@@ -157,5 +176,6 @@ describe("property: random order/payment/refund sequences", () => {
     expect(seen.refunds).toBeGreaterThan(10);
     expect(seen.reversals).toBeGreaterThan(10);
     expect(seen.saleReversals).toBeGreaterThan(2); // typically 7-18: needs a fully refunded order first
+    expect(seen.closedPeriods).toBeGreaterThan(10);
   });
 });

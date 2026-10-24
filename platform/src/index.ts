@@ -15,7 +15,7 @@
 
 import { t } from "spacetimedb/server";
 import spacetimedb, { FieldValue, DocLine } from "./schema";
-import { Rational } from "@napkin/ledger-core";
+import { Rational, periodOf } from "@napkin/ledger-core";
 import {
   GRANTABLE_ROLES,
   activeConfig,
@@ -553,13 +553,23 @@ export const reverseDocument = spacetimedb.reducer({ documentId: t.u64(), reason
   }),
 );
 
-/** owner | bookkeeper: close a month; nothing can post into it afterwards. */
+/**
+ * owner | bookkeeper: close a month that has ended; nothing can post into it afterwards. The current month
+ * (by ctx.timestamp) and future months are refused: postings, including processor events, always go into the
+ * current month, so they can never be refused for a closed period.
+ */
 export const closePeriod = spacetimedb.reducer({ businessId: t.string(), month: t.string() }, (ctx, args) =>
   run("closePeriod", () => {
     const biz = getBusiness(ctx, args.businessId);
     const caller = callerFor(ctx, biz.id);
     requireRole(biz, caller, ["bookkeeper"], "close periods");
     if (!MONTH.test(args.month)) fail('month must be "YYYY-MM"');
+    // Everything posts into the current month (by ctx.timestamp), including processor events, which cannot be
+    // refused and retried forever. So only months that have already ended can be closed.
+    const current = periodOf(ctx.timestamp.microsSinceUnixEpoch);
+    if (args.month >= current) {
+      fail(`period ${args.month} ${args.month === current ? "is the current month" : "is in the future"}; only months that have ended can be closed (current month: ${current})`);
+    }
     const key = `${biz.id}|${args.month}`;
     const p = ctx.db.period.key.find(key);
     if (p?.status === "closed") fail(`period ${args.month} is already closed`);
