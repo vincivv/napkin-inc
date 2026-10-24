@@ -12,7 +12,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { REDTEAM_ROOT } from "./load";
-import { INVARIANTS, RunFile, type RunResult, type AttackRunResult, type ChaosRunResult, type PlantedRunResult } from "./types";
+import { INVARIANTS, RunFile, type RunResult, type AttackRunResult, type ChaosRunResult, type NotRunResult, type PlantedRunResult } from "./types";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
@@ -27,6 +27,25 @@ function isChaos(r: RunResult): r is ChaosRunResult {
 function isPlanted(r: RunResult): r is PlantedRunResult {
   return r.kind === "planted";
 }
+function isNotRun(r: RunResult): r is NotRunResult {
+  return r.kind === "not_run";
+}
+
+/** Skipped / not-run rows, one line per (subject, id, reason) with the modes joined. */
+function notRunTable(rows: NotRunResult[]): string {
+  const groups = new Map<string, { r: NotRunResult; modes: string[] }>();
+  for (const r of rows) {
+    const k = `${r.subject}\u0000${r.id}\u0000${r.category}\u0000${r.reason}`;
+    const g = groups.get(k) ?? { r, modes: [] };
+    g.modes.push(r.mode);
+    groups.set(k, g);
+  }
+  const order = { attack: 0, chaos: 1, planted: 2 } as const;
+  const lines = [...groups.values()]
+    .sort((a, b) => order[a.r.subject] - order[b.r.subject] || sortStr(a.r.id, b.r.id) || sortStr(a.r.category, b.r.category) || sortStr(a.r.reason, b.r.reason))
+    .map(({ r, modes }) => [r.subject, r.id, r.category, [...modes].sort(sortStr).join(", "), r.reason.replace(/\|/g, "/")]);
+  return table(["Subject", "Id", "Category", "Modes", "Reason"], lines);
+}
 
 function table(headers: string[], rows: string[][]): string {
   const line = (cells: string[]) => `| ${cells.join(" | ")} |`;
@@ -34,6 +53,7 @@ function table(headers: string[], rows: string[][]): string {
 }
 
 export function renderResults(run: RunFile): string {
+  assertRunRoutable(run); // a real report never renders a FAKE (sample) row
   const lines: string[] = [];
   lines.push("# Napkin Inc. red-team results", "");
   if (run.fake) {
@@ -41,20 +61,41 @@ export function renderResults(run: RunFile): string {
       "> **FAKE SAMPLE DATA.** Generated only to test the report generator. These numbers are not a measurement of any agent.",
       "",
     );
+  } else {
+    lines.push(
+      "> **Real run.** Every number below was measured on a running system. Rows that did not run are listed under",
+      '> "Skipped" and "Not run" with their reasons and are never counted as a pass or a breach. No FAKE sample row is included.',
+      "",
+    );
   }
   lines.push(
     `- Run label: ${run.label}`,
     `- Model: ${run.model}`,
     `- Ran at: ${run.ranAt}`,
+    ...(run.gitCommit ? [`- Git commit: ${run.gitCommit}`] : []),
     `- Attack set hash: ${run.attackSetHash}`,
     `- Schema: ${run.schema}`,
+    ...(run.environment ?? []).map((e) => `- ${e}`),
     "",
   );
+
+  const notRun = run.results.filter(isNotRun);
+  const measured = run.results.filter((r) => !isNotRun(r));
+  if (!run.fake || notRun.length > 0) {
+    const count = (subject: NotRunResult["subject"], kind: RunResult["kind"]) => {
+      const m = measured.filter((r) => r.kind === kind).length;
+      const sk = notRun.filter((r) => r.subject === subject && r.status === "skipped").length;
+      const nr = notRun.filter((r) => r.subject === subject && r.status === "not_run").length;
+      return [subject, String(m), String(sk), String(nr)];
+    };
+    lines.push("## Coverage (rows = item x mode)", "");
+    lines.push(table(["Subject", "Measured", "Skipped", "Not run"], [count("attack", "attack"), count("chaos", "chaos"), count("planted", "planted")]), "");
+  }
 
   // ---- attacks by category ----
   const attacks = run.results.filter(isAttack);
   const categories = [...new Set(attacks.map((r) => r.category))].sort(sortStr);
-  lines.push("## Attacks by category", "");
+  lines.push(run.fake ? "## Attacks by category" : "## Attacks by category (measured rows only)", "");
   const catRows = categories.map((cat) => {
     const rs = attacks.filter((r) => r.category === cat);
     const ids = new Set(rs.map((r) => r.attackId));
@@ -83,6 +124,13 @@ export function renderResults(run: RunFile): string {
     table(["Category", "Attacks", "Baseline breaches", "Napkin breaches", "Money lost (baseline)", "Money lost (Napkin)", "Invariants covered"], catRows),
     "",
   );
+  if (attacks.length > 0 && !run.fake) {
+    lines.push("### Measured attack rows", "");
+    const rows = [...attacks]
+      .sort((a, b) => sortStr(a.attackId, b.attackId) || sortStr(a.mode, b.mode))
+      .map((r) => [r.attackId, r.category, r.mode, r.breached ? "**BREACH**" : "held", r.breachCodes.join(", ") || "none", r.observed, r.expected, r.behaviorOk ? "yes" : "no", money(r.measures.money_lost_cents)]);
+    lines.push(table(["Attack", "Category", "Mode", "Result", "Breach codes", "Observed", "Expected (Napkin)", "Behaviour OK", "Money lost"], rows), "");
+  }
   if (attacks.length > 0) {
     lines.push("Invariants: " + Object.entries(INVARIANTS).map(([n, v]) => `#${n} ${v.title}${v.assumed ? " (assumed)" : ""}`).join("; "), "");
   }
@@ -122,6 +170,20 @@ export function renderResults(run: RunFile): string {
         r.missed.length ? r.missed.join(", ") : "none",
       ]);
     lines.push(table(["Set", "Mode", "Auditor", "Errors", "Findings", "True positives", "Precision", "Recall", "Missed"], rows), "");
+  }
+
+  // ---- skipped / not run ----
+  const skipped = notRun.filter((r) => r.status === "skipped");
+  const pending = notRun.filter((r) => r.status === "not_run");
+  if (skipped.length > 0) {
+    lines.push("## Skipped (cannot run in this environment)", "", notRunTable(skipped), "");
+  }
+  if (pending.length > 0) {
+    lines.push("## Not run (pending)", "", notRunTable(pending), "");
+  }
+
+  if ((run.notes ?? []).length > 0) {
+    lines.push("## Notes", "", ...[...(run.notes ?? [])].map((n) => `- ${n}`), "");
   }
 
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";

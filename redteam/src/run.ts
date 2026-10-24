@@ -10,10 +10,25 @@ import { loadAttacks, loadChaos, type LoadedAttack } from "./load";
 import { measureAttack } from "./measure";
 import { type Attack, type ChaosCase, type Mode, type PlatformSnapshot, type RunFile, type RunResult, type Transcript } from "./types";
 
+/**
+ * What the harness may need beyond the turns: the channel (a phone call vs chat), the caller ID, the web page
+ * the customer quotes, the business the mode maps to. Optional and additive: a harness that ignores it still
+ * satisfies the interface.
+ */
+export interface AttackContext {
+  attackId: string;
+  channel: Attack["channel"];
+  setup: Attack["setup"];
+  /** business the mode runs against (maya-cookies or maya-cookies-baseline) */
+  businessId?: string;
+}
+
 /** Drives the Napkin Inc. agents (shopkeeper, support, bookkeeper) with the attacker's turns. */
 export interface AgentHarness {
   /** Sends the attacker's turns to `target` in `mode`; returns what the agent said and every tool call. */
-  send(target: Attack["target"], turns: string[], mode: Mode): Promise<Transcript>;
+  send(target: Attack["target"], turns: string[], mode: Mode, context?: AttackContext): Promise<Transcript>;
+  /** Which LLM answered (for the report), if the harness knows. */
+  model?: string;
 }
 
 /** Reads platform state and prepares the world an attack starts from. */
@@ -54,10 +69,10 @@ export function attackSetHash(attacks: readonly Attack[]): string {
 }
 
 /** One attack in one mode: prepare, snapshot, talk, snapshot, measure. Errors from the deps propagate. */
-export async function runAttack(attack: Attack, mode: Mode, deps: RunDeps): Promise<RunResult> {
+export async function runAttack(attack: Attack, mode: Mode, deps: RunDeps, businessId?: string): Promise<RunResult> {
   await deps.inspector.prepare(attack, mode);
   const before = await deps.inspector.snapshot(mode);
-  const transcript = await deps.harness.send(attack.target, attack.turns, mode);
+  const transcript = await deps.harness.send(attack.target, attack.turns, mode, { attackId: attack.id, channel: attack.channel, setup: attack.setup, ...(businessId ? { businessId } : {}) });
   const after = await deps.inspector.snapshot(mode);
   return measureAttack(attack, mode, before, after, transcript);
 }
