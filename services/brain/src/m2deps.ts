@@ -90,6 +90,10 @@ export function newRouter(): Hono {
   app.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
     if (err instanceof LlmUnavailable) return c.json({ error: err.message }, 502);
+    if (typeof (err as { status?: unknown }).status === "number" && /APIError|AnthropicError/.test(err.constructor.name + (err.name ?? ""))) {
+      log.error("m2", `Anthropic API error ${(err as { status: number }).status}: ${err.message.slice(0, 300)}`);
+      return c.json({ error: `the AI service refused the request (HTTP ${(err as { status: number }).status})` }, 502);
+    }
     if (err instanceof ZodError) return c.json({ error: "invalid request", issues: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`) }, 400);
     if (err instanceof SyntaxError) return c.json({ error: "invalid JSON body" }, 400);
     const name = (err as Error).name;

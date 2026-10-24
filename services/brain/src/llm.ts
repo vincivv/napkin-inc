@@ -36,8 +36,8 @@ export class LlmUnavailable extends Error {
 
 export class AnthropicLlm implements Llm {
   private readonly client: Anthropic;
-  constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey, maxRetries: 2, timeout: 120_000 });
+  constructor(apiKey: string, workspaceId?: string) {
+    this.client = new Anthropic({ apiKey, maxRetries: 2, timeout: 120_000, ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}) });
   }
 
   async tool(req: ToolRequest): Promise<unknown> {
@@ -74,8 +74,8 @@ export class AnthropicLlm implements Llm {
   }
 }
 
-/** Reads ANTHROPIC_API_KEY from the environment; undefined when absent (routes answer 503, nothing is faked). */
+/** Reads ANTHROPIC_API_KEY (and optional ANTHROPIC_WORKSPACE_ID, needed for keys not scoped to a workspace); undefined when absent (routes answer 503, nothing is faked). */
 export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): Llm | undefined {
   const key = env.ANTHROPIC_API_KEY?.trim();
-  return key ? new AnthropicLlm(key) : undefined;
+  return key ? new AnthropicLlm(key, env.ANTHROPIC_WORKSPACE_ID?.trim() || undefined) : undefined;
 }
