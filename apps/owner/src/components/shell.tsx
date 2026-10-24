@@ -56,7 +56,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: "/intake", label: "Intake", icon: I.intake },
       { href: "/interview", label: "Interview", icon: I.interview },
-      { href: "/build", label: "Build", icon: I.build, m2: true },
+      { href: "/build", label: "Build", icon: I.build },
     ],
   },
 ];
