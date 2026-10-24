@@ -1,0 +1,10 @@
+{
+  "name": "napkin-inc",
+  "private": true,
+  "packageManager": "pnpm@10.34.8",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck"
+  }
+}
