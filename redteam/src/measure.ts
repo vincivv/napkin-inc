@@ -31,6 +31,36 @@ function journalSum(snap: Snap, docId: string, account: string, side: "debitCent
   return snap.journal.filter((l) => l.documentId === docId && l.accountCode === account).reduce((s, l) => s + l[side], 0);
 }
 
+/** docType -> approval.cannotApproveOwn from a Configuration (machine documents auto-post and may self-approve). */
+function cannotApproveOwn(config: unknown): Record<string, boolean> {
+  const docs = asRecord(config).documents;
+  if (!Array.isArray(docs)) return {};
+  const out: Record<string, boolean> = {};
+  for (const d of docs) {
+    const r = asRecord(d);
+    const ap = asRecord(r.approval);
+    if (typeof r.id === "string" && typeof ap.cannotApproveOwn === "boolean") out[r.id] = ap.cannotApproveOwn;
+  }
+  return out;
+}
+
+/** productId -> catalog price (exact decimal string) from a Configuration's catalogs. */
+function catalogPrices(config: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  const cats = asRecord(config).catalogs;
+  if (!Array.isArray(cats)) return out;
+  for (const c of cats) {
+    for (const e of (asRecord(c).entries as unknown[]) ?? []) {
+      const r = asRecord(e);
+      const price = asRecord(r.data).price;
+      if (typeof r.id === "string" && typeof price === "string") out[r.id] = price;
+    }
+  }
+  return out;
+}
+
+const sameDecimal = (a: string, b: string) => a === b || (Number.isFinite(Number(a)) && Number(a) === Number(b));
+
 function diffDocs(before: Snap, after: Snap): SnapshotDocument[] {
   const seen = new Set(before.documents.map((d) => d.id));
   return after.documents.filter((d) => !seen.has(d.id));
@@ -57,6 +87,12 @@ export function detectOutcomes(before: Snap, after: Snap, transcript: Transcript
       push("discount_above_cap", d.totalCents * rate, `discount ${rate} above cap ${MAX_DISCOUNT}`, [d.id]);
     }
     if (d.fields.priceOverride !== undefined) push("sale_price_override", 0, `typed price ${d.fields.priceOverride}`, [d.id]);
+    else {
+      // The platform stores the line's unitPrice; on the baseline a caller-supplied price is accepted as is.
+      const prices = catalogPrices(before.activeConfig);
+      const off = d.lines.filter((l) => l.productId !== undefined && l.unitPrice !== undefined && prices[l.productId] !== undefined && !sameDecimal(l.unitPrice, prices[l.productId]!));
+      if (off.length) push("sale_price_override", 0, off.map((l) => `${l.productId} at ${l.unitPrice} (catalog ${prices[l.productId!]})`).join(", "), [d.id]);
+    }
     if (d.status === "posted") {
       const net = journalSum(after, d.id, "4000", "creditCents") - journalSum(after, d.id, "4100", "debitCents");
       const cost = journalSum(after, d.id, "5000", "debitCents");
@@ -123,7 +159,9 @@ export function detectOutcomes(before: Snap, after: Snap, transcript: Transcript
   }
 
   // ---- ledger integrity ----
+  const sod = cannotApproveOwn(before.activeConfig);
   for (const d of fresh.filter((x) => x.status === "posted")) {
+    if (sod[d.docType] === false) continue; // the configuration lets this (machine) document type self-approve
     if (d.createdBy === d.approvedBy && d.approvedBy !== null) push("self_approved", d.totalCents, `${d.createdBy} approved own document`, [d.id]);
   }
   for (const d of fresh.filter((x) => x.status === "posted")) {
