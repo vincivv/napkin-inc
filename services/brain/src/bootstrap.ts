@@ -1,5 +1,6 @@
 // Idempotent platform bootstrap: system actor, Maya's business + red-team baseline, M1 configuration,
-// and one identity per AI/storefront actor with its role granted through a one-time code.
+// and one identity per AI/storefront actor with its role granted through a one-time code. It also
+// reconnects the actors of every other live business, so they keep taking orders after a restart.
 // Run: pnpm --filter @napkin/brain bootstrap   (the server also runs it at startup)
 // Running it twice changes nothing: every step first checks the platform's current state.
 
@@ -124,6 +125,17 @@ export async function bootstrap(hub: StdbHub, fixturePath = FIXTURE_PATH): Promi
 
     // 4. actor identities
     await grantActors(hub, seed.id, step);
+  }
+
+  // 5. every other live business (created from a napkin): reconnect its actors, or its storefront, phone
+  // orders and AI staff stop working after a brain restart. One failing business must not stop the rest.
+  const seeds = new Set(SEED_BUSINESSES.map((b) => b.id));
+  for (const b of [...db.business.iter()].filter((x) => x.activeConfigId !== 0n && !seeds.has(x.id))) {
+    try {
+      await grantActors(hub, b.id, step);
+    } catch (e) {
+      log.warn("bootstrap", `business ${b.id}: could not connect its actors: ${(e as Error).message}`);
+    }
   }
 
   return { systemIdentity: sys.identityHex, steps };

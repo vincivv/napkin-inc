@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { createContext, Suspense, useContext, useEffect, type ReactNode } from "react";
 import { CartProvider, useCart } from "@/lib/cart";
 import { fallbackDesign, designStyle, photoCredits, useDesign, type StorefrontDesign } from "@/lib/design";
+import { formatPhone, PHONE_LINE } from "@/lib/env";
 import { cartCount, type StoreInfo } from "@/lib/model";
 import { StoreDataProvider, useStore, useStoreHref, type StoreState } from "@/lib/store-data";
 import { CartBar, CartSheet } from "./Cart";
@@ -163,6 +164,7 @@ function Footer({ info, design }: { info: StoreInfo; design: StorefrontDesign })
           <Link href={href("/qr")}>QR codes</Link>
         </FooterCol>
         <FooterCol title="Help">
+          {PHONE_LINE ? <a href={`tel:${PHONE_LINE}`}>Order by phone: {formatPhone(PHONE_LINE)}</a> : null}
           <Link href="/pay">Pay for a phone order</Link>
           <span className="opacity-75">Card payments by Stripe</span>
         </FooterCol>

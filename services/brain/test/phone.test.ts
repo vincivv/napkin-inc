@@ -12,8 +12,8 @@ import type { CatalogRowView, PhoneOrderView, PhonePlatform, StockBalanceView } 
 import { bearerOk, phoneRoutes } from "../src/phone/routes";
 import { MAX_SMS_ATTEMPTS, PermanentSmsError, SimulatorSms, SmsExecutor, TransientSmsError, TwilioSms, type SmsSender } from "../src/phone/sms";
 import { OutboxWorker } from "../src/payments/outbox";
-import { FailureLimiter, MemoryPhoneOrderBackend, OwnerSessions, PhoneOrderStore } from "../src/phone/state";
-import { CUSTOMER_TOOLS, OWNER_TOOLS, TOOL_INPUTS, TOOL_NAMES, type PhoneDeps } from "../src/phone/tools";
+import { ConversationShops, FailureLimiter, MemoryPhoneOrderBackend, OwnerSessions, PhoneOrderStore } from "../src/phone/state";
+import { CUSTOMER_TOOLS, OWNER_TOOLS, shopMatchScore, TOOL_INPUTS, TOOL_NAMES, type PhoneDeps } from "../src/phone/tools";
 import { formatCents, normalizeE164, normalizeOrderId, normalizePin } from "../src/phone/util";
 import { getFact } from "../src/spec/paths";
 import { SpecStore } from "../src/spec/store";
@@ -36,8 +36,10 @@ class FakePhonePlatform implements PhonePlatform {
     private readonly core: FakePlatform,
     private readonly now: () => number,
   ) {}
+  liveShops = [{ id: BIZ, name: "Maya's Cookies" }, { id: "juniper-candles", name: "Juniper Candles" }, { id: "mayas-bakery", name: "Maya's Bakery" }];
   isConnected() { return true; }
   async ready() {}
+  shops() { return this.liveShops; }
   catalog(): CatalogRowView[] {
     return [
       { catalog: "products", entryId: "cookie_single", data: { name: "Chocolate chip cookie", kind: "variant", price: "3.00", cost: "0.80", stockItem: "choc_chip_cookie", stockUnits: "1", description: "One cookie." } },
@@ -131,6 +133,7 @@ async function harness(o: HarnessOpts = {}) {
     smsMode: sender.mode,
     orders: new PhoneOrderStore(new MemoryPhoneOrderBackend()),
     sessions: new OwnerSessions(30 * 60_000, now),
+    shops: new ConversationShops(2 * 60 * 60_000, now),
     failures: new FailureLimiter(3, 15 * 60_000, now),
     businessId: BIZ,
     ownerPhone: "ownerPhone" in o ? o.ownerPhone : "+1 (415) 555-0100",
@@ -651,7 +654,7 @@ describe("helpers", () => {
 });
 
 describe("Cartesia agent definition", () => {
-  const tools = buildCartesiaTools({ brainUrl: "https://x.trycloudflare.com/", businessId: BIZ, secret: SECRET });
+  const tools = buildCartesiaTools({ brainUrl: "https://x.trycloudflare.com/", secret: SECRET });
   it("one webhook tool per brain tool, params match the zod schemas, ids come from system variables", () => {
     expect(tools.map((t) => t.name)).toEqual(TOOL_NAMES);
     for (const t of tools) {
@@ -659,19 +662,99 @@ describe("Cartesia agent definition", () => {
       expect(t.api_schema.url).toBe(`https://x.trycloudflare.com/phone/tools/${t.name}`);
       expect(props.caller_id).toEqual({ type: "string", dynamic_variable: "system__caller_id" });
       expect(props.conversation_id).toEqual({ type: "string", dynamic_variable: "system__conversation_id" });
-      expect(props.business_id).toEqual({ type: "string", constant_value: BIZ });
-      expect(Object.keys(props).sort()).toEqual(Object.keys(TOOL_INPUTS[t.name].shape).sort());
+      expect(props.business_id).toBeUndefined(); // the model never sends a business: find_shop binds it server-side
+      expect(Object.keys(props).sort()).toEqual(Object.keys(TOOL_INPUTS[t.name].shape).filter((k) => k !== "business_id").sort());
       for (const r of t.api_schema.request_body_schema.required ?? []) expect(["business_id", "caller_id", "conversation_id"]).not.toContain(r);
       expect(t.api_schema.authentication).toMatchObject({ mode: "bearer", token: { type: "secret", secret_value: SECRET } });
     }
-    expect(buildCartesiaTools({ brainUrl: "https://x", businessId: BIZ, secret: undefined })[0]!.api_schema.authentication.token.secret_value).toBeUndefined();
+    expect(buildCartesiaTools({ brainUrl: "https://x", secret: undefined })[0]!.api_schema.authentication.token.secret_value).toBeUndefined();
   });
-  it("agent body: two modes in the prompt, all tools attached", () => {
-    const b = buildAgentBody({ name: "n", businessName: "Maya's Cookies", businessId: BIZ, modelId: "m", voiceId: "v", toolIds: ["a", "b"] });
+  it("agent body: asks which shop first, two modes in the prompt, all tools attached", () => {
+    const b = buildAgentBody({ name: "n", lineName: "Napkin", modelId: "m", voiceId: "v", toolIds: ["a", "b"], keyterms: ["Juniper Candles"] });
     expect(b.config.tools).toEqual([{ id: "a" }, { id: "b" }]);
-    expect(b.config.instructions).toBe(systemPrompt("Maya's Cookies"));
+    expect(b.config.instructions).toBe(systemPrompt("Napkin"));
+    expect(b.config.initial_message).toMatch(/Which shop/);
+    expect(b.config.instructions).toMatch(/find_shop/);
+    expect(b.config.audio.input.keyterms).toContain("Juniper Candles");
     expect(b.config.instructions).toMatch(/Customer mode/);
     expect(b.config.instructions).toMatch(/Owner mode/);
     expect(CUSTOMER_TOOLS).not.toContain("owner_report");
+  });
+});
+
+describe("shared line: find_shop", () => {
+  const call = async (h: Awaited<ReturnType<typeof harness>>, tool: string, body: Record<string, unknown>, conv = "shared-1") => {
+    const res = await h.app.request(`/phone/tools/${tool}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      body: JSON.stringify({ conversation_id: conv, caller_id: CUSTOMER, ...body }),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+
+  it("no shop yet: every other tool asks the agent to find the shop first", async () => {
+    const h = await harness();
+    expect((await call(h, "menu_lookup", {})).body).toMatchObject({ ok: false, reason: "shop_required" });
+    expect((await call(h, "place_order", { customer_name: "Sam", items: [{ product_id: "cookie_single", qty: 1 }] })).body).toMatchObject({ ok: false, reason: "shop_required" });
+    expect(h.core.calls).toEqual([]);
+  });
+
+  it("matches what the caller said, despite apostrophes, plurals and transcription slips", () => {
+    const maya = { id: BIZ, name: "Maya's Cookies" };
+    expect(shopMatchScore("Mayas cookies", maya)).toBe(1);
+    expect(shopMatchScore("maya cookie shop", maya)).toBeGreaterThanOrEqual(0.6);
+    expect(shopMatchScore("Maia's cookies", maya)).toBeGreaterThanOrEqual(0.6);
+    expect(shopMatchScore("Juniper Candles", maya)).toBeLessThan(0.6);
+    expect(shopMatchScore("the candle shop", { id: "juniper-candles", name: "Juniper Candles" })).toBeGreaterThanOrEqual(0.6);
+  });
+
+  it("binds the call to the shop; later tools act for it and an order goes to that shop", async () => {
+    const h = await harness();
+    const f = await call(h, "find_shop", { shop_name: "maya's cookies please" });
+    expect(f.body).toMatchObject({ ok: true, shop_name: "Maya's Cookies" });
+    expect(f.body.say).toMatch(/through to Maya's Cookies/);
+    expect((await call(h, "menu_lookup", {})).body.ok).toBe(true);
+    const o = await call(h, "place_order", { customer_name: "Sam", items: [{ product_id: "cookie_single", qty: 2 }] });
+    expect(o.body.ok).toBe(true);
+    expect(h.core.orders.get(o.body.order_id)!.businessId).toBe(BIZ);
+    // another call is not bound by this one
+    expect((await call(h, "menu_lookup", {}, "shared-2")).body.reason).toBe("shop_required");
+  });
+
+  it("the binding wins over a business_id in the body, and only live shops are served", async () => {
+    const h = await harness();
+    await call(h, "find_shop", { shop_name: "Maya's Cookies" });
+    const o = await call(h, "place_order", { business_id: "juniper-candles", customer_name: "Sam", items: [{ product_id: "cookie_single", qty: 1 }] });
+    expect(h.core.orders.get(o.body.order_id)!.businessId).toBe(BIZ);
+    h.phonePlatform.liveShops = h.phonePlatform.liveShops.filter((x) => x.id !== BIZ); // the shop goes offline mid-call
+    expect((await call(h, "menu_lookup", {})).body).toMatchObject({ ok: false, reason: "wrong_business" });
+  });
+
+  it("unknown names list some shops; close names ask which one", async () => {
+    const h = await harness();
+    const none = await call(h, "find_shop", { shop_name: "Bob's Tires" });
+    expect(none.body).toMatchObject({ ok: false, found: false });
+    expect(none.body.say).toMatch(/Juniper Candles/);
+    const two = await call(h, "find_shop", { shop_name: "Maya's" });
+    expect(two.body.ambiguous).toEqual(expect.arrayContaining(["Maya's Cookies", "Maya's Bakery"]));
+    expect((await call(h, "menu_lookup", {})).body.reason).toBe("shop_required");
+  });
+
+  it("owner mode exists only for the shop OWNER_PHONE belongs to", async () => {
+    const h = await harness();
+    await call(h, "find_shop", { shop_name: "Juniper Candles" });
+    const v = await h.app.request("/phone/tools/verify_owner", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      body: JSON.stringify({ conversation_id: "shared-1", caller_id: OWNER_PHONE, pin: OWNER_PIN }),
+    });
+    expect(await v.json()).toMatchObject({ ok: false, owner_mode: "disabled" });
+  });
+
+  it("GET /phone/shops lists live shop names behind the bearer secret", async () => {
+    const h = await harness();
+    expect((await h.app.request("/phone/shops")).status).toBe(401);
+    const r = await h.app.request("/phone/shops", { headers: { authorization: `Bearer ${SECRET}` } });
+    expect(await r.json()).toEqual({ ok: true, shops: ["Maya's Cookies", "Juniper Candles", "Maya's Bakery"] });
   });
 });

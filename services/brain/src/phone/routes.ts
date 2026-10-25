@@ -1,4 +1,4 @@
-// POST /phone/tools/:name — Cartesia webhook tools. Every call needs `Authorization: Bearer <PHONE_TOOL_SECRET>`
+// POST /phone/tools/:name — Cartesia webhook tools (and GET /phone/shops for the setup script). Every call needs `Authorization: Bearer <PHONE_TOOL_SECRET>`
 // (Cartesia's webhook `authentication: {mode: "bearer"}`). No secret configured = every call refused.
 
 import { Hono } from "hono";
@@ -18,6 +18,13 @@ export function phoneRoutes(d: PhoneDeps, secret: string | undefined): Hono {
   r.onError((err, c) => {
     log.error("phone", `${c.req.method} ${c.req.path}: ${err.stack ?? err.message}`);
     return c.json({ ok: false, say: "Something went wrong on our side. Please try again." }, 500);
+  });
+
+  // the live shop names, for the Cartesia agent's speech-to-text keyterms (scripts/cartesia-setup.ts)
+  r.get("/phone/shops", async (c) => {
+    if (!bearerOk(c.req.header("authorization"), secret)) return c.json({ ok: false, error: "unauthorized" }, 401);
+    await d.platform.ready();
+    return c.json({ ok: true, shops: d.platform.shops().map((x) => x.name) });
   });
 
   r.post("/phone/tools/:name", async (c) => {

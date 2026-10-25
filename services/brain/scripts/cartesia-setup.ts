@@ -1,4 +1,5 @@
-// Create or update the Napkin phone-line Managed Agent and its 7 webhook tools on Cartesia (API 2026-08-14).
+// Create or update the Napkin phone-line Managed Agent and its 8 webhook tools on Cartesia (API 2026-08-14).
+// One shared number serves every live shop: the agent asks which shop and calls find_shop.
 //
 //   pnpm --filter @napkin/brain exec tsx --env-file-if-exists=../../.env scripts/cartesia-setup.ts \
 //     https://<your-tunnel>.trycloudflare.com --model <model id> --voice <voice id> [--phone-number-id <id>] [--dry-run]
@@ -35,8 +36,9 @@ interface Args {
   model?: string;
   voice?: string;
   name: string;
+  /** only names the agent ("Napkin phone line (maya-cookies)"), so the existing agent is updated in place */
   businessId: string;
-  businessName?: string;
+  lineName: string;
   phoneNumberId?: string;
   timezone?: string;
 }
@@ -44,15 +46,15 @@ interface Args {
 function usage(msg?: string): never {
   if (msg) console.error(`error: ${msg}\n`);
   console.error(
-    "usage: cartesia-setup.ts <https://public-brain-url> --model <id> --voice <id> [--name <agent name>] [--business-id maya-cookies]\n" +
-      "                         [--business-name \"Maya's Cookies\"] [--phone-number-id <id>] [--timezone <IANA>] [--dry-run]\n" +
+    "usage: cartesia-setup.ts <https://public-brain-url> --model <id> --voice <id> [--name <agent name>] [--line-name Napkin]\n" +
+      "                         [--phone-number-id <id>] [--timezone <IANA>] [--dry-run]\n" +
       "       cartesia-setup.ts --list-models",
   );
   process.exit(2);
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { dryRun: false, listModels: false, name: "", businessId: process.env.PHONE_BUSINESS_ID?.trim() || "maya-cookies" };
+  const a: Args = { dryRun: false, listModels: false, name: "", businessId: process.env.PHONE_BUSINESS_ID?.trim() || "maya-cookies", lineName: "Napkin" };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i]!;
     const val = () => argv[++i] ?? usage(`${k} needs a value`);
@@ -62,7 +64,7 @@ function parseArgs(argv: string[]): Args {
     else if (k === "--voice") a.voice = val();
     else if (k === "--name") a.name = val();
     else if (k === "--business-id") a.businessId = val();
-    else if (k === "--business-name") a.businessName = val();
+    else if (k === "--line-name") a.lineName = val();
     else if (k === "--phone-number-id") a.phoneNumberId = val();
     else if (k === "--timezone") a.timezone = val();
     else if (k.startsWith("--")) usage(`unknown flag ${k}`);
@@ -71,17 +73,6 @@ function parseArgs(argv: string[]): Args {
   }
   if (!a.name) a.name = `Napkin phone line (${a.businessId})`;
   return a;
-}
-
-/** Business name from the hand-written fixture configuration (never invented). */
-function fixtureBusinessName(businessId: string): string | undefined {
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.resolve(HERE, "../../../fixtures/maya/configuration.json"), "utf8")) as { businessId?: string; business?: { name?: string; slug?: string } };
-    if (cfg.businessId === businessId || cfg.business?.slug === businessId) return cfg.business?.name;
-  } catch {
-    /* no fixture */
-  }
-  return undefined;
 }
 
 function fixtureKeyterms(businessId: string): string[] {
@@ -93,6 +84,19 @@ function fixtureKeyterms(businessId: string): string[] {
     };
     if (cfg.businessId !== businessId && cfg.business?.slug !== businessId) return [];
     return (cfg.catalogs ?? []).filter((c) => c.id === "products").flatMap((c) => c.entries.map((e) => e.data.name ?? "")).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Live shop names from the brain (GET /phone/shops), so speech-to-text knows them; [] if unreachable. */
+async function liveShopNames(brainUrl: string, secret: string | undefined): Promise<string[]> {
+  if (!secret) return [];
+  try {
+    const res = await fetch(`${brainUrl}/phone/shops`, { headers: { authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) return [];
+    const j = (await res.json()) as { shops?: unknown };
+    return Array.isArray(j.shops) ? j.shops.filter((x): x is string => typeof x === "string") : [];
   } catch {
     return [];
   }
@@ -159,28 +163,26 @@ async function main(): Promise<void> {
   if (/^(localhost|127\.|10\.|192\.168\.)/.test(url.hostname)) usage("Cartesia blocks private and internal addresses; use the public tunnel URL");
   const brainUrl = url.origin + url.pathname.replace(/\/+$/, "");
 
-  const businessName = a.businessName ?? fixtureBusinessName(a.businessId);
-  if (!businessName) usage(`no business name for ${a.businessId}; pass --business-name`);
   const secret = process.env.PHONE_TOOL_SECRET?.trim();
+  const keyterms = [...(a.dryRun ? [] : await liveShopNames(brainUrl, secret)), ...fixtureKeyterms("maya-cookies")];
 
   if (a.dryRun) {
-    console.log(`# DRY RUN: no requests are sent. Brain: ${brainUrl}  business: ${a.businessId} (${businessName})`);
+    console.log(`# DRY RUN: no requests are sent. Brain: ${brainUrl}  line: ${a.lineName}`);
     if (!secret || secret.length < MIN_PHONE_TOOL_SECRET_LENGTH) console.log(`# NOTE: PHONE_TOOL_SECRET is missing or shorter than ${MIN_PHONE_TOOL_SECRET_LENGTH} chars; a real run would refuse.`);
     if (!a.model) console.log("# NOTE: --model is missing; a real run would refuse. Pick a Claude id from --list-models.");
     if (!a.voice) console.log("# NOTE: --voice is missing; a real run would refuse. Pick a voice id in the Cartesia Playground.");
     printReq("GET", "/v1/agents/tools?type=webhook&limit=100");
-    const tools = redact(buildCartesiaTools({ brainUrl, businessId: a.businessId, secret: undefined }));
+    const tools = redact(buildCartesiaTools({ brainUrl, secret: undefined }));
     for (const t of tools) printReq("POST", "/v1/agents/tools", t);
     console.log(`\n# (for a tool that already exists, the same body without "type" goes to PATCH /v1/agents/tools/{tool_id})`);
     printReq("GET", `/v1/agents?q=${encodeURIComponent(a.name)}&limit=100`);
     const body = buildAgentBody({
       name: a.name,
-      businessName,
-      businessId: a.businessId,
+      lineName: a.lineName,
       modelId: a.model ?? "<MODEL_ID from --list-models>",
       voiceId: a.voice ?? "<VOICE_ID>",
       toolIds: tools.map((t) => `<id of tool ${t.name}>`),
-      keyterms: fixtureKeyterms(a.businessId),
+      keyterms,
       timezone: a.timezone,
     });
     printReq("POST", "/v1/agents", body);
@@ -195,7 +197,8 @@ async function main(): Promise<void> {
   if (!a.voice) usage("--voice is required (a Cartesia voice id)");
 
   const api = new Cartesia(key);
-  const defs = buildCartesiaTools({ brainUrl, businessId: a.businessId, secret });
+  console.log(`shop names for speech-to-text: ${keyterms.length ? keyterms.slice(0, 12).join(", ") : "none (brain unreachable)"}`);
+  const defs = buildCartesiaTools({ brainUrl, secret });
   const existing = await api.listAll<{ id: string; name: string; type: string; api_schema?: { url?: string } }>("/v1/agents/tools?type=webhook");
   const toolIds: string[] = [];
   for (const def of defs) {
@@ -211,7 +214,7 @@ async function main(): Promise<void> {
     }
   }
 
-  const body = buildAgentBody({ name: a.name, businessName, businessId: a.businessId, modelId: a.model, voiceId: a.voice, toolIds, keyterms: fixtureKeyterms(a.businessId), timezone: a.timezone });
+  const body = buildAgentBody({ name: a.name, lineName: a.lineName, modelId: a.model, voiceId: a.voice, toolIds, keyterms, timezone: a.timezone });
   const agents = await api.listAll<{ id: string; name: string }>(`/v1/agents?q=${encodeURIComponent(a.name)}`);
   const agent = agents.find((x) => x.name === a.name);
   let agentId: string;

@@ -25,6 +25,32 @@ export interface OwnerSession {
 
 export const OWNER_SESSION_TTL_MS = 30 * 60_000;
 
+/** Which shop each call is talking to (set by find_shop on the shared line). In memory: after a brain restart the agent asks again. */
+export class ConversationShops {
+  private readonly map = new Map<string, { businessId: string; expiresAtMs: number }>();
+  constructor(
+    private readonly ttlMs = 2 * 60 * 60_000,
+    private readonly now: () => number = Date.now,
+    private readonly max = 5_000,
+  ) {}
+
+  bind(conversationId: string, businessId: string): void {
+    this.map.delete(conversationId);
+    this.map.set(conversationId, { businessId, expiresAtMs: this.now() + this.ttlMs });
+    while (this.map.size > this.max) this.map.delete(this.map.keys().next().value!);
+  }
+
+  get(conversationId: string): string | undefined {
+    const e = this.map.get(conversationId);
+    if (!e) return undefined;
+    if (this.now() >= e.expiresAtMs) {
+      this.map.delete(conversationId);
+      return undefined;
+    }
+    return e.businessId;
+  }
+}
+
 export class OwnerSessions {
   private readonly sessions = new Map<string, OwnerSession>();
   constructor(

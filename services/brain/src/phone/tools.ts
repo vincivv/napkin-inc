@@ -1,6 +1,7 @@
 // The phone line's webhook tools (Cartesia Managed Agent -> POST /phone/tools/<name>). All logic lives here;
-// the voice agent only talks. Two modes:
-//   customer: menu_lookup, order_status (own orders only), place_order, escalate, verify_owner
+// the voice agent only talks. One shared number serves every live shop: find_shop ties the call (its
+// conversation id) to one shop server-side, and every other tool then acts for that shop only. Two modes:
+//   customer: find_shop, menu_lookup, order_status (own orders only), place_order, escalate, verify_owner
 //   owner:    owner_report, owner_instruction, available ONLY when this conversation was verified server-side by
 //             verify_owner (caller ID == OWNER_PHONE and PIN == OWNER_PIN). No parameter can grant owner mode.
 // Money: totals come from the platform's pricing (createOrder prices from the active catalog). Policy: owner
@@ -15,7 +16,7 @@ import { decimalToCents } from "../payments/ids";
 import { submitOwnerStatement } from "../questions/routes";
 import { PlatformUnavailable, ReducerRefused } from "../stdb";
 import type { PhonePlatform } from "./platform";
-import type { FailureLimiter, OwnerSessions, PhoneOrderStore } from "./state";
+import type { ConversationShops, FailureLimiter, OwnerSessions, PhoneOrderStore } from "./state";
 import { constantTimeEqual, formatCents, localDay, maskPhone, normalizeE164, normalizeOrderId, normalizePin, sha256 } from "./util";
 
 export interface PhoneDeps {
@@ -28,7 +29,9 @@ export interface PhoneDeps {
   orders: PhoneOrderStore;
   sessions: OwnerSessions;
   failures: FailureLimiter;
-  /** The one business this line serves. */
+  /** Which shop each call is talking to (find_shop). */
+  shops: ConversationShops;
+  /** The business OWNER_PHONE / OWNER_PIN belong to: owner mode exists for this shop only. */
   businessId: string;
   /** Raw OWNER_PHONE / OWNER_PIN from the environment. Either missing = owner mode disabled for everyone. */
   ownerPhone: string | undefined;
@@ -48,7 +51,8 @@ export interface ToolResult {
 // ---------- input schemas (what Cartesia sends) ----------
 
 const Base = z.object({
-  business_id: z.string().regex(/^[a-z0-9-]{1,64}$/),
+  /** Normally absent: the shop comes from find_shop. A direct value must name a live shop, and a call's find_shop binding wins. */
+  business_id: z.string().regex(/^[a-z0-9-]{1,64}$/).optional(),
   /** {{system__caller_id}}; empty in browser previews and for hidden numbers */
   caller_id: z.string().max(40).default(""),
   /** {{system__conversation_id}} */
@@ -56,6 +60,7 @@ const Base = z.object({
 });
 
 export const TOOL_INPUTS = {
+  find_shop: Base.extend({ shop_name: z.string().trim().min(1).max(80) }),
   menu_lookup: Base,
   order_status: Base.extend({ order_id: z.string().trim().min(1).max(40) }),
   place_order: Base.extend({
@@ -79,7 +84,8 @@ export const TOOL_NAMES = Object.keys(TOOL_INPUTS) as ToolName[];
 export const OWNER_TOOLS: readonly ToolName[] = ["owner_report", "owner_instruction"];
 export const CUSTOMER_TOOLS: readonly ToolName[] = TOOL_NAMES.filter((t) => !OWNER_TOOLS.includes(t));
 
-type In<T extends ToolName> = z.infer<(typeof TOOL_INPUTS)[T]>;
+/** A tool's input once the shop is resolved: business_id is always set. */
+type In<T extends ToolName> = z.infer<(typeof TOOL_INPUTS)[T]> & { business_id: string };
 
 // ---------- catalog ----------
 
@@ -203,6 +209,79 @@ function smsState(d: PhoneDeps, key: string): SmsState {
     }
   }
   return "queued";
+}
+
+// ---------- shops ----------
+
+/** "Maya's Cookies!" -> "mayas cookie": lowercase plain words, no apostrophes, no plural s, no filler words. */
+function shopWords(name: string): string[] {
+  return name
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter((w) => w && !["the", "a", "an", "shop", "store", "please", "calling"].includes(w))
+    .map((w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w));
+}
+
+function bigrams(s: string): string[] {
+  const t = s.replace(/ /g, "");
+  return Array.from({ length: Math.max(0, t.length - 1) }, (_, i) => t.slice(i, i + 2));
+}
+
+/** 0..1: word overlap (or a partial name) or letter-pair overlap, whichever is higher (speech-to-text misspells names). */
+export function shopMatchScore(said: string, shop: { id: string; name: string }): number {
+  const a = shopWords(said);
+  let best = 0;
+  for (const b of [shopWords(shop.name), shopWords(shop.id.replace(/-/g, " "))]) {
+    if (a.length === 0 || b.length === 0) continue;
+    const A = new Set(a);
+    const B = new Set(b);
+    const shared = [...A].filter((w) => B.has(w)).length;
+    // every word said is in the name ("Maya's" for "Maya's Cookies"): a good but not certain match
+    const words = Math.max(shared / new Set([...A, ...B]).size, shared === A.size ? 0.75 : 0);
+    const x = bigrams(a.join(" "));
+    const y = bigrams(b.join(" "));
+    const pool = [...y];
+    let common = 0;
+    for (const g of x) {
+      const i = pool.indexOf(g);
+      if (i >= 0) (common++, pool.splice(i, 1));
+    }
+    const letters = x.length + y.length ? (2 * common) / (x.length + y.length) : 0;
+    best = Math.max(best, words, letters);
+  }
+  return best;
+}
+
+const MATCH_AT = 0.6;
+
+function liveShop(d: PhoneDeps, id: string): { id: string; name: string } | undefined {
+  return d.platform.shops().find((x) => x.id === id);
+}
+
+async function findShop(d: PhoneDeps, input: In<"find_shop">): Promise<ToolResult> {
+  const shops = d.platform.shops();
+  const ranked = shops.map((x) => ({ x, score: shopMatchScore(input.shop_name, x) })).sort((p, q) => q.score - p.score);
+  const top = ranked[0];
+  const names = shops.map((x) => x.name).sort((p, q) => p.localeCompare(q));
+  const someNames = names.slice(0, 6).join(", ");
+  if (!top || top.score < MATCH_AT) {
+    return refuse(
+      shops.length === 0
+        ? "No shops are taking phone orders right now."
+        : `I couldn't find a shop called ${input.shop_name} on this line. Shops here include ${someNames}. Ask the caller to say the shop name again.`,
+      { found: false, shops: names.slice(0, 6) },
+    );
+  }
+  const close = ranked.filter((r) => r.score >= MATCH_AT && top.score - r.score < 0.1);
+  if (close.length > 1) {
+    const which = close.slice(0, 4).map((r) => r.x.name);
+    return refuse(`That could be ${which.join(" or ")}. Ask the caller which one.`, { found: false, ambiguous: which });
+  }
+  d.shops.bind(input.conversation_id, top.x.id);
+  log.info("phone", `${input.conversation_id} is calling ${top.x.id} ("${input.shop_name}")`);
+  return ok({ shop_name: top.x.name, say: `You're through to ${top.x.name}. How can I help?` });
 }
 
 // ---------- tools ----------
@@ -394,7 +473,7 @@ async function escalate(d: PhoneDeps, input: In<"escalate">): Promise<ToolResult
 
 async function verifyOwner(d: PhoneDeps, input: In<"verify_owner">): Promise<ToolResult> {
   const cfg = ownerConfig(d);
-  if (!cfg) {
+  if (!cfg || input.business_id !== d.businessId) {
     return refuse("Owner mode isn't set up on this phone line, so I can't verify anyone as the owner.", { owner_mode: "disabled" });
   }
   const caller = normalizeE164(input.caller_id);
@@ -476,6 +555,7 @@ async function ownerInstruction(d: PhoneDeps, input: In<"owner_instruction">): P
 }
 
 const HANDLERS: { [K in ToolName]: (d: PhoneDeps, input: In<K>) => Promise<ToolResult> } = {
+  find_shop: findShop,
   menu_lookup: menuLookup,
   order_status: orderStatus,
   place_order: placeOrder,
@@ -493,10 +573,15 @@ export async function runTool(d: PhoneDeps, name: string, raw: unknown): Promise
   if (!parsed.success) {
     return { status: 400, body: { ok: false, error: "invalid parameters", issues: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`) } };
   }
-  if (parsed.data.business_id !== d.businessId) return refuse("This phone line doesn't serve that business.", { reason: "wrong_business" });
   try {
     await d.platform.ready();
-    return await (HANDLERS[tool] as (d: PhoneDeps, i: unknown) => Promise<ToolResult>)(d, parsed.data);
+    const run = (businessId: string) => (HANDLERS[tool] as (d: PhoneDeps, i: unknown) => Promise<ToolResult>)(d, { ...parsed.data, business_id: businessId });
+    if (tool === "find_shop") return await run("");
+    // the call's shop: find_shop's binding, else a direct business_id; either way it must be live right now
+    const businessId = d.shops.get(parsed.data.conversation_id) ?? parsed.data.business_id;
+    if (!businessId) return refuse("First ask which shop the caller is calling, then call find_shop with the name.", { reason: "shop_required" });
+    if (!liveShop(d, businessId)) return refuse("This phone line doesn't serve that shop.", { reason: "wrong_business" });
+    return await run(businessId);
   } catch (e) {
     if (e instanceof PlatformUnavailable) {
       log.error("phone", `${tool}: platform unavailable: ${e.message}`);

@@ -11,7 +11,8 @@
 //
 // The voice agent's LLM (picked from Cartesia's catalog, GET /v1/agents/models) only talks and picks tools.
 // caller_id and conversation_id are filled by Cartesia from system variables and are HIDDEN from the model
-// (dynamic_variable params), and business_id is a constant, so the model cannot choose any of them.
+// (dynamic_variable params). The model never sends a business id: it names the shop to find_shop, and the brain
+// ties the conversation to that live shop server-side.
 
 import { TOOL_NAMES, type ToolName } from "./tools";
 
@@ -44,8 +45,7 @@ export interface WebhookToolDefinition {
   };
 }
 
-const context = (businessId: string): Record<string, BodyParam> => ({
-  business_id: { type: "string", constant_value: businessId },
+const context = (): Record<string, BodyParam> => ({
   caller_id: { type: "string", dynamic_variable: "system__caller_id" },
   conversation_id: { type: "string", dynamic_variable: "system__conversation_id" },
 });
@@ -58,6 +58,12 @@ interface ToolSpec {
 }
 
 const SPECS: Record<ToolName, ToolSpec> = {
+  find_shop: {
+    description: "Connect this call to the shop the caller wants, by the name they said. Call it before any other tool, and again if the caller wants a different shop.",
+    params: { shop_name: { type: "string", description: "The shop name as the caller said it, e.g. Maya's Cookies." } },
+    required: ["shop_name"],
+    pre_tool_speech: "off",
+  },
   menu_lookup: {
     description: "Live menu: products, prices and how many are available. Use it before quoting any price or availability, and to get product_id values for place_order.",
     params: {},
@@ -122,10 +128,10 @@ const SPECS: Record<ToolName, ToolSpec> = {
 };
 
 /**
- * The 7 webhook tool definitions (bodies for POST /v1/agents/tools). `secret` is the PHONE_TOOL_SECRET;
+ * The 8 webhook tool definitions (bodies for POST /v1/agents/tools). `secret` is the PHONE_TOOL_SECRET;
  * pass undefined to get a printable copy with the secret left out.
  */
-export function buildCartesiaTools(o: { brainUrl: string; businessId: string; secret: string | undefined }): WebhookToolDefinition[] {
+export function buildCartesiaTools(o: { brainUrl: string; secret: string | undefined }): WebhookToolDefinition[] {
   const base = o.brainUrl.replace(/\/+$/, "");
   return TOOL_NAMES.map((name) => {
     const s = SPECS[name];
@@ -139,7 +145,7 @@ export function buildCartesiaTools(o: { brainUrl: string; businessId: string; se
       api_schema: {
         url: `${base}/phone/tools/${name}`,
         method: "POST",
-        request_body_schema: { type: "object", properties: { ...context(o.businessId), ...s.params }, required: s.required },
+        request_body_schema: { type: "object", properties: { ...context(), ...s.params }, required: s.required },
         authentication: {
           mode: "bearer",
           token: { type: "secret", ...(o.secret ? { secret_value: o.secret } : {}), secret_description: "Napkin brain PHONE_TOOL_SECRET" },
@@ -149,9 +155,14 @@ export function buildCartesiaTools(o: { brainUrl: string; businessId: string; se
   });
 }
 
-export function systemPrompt(businessName: string): string {
+export function systemPrompt(lineName: string): string {
   return `# Identity
-You answer the phone for ${businessName}. Be warm and brief. Use short sentences and ask one question at a time.
+You answer the ${lineName} phone line, one number shared by many small shops. Be warm and brief. Use short sentences and ask one question at a time.
+
+# Which shop
+- Every call starts by finding the shop. If the caller has not named one, ask which shop they are calling. Then call find_shop with the name as they said it.
+- Until find_shop succeeds you are not any shop: do not answer questions about menus, prices or orders. If it cannot find the shop, follow its "say" field and ask again.
+- Once connected, you speak for that shop. If the caller wants a different shop, call find_shop again.
 
 # Facts come only from tools
 Never state a price, total, stock count, order status, hours, location or policy unless a tool just returned it. Never add up prices yourself: the total comes from place_order. If a tool fails or refuses, say so plainly and do not guess. Each tool result has a "say" field with safe wording; follow it.
@@ -187,17 +198,17 @@ export interface AgentBody {
   };
 }
 
-/** Body for POST /v1/agents (and PATCH /v1/agents/{id}). */
-export function buildAgentBody(o: { name: string; businessName: string; businessId: string; modelId: string; voiceId: string; toolIds: string[]; keyterms?: string[]; timezone?: string }): AgentBody {
+/** Body for POST /v1/agents (and PATCH /v1/agents/{id}). `keyterms` should include the shop names, for speech-to-text. */
+export function buildAgentBody(o: { name: string; lineName: string; modelId: string; voiceId: string; toolIds: string[]; keyterms?: string[]; timezone?: string }): AgentBody {
   return {
     name: o.name,
-    description: `Napkin Inc. phone line for ${o.businessId}. Logic lives in the brain's /phone/tools webhooks.`,
+    description: "Napkin Inc. shared phone line for every live shop. Logic lives in the brain's /phone/tools webhooks.",
     config: {
-      instructions: systemPrompt(o.businessName),
-      initial_message: `Hi, thanks for calling ${o.businessName}. How can I help?`,
+      instructions: systemPrompt(o.lineName),
+      initial_message: `Hi, thanks for calling ${o.lineName}. Which shop are you calling today?`,
       model: { id: o.modelId }, // temperature omitted: newer models fix it (Cartesia rejects any other value)
       language: { primary: "en" },
-      audio: { input: { noise_suppression: "auto", keyterms: [o.businessName, "Napkin", ...(o.keyterms ?? [])].slice(0, 50) }, output: { voice_id: o.voiceId } },
+      audio: { input: { noise_suppression: "auto", keyterms: [o.lineName, "Napkin", ...(o.keyterms ?? [])].slice(0, 50) }, output: { voice_id: o.voiceId } },
       tools: o.toolIds.map((id) => ({ id })),
       system_tools: { end_call: { description: null, pre_tool_speech: "auto" } },
       turn: { inactivity_end_call_secs: 120, inactivity_check_in_secs: 10 },

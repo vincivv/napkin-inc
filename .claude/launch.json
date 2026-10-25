@@ -98,6 +98,7 @@
         "NEXT_PUBLIC_SPACETIMEDB_DB": "napkin-e2e",
         "NEXT_PUBLIC_BRAIN_URL": "http://localhost:4100",
         "NEXT_PUBLIC_STORE_URL": "http://localhost:3002",
+        "NEXT_PUBLIC_PHONE_LINE": "+19064989806",
         "NEXT_PUBLIC_OWNER_URL": "http://localhost:3001"
       }
     }

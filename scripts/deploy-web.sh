@@ -13,6 +13,7 @@ STDB_URI="${PUBLIC_SPACETIMEDB_URI:-wss://maincloud.spacetimedb.com}"
 STDB_DB="${PUBLIC_SPACETIMEDB_DB:-napkin-inc-mayas}"
 STORE_URL="${PUBLIC_STORE_URL:-https://napkin-store.vercel.app}"
 OWNER_URL="${PUBLIC_OWNER_URL:-https://napkin-owner.vercel.app}"
+PHONE_LINE="${PUBLIC_PHONE_LINE-+19064989806}" # the shared Cartesia line every live shop answers on; empty hides it
 which="${1:-both}"
 
 deploy() { # <project> <project id>
@@ -22,6 +23,7 @@ deploy() { # <project> <project id>
     --build-env NEXT_PUBLIC_SPACETIMEDB_DB="$STDB_DB" \
     --build-env NEXT_PUBLIC_STORE_URL="$STORE_URL" \
     --build-env NEXT_PUBLIC_OWNER_URL="$OWNER_URL" \
+    --build-env NEXT_PUBLIC_PHONE_LINE="$PHONE_LINE" \
     --build-env NEXT_PUBLIC_BUSINESS_SLUG=maya-cookies
 }
 

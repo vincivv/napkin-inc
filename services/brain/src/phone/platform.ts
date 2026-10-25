@@ -32,6 +32,8 @@ export interface StockBalanceView {
 
 export interface PhonePlatform {
   isConnected(): boolean;
+  /** Shops the line can serve: live configuration and guards on (the store index's rule; hides the red-team baseline). */
+  shops(): { id: string; name: string }[];
   /** Resolves once every table the phone tools read is in the client cache (throws PlatformUnavailable otherwise). */
   ready(): Promise<void>;
   /** Live catalog rows of the ACTIVE configuration (active=true, configId = business.activeConfigId). */
@@ -93,6 +95,12 @@ export class StdbPhonePlatform implements PhonePlatform {
 
   isConnected(): boolean {
     return this.hub.get("system")?.connected() ?? false;
+  }
+
+  shops(): { id: string; name: string }[] {
+    const s = this.sys();
+    if (!s) return [];
+    return [...s.conn.db.business.iter()].filter((b) => b.activeConfigId > 0n && b.enforce).map((b) => ({ id: b.id, name: b.name }));
   }
 
   catalog(businessId: string): CatalogRowView[] {

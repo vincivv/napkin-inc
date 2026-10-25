@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { StorefrontDesign } from "@/lib/design";
+import { formatPhone, PHONE_LINE } from "@/lib/env";
 import { available, type Product, type StockMap, type StoreInfo } from "@/lib/model";
 import { useStoreHref } from "@/lib/store-data";
 import { AddonCard, priceLabel, ProductCard } from "./Products";
@@ -242,7 +243,7 @@ function VisitBanner({ info, design }: { info: StoreInfo; design: StorefrontDesi
         <div className="flex flex-col justify-center p-7 md:p-14">
           <p className="eyebrow text-muted">{pickup ? "Pickup" : "Visit"}</p>
           <h2 className="ds-display mt-2 text-4xl md:text-5xl">{design.banner.title}</h2>
-          {info.pickupLocation || info.hours ? (
+          {info.pickupLocation || info.hours || PHONE_LINE ? (
             <dl className="mt-6 space-y-3 text-[0.95rem]">
               {info.pickupLocation ? (
                 <div className="flex gap-3">
@@ -260,6 +261,20 @@ function VisitBanner({ info, design }: { info: StoreInfo; design: StorefrontDesi
                     <span className="sr-only">When</span>
                   </dt>
                   <dd className="font-medium">{info.hours}</dd>
+                </div>
+              ) : null}
+              {PHONE_LINE ? (
+                <div className="flex gap-3">
+                  <dt className="text-muted">
+                    <PropIcon kind="phone" />
+                    <span className="sr-only">By phone</span>
+                  </dt>
+                  <dd>
+                    <span className="font-medium">
+                      Order by phone: <a href={`tel:${PHONE_LINE}`} className="underline underline-offset-4">{formatPhone(PHONE_LINE)}</a>
+                    </span>
+                    <span className="block text-sm text-muted">Ask for {info.name}. You pay with the order number at /pay.</span>
+                  </dd>
                 </div>
               ) : null}
             </dl>

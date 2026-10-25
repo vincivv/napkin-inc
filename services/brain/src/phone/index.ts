@@ -1,4 +1,4 @@
-// Phone line wiring (M3-K): mounts POST /phone/tools/:name on the brain app.
+// Phone line wiring (M3-K): mounts POST /phone/tools/:name and GET /phone/shops on the brain app.
 
 import type { Hono } from "hono";
 import type { Env } from "../env";
@@ -9,7 +9,7 @@ import type { StdbHub } from "../stdb";
 import { StdbPhonePlatform } from "./platform";
 import { phoneRoutes } from "./routes";
 import { SimulatorSms, SmsExecutor, TwilioSms, type SmsSender } from "./sms";
-import { FailureLimiter, FilePhoneOrderBackend, OwnerSessions, PhoneOrderStore } from "./state";
+import { ConversationShops, FailureLimiter, FilePhoneOrderBackend, OwnerSessions, PhoneOrderStore } from "./state";
 import type { PhoneDeps } from "./tools";
 import { normalizeE164 } from "./util";
 
@@ -33,6 +33,7 @@ export function registerPhoneRoutes(app: Hono, o: { env: Env; hub: StdbHub; m2: 
     smsMode: sender.mode,
     orders: new PhoneOrderStore(new FilePhoneOrderBackend(env.dataDir)),
     sessions: new OwnerSessions(),
+    shops: new ConversationShops(),
     failures: new FailureLimiter(3, 15 * 60_000),
     businessId: env.phoneBusinessId,
     ownerPhone: env.ownerPhone,
