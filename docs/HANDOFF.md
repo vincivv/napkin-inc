@@ -155,9 +155,13 @@ topping.
   redirects to the brain's `/p/<orderId>`, which goes on to Stripe.
 - **`/`:** lists every business. This is a known gap: it includes test businesses.
 
-### A caller, on the phone line (+1 906-498-9806, Maya's Cookies only)
+### A caller, on the phone line (+1 906-498-9806, shared by every live shop)
 
-- The Cartesia voice agent (Claude Haiku 5.5, voice "Skylar") can do these things, through 7 webhook tools
+- One number serves every live shop. The agent answers "Which shop are you calling?" and `find_shop` ties
+  the call to the shop the caller names (fuzzy match, so "the juniper candle shop" works). Every other tool
+  then acts for that shop only, server-side, per conversation. Each store shows the number and says to ask
+  for the shop by name.
+- The Cartesia voice agent (Claude Haiku 5.5, voice "Skylar") can do these things, through 8 webhook tools
   on the brain:
   - read the menu (`menu_lookup`);
   - place an order (`place_order`);
@@ -167,8 +171,8 @@ topping.
   caller to pay at `napkin-store.vercel.app/pay`.
 - **Owner mode:** the owner can verify (`verify_owner`: caller ID plus PIN, locked after 3 failures), get a
   report (`owner_report`), and give instructions (`owner_instruction`). Instructions only **queue**; they
-  apply after the owner confirms in the app (invariant 6). Owner mode is **off** right now because
-  `OWNER_PHONE` is empty in `.env`.
+  apply after the owner confirms in the app (invariant 6). Owner mode exists only for the shop
+  `PHONE_BUSINESS_ID` names (Maya's), and it is **off** right now because `OWNER_PHONE` is empty in `.env`.
 
 ## 4. Architecture
 
@@ -383,10 +387,16 @@ All three run on Claude Sonnet 5.5.
 
 - **`cartesia-agent.ts`** holds the agent's prompt and config. It tells the agent to spell the order number
   and follow the `say` field the tools return.
-- **`tools.ts`** has the 7 tools. `smsSay` produces the "pay at …/pay, order number X" line when no text was
+- **`tools.ts`** has the 8 tools, `find_shop` first. The shop each call is bound to lives in memory
+  (`ConversationShops`, 2 h); after a brain restart the agent just asks again. `smsSay` produces the "pay at …/pay, order number X" line when no text was
   sent.
 - **`sms.ts`:** Twilio adapter or simulator.
-- **`scripts/cartesia-setup.ts`** creates or updates the agent and tools (see section 7).
+- **`scripts/cartesia-setup.ts`** creates or updates the agent and tools (see section 7). It reads the live
+  shop names from the brain (`GET /phone/shops`) as speech-to-text keyterms; a shop that goes live later is
+  still found by `find_shop`, and the next setup run (every tunnel change) adds its name.
+- **Why one number:** Cartesia includes 1 number on the free plan (3 on Pro, 5 Startup, 10 Scale), plus
+  per-minute charges, so a number per business doesn't scale for free. A dedicated number could be a paid
+  upgrade later.
 - **Number provisioning:** the Cartesia dashboard didn't show a way to claim a number, so it was claimed
   through the API: `POST https://api.cartesia.ai/agents/phone-numbers/provision`.
 
@@ -621,7 +631,9 @@ The owner does live sign-ins; the agent must not create accounts on public sites
 
 Done since the first handoff: the judge demo script (`docs/DEMO.md`), `docs/REAL_VS_SIMULATED.md`, the store
 index showing only live shops, sign-in on the Bookkeeper and `/ask`, rate limits on customer chat, go-live
-links on Build, and the storefront redesign.
+links on Build, the storefront redesign, "Ask your books" on the dashboard, the shared phone line for every
+live shop, and reconnecting every live shop's actors at brain startup (before, shops created from a napkin
+stopped taking orders after any brain restart).
 
 1. **Live end-to-end test by the owner.** Sign up on https://napkin-owner.vercel.app, use the sample napkin,
    go live, open the storefront, and pay with `4242…`. Sign in as Maya and check her dashboard. Fix
@@ -631,8 +643,6 @@ links on Build, and the storefront redesign.
    Stripe test mode; SpacetimeDB; Vercel; Z3; Openverse), the challenges, what's next, and a 1–2 minute
    video if possible. **Ask the owner before making the repo public.**
 3. **Gaps worth closing** (judgment calls):
-   - The phone line serves `maya-cookies` only. New businesses don't get one; say so on stage, or route by
-     business.
    - `OWNER_PHONE` is empty, so phone owner mode is off. Ask the owner for their number (+1… form) and
      check that `OWNER_PIN` is set.
    - A replacement photo can create conflicts on non-item facts (for example the refund method) between

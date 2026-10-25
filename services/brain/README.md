@@ -142,16 +142,19 @@ used. Tests: `test/compiler.test.ts`, `test/compile-route.test.ts`, `test/guards
 ## M3-K: phone line (`src/phone`, `POST /phone/tools/:name`)
 A **Cartesia Managed Agent** owns the voice and the LLM (a Claude model from Cartesia's catalog, billed by Cartesia).
 All logic is in brain **webhook tools**; the agent only talks and picks tools. Cartesia fills `caller_id` from
-`{{system__caller_id}}` and `conversation_id` from `{{system__conversation_id}}` (hidden from the model), and
-`business_id` is a constant, so the model cannot choose any of them. Cartesia has no SMS: pay links go by Twilio.
+`{{system__caller_id}}` and `conversation_id` from `{{system__conversation_id}}` (hidden from the model). One
+number serves every live shop: the agent asks which shop and calls `find_shop`, which binds the conversation to
+that shop server-side (`ConversationShops`); the model never sends a business id, and every other tool acts for
+the bound shop only (a shop must be live: active configuration, guards on). Cartesia has no SMS: pay links go by Twilio.
 
 | Tool | Mode | What it does |
 |---|---|---|
+| `find_shop` | customer | fuzzy-matches the spoken name (apostrophes, plurals, partial names, misspellings) against live shops; binds the call to a clear match, asks "X or Y?" for close ones, lists some shops when nothing matches. Until it succeeds every other tool answers `shop_required` |
 | `menu_lookup` | customer | live catalog prices + availability (`floor(stock / stockUnits)`); never costs |
 | `order_status` | customer / owner | details only if the caller ID placed that phone order (or the owner is verified); otherwise one generic reply, identical for unknown orders |
 | `place_order` | customer | validates lines against the live catalog, then `createCheckout(..., {channel: "phone"})` (the storefront's path). Total = platform pricing. Pay link `BRAIN_URL/p/<orderId>` texted to the **caller ID** via the platform outbox (`enqueueOutbox`, kind `sms`, key `paylink:<orderId>`). A retry (same conversation + caller + cart) returns the same order and never queues a second text. The reply says `queued` (never "texted") until the platform row is done with a real send |
 | `escalate` | customer | `openInbox` with the conversation id, masked caller (`…0111`) and the summary marked `untrusted` (max 3 per call) |
-| `verify_owner` | customer | caller ID == `OWNER_PHONE` (E.164) **and** PIN == `OWNER_PIN`, both compared in constant time; 3 failures per conversation and per caller in 15 min lock it (even with the right PIN); either env var empty = everyone refused |
+| `verify_owner` | customer | caller ID == `OWNER_PHONE` (E.164) **and** PIN == `OWNER_PIN`, both compared in constant time; 3 failures per conversation and per caller in 15 min lock it (even with the right PIN); either env var empty, or a call bound to any shop but `PHONE_BUSINESS_ID`, = refused |
 | `owner_report` | owner | today (in the active config's `business.timezone`): orders, paid orders, sales, refunds, stock, open inbox, statements awaiting confirmation |
 | `owner_instruction` | owner | `submitOwnerStatement(..., "phone")`: LLM diff + `queueOwnerStatement`. **Never applied**; the owner confirms in the app Inbox (invariant 6). Needs `ANTHROPIC_API_KEY` and an intake spec, otherwise it refuses and nothing changes |
 

@@ -48,9 +48,9 @@ the code, the code wins; tell us.
   what the guards allowed, refused or sent to the owner.
 
 **Phone line**
-- +1 906-498-9806 (Maya's Cookies only). A Cartesia voice agent (Claude Haiku 5.5, voice "Skylar") calling
-  7 webhook tools on the brain: menu, order, order status, escalate, and owner verification / report /
-  instruction. Owner instructions only queue; they apply after the owner confirms in the app.
+- +1 906-498-9806, one number shared by every live shop: the agent asks which shop and the brain ties the
+  call to it. A Cartesia voice agent (Claude Haiku 5.5, voice "Skylar") calling 8 webhook tools on the
+  brain: find the shop, menu, order, order status, escalate, and owner verification / report / instruction. Owner instructions only queue; they apply after the owner confirms in the app.
 
 **Storefronts**
 - Each business gets a generated storefront design: Claude Opus 5.5 proposes the style (editorial or bold),
@@ -76,8 +76,8 @@ the code, the code wins; tell us.
 - **Red-team runs** used a local scratch database and the Stripe simulator, not the hosted demo.
 
 ## Not built / known gaps
-- The phone line serves Maya's Cookies only; new businesses don't get a number.
-- Phone owner mode is off until an owner phone number is configured.
+- Shops share one phone number (the caller says the shop name); no business gets its own number.
+- Phone owner mode is off until an owner phone number is configured, and then only for Maya's Cookies.
 - The sea-salt add-on's $0.20 cost is credited to Inventory although sea salt isn't a stock item (an
   open accounting decision for the owner).
 - Other open owner decisions are listed in `docs/HANDOFF.md` section 11 and `docs/MORNING.md`.
