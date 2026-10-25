@@ -112,7 +112,8 @@ const STATEMENT_DOC: Record<string, string> = { payment_succeeded: "payment_rece
 const AMOUNT_ACCOUNT: Record<string, { account: string; side: "debitCents" | "creditCents" }> = {
   payment_received: { account: "1200", side: "creditCents" },
   processor_fee: { account: "5100", side: "debitCents" },
-  refund: { account: "4200", side: "debitCents" },
+  // what left the Stripe balance: with sales tax, part of a refund comes back from Sales tax payable, not Refunds
+  refund: { account: "1010", side: "creditCents" },
   payout: { account: "1000", side: "debitCents" },
 };
 

@@ -37,6 +37,8 @@ export interface StaffBackend {
   openInbox(role: StaffRole, businessId: string, i: { question: string; documentRef: string; contextJson: string }): Promise<void>;
   /** the live books of a business */
   books(businessId: string): Promise<BookSet>;
+  /** open owner inbox items of a business (the automatic review dedupes against them); optional */
+  openInboxItems?(businessId: string): Promise<{ question: string; contextJson: string }[]>;
   /** stock register quantities by stock item; absent or throwing means stock is unknown */
   stock?(businessId: string): Promise<Map<string, bigint>>;
 }

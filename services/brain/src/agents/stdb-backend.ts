@@ -8,7 +8,7 @@ import type { StaffBackend } from "./backend";
 import type { BookDoc, BookSet } from "./books";
 import type { StaffRole } from "./types";
 
-const LEDGER_SUBSCRIPTIONS = ["SELECT * FROM journal_line", "SELECT * FROM register_movement", "SELECT * FROM period", "SELECT * FROM processor_event", "SELECT * FROM precedent", "SELECT * FROM register_balance"];
+const LEDGER_SUBSCRIPTIONS = ["SELECT * FROM journal_line", "SELECT * FROM register_movement", "SELECT * FROM period", "SELECT * FROM processor_event", "SELECT * FROM precedent", "SELECT * FROM register_balance", "SELECT * FROM inbox_item"];
 const iso = (t: { microsSinceUnixEpoch: bigint } | undefined | null) => (t ? new Date(Number(t.microsSinceUnixEpoch / 1000n)).toISOString() : undefined);
 const rec = (fs: readonly { name: string; value: string }[]) => Object.fromEntries(fs.map((f) => [f.name, f.value]));
 
@@ -76,6 +76,11 @@ export class StdbStaffBackend implements StaffBackend {
       throw e;
     });
     return this.subscribed;
+  }
+
+  async openInboxItems(businessId: string) {
+    await this.ready();
+    return [...this.db.inboxItem.businessId.filter(businessId)].filter((i) => i.status === "open").map((i) => ({ question: i.question, contextJson: i.contextJson }));
   }
 
   async stock(businessId: string): Promise<Map<string, bigint>> {

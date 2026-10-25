@@ -16,7 +16,7 @@ import { OutboxWorker, RefundExecutor, type OutboxExecutor } from "./payments/ou
 import { registerM2Routes } from "./m2";
 import { mountCompiler } from "./compiler/routes";
 import { registerPhoneRoutes } from "./phone";
-import { mountAgents } from "./agents";
+import { createLiveBookkeeperReview, mountAgents } from "./agents";
 import { AccountStore, businessGate, ensureSeedAccount, GATED_PATHS, registerAccountRoutes } from "./accounts";
 import { SpecStore } from "./spec/store";
 import { activeConfigReader, designInputFromConfig, mountStorefront } from "./storefront";
@@ -67,6 +67,7 @@ async function runBootstrap(): Promise<void> {
     for (const shop of phone.deps.platform.shops()) phone.deps.codes.codeFor(shop.id); // every live shop has its phone code
     delete state.error;
     worker.start();
+    bookkeeperReview.start(); // no-op when BOOKKEEPER_REVIEW=off or already started
     log.info("brain", "bootstrap complete; outbox worker running");
   } catch (e) {
     state.error = `${(e as Error).name}: ${(e as Error).message}`;
@@ -169,6 +170,9 @@ mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePu
   ownerGate: gate,
   customerLimits: { perClient: new RateLimiter(40, 15 * 60_000), global: new RateLimiter(600, 60 * 60_000), clientKey },
 });
+// Automatic Bookkeeper review: reconciles every live business on a timer and after new documents, and
+// opens ONE owner inbox item (guarded escalate) only for new findings. Started after bootstrap.
+const bookkeeperReview = createLiveBookkeeperReview(hub, { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront });
 // Owner expenses: receipt photo -> pre-filled values. The owner app posts the expense itself (createDocument as the owner).
 mountExpenses(app, { llm: m2.llm, receipts: new ReceiptStore(env.dataDir) });
 // Getting-legal checklist (gated like the setup routes). What the business is comes from the draft spec
@@ -195,6 +199,7 @@ void runBootstrap();
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     worker.stop();
+    bookkeeperReview.stop();
     hub.disconnectAll();
     process.exit(0);
   });

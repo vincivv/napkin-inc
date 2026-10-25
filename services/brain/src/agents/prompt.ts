@@ -69,6 +69,15 @@ export function buildSystemPrompt(cfg: Configuration, role: StaffRole, precedent
   lines.push("# Owner precedents (owner answers from the inbox; follow them)");
   if (mine.length === 0) lines.push("- none yet");
   for (const x of mine) lines.push(`- [precedent ${x.id}] ${x.rule.replace(/\s+/g, " ").slice(0, 400)}`);
+  if (role === "bookkeeper") {
+    lines.push("");
+    lines.push("# Accounts (tool output uses the numbers; the owner knows the names)");
+    for (const a of cfg.chartOfAccounts) lines.push(`- ${a.code}: ${a.name}`);
+    lines.push("");
+    lines.push("# Writing to the owner (escalate)");
+    lines.push("The owner is not an accountant. Write plain language: account NAMES, never numbers (\"Cash\", not \"account 1000\"), and no field or code names (\"each burrito sale took 20 from stock\", not \"stockUnits=20\").");
+    lines.push("Put everything you found in ONE escalate call per answer, never one call per problem. The question is: a one-sentence headline, then numbered points, each on its own line (\"1. ...\"), each citing the documents as [doc <id>], and a last line saying what the owner should do.");
+  }
   if (opts.audit) {
     lines.push("");
     lines.push("# Audit report format");
