@@ -63,6 +63,35 @@ export interface PendingStatement {
   diff: { changes: DiffChange[]; unparsed: string[]; note?: string };
 }
 
+export type LegalStatus = "todo" | "done" | "not_needed";
+export interface LegalItem {
+  id: string;
+  title: string;
+  why: string;
+  who: string;
+  link?: string;
+  howToFind?: string;
+  appliesBecause?: string;
+  status: LegalStatus;
+  note?: string;
+  base: boolean;
+}
+export interface LegalView {
+  businessId: string;
+  disclaimer: string;
+  items: LegalItem[];
+  counts: { total: number; done: number; notNeeded: number; todo: number };
+  location: { city: string; state: string } | null;
+  locationText: string | null;
+  locationSource: "owner" | "business" | null;
+  needsLocation: boolean;
+  knowsBusiness: boolean;
+  generated: boolean;
+  generatedAt: string | null;
+  generatedFor: string | null;
+  aiAvailable: boolean;
+}
+
 export class BrainError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -115,6 +144,12 @@ export const brain = {
   statement: (businessId: string, text: string, channel: "app" | "phone") => req<{ statementId: string; diff: PendingStatement["diff"] }>("/owner/statement", json({ businessId, text, channel })),
   statements: (b: string) => req<{ statements: PendingStatement[] }>(`/owner/statements?businessId=${encodeURIComponent(b)}`),
   decide: (businessId: string, id: string, confirm: boolean) => req<SpecResponse>(`/owner/statement/${id}/decide`, json({ businessId, confirm })),
+  /** Getting-legal checklist (GET is the base list until tailored items are generated). */
+  legal: (b: string) => req<LegalView>(`/legal/${encodeURIComponent(b)}`),
+  legalLocation: (b: string, location: { city: string; state: string }) => req<LegalView>(`/legal/${encodeURIComponent(b)}/location`, json(location)),
+  legalGenerate: (b: string, location?: { city: string; state: string }) => req<LegalView>(`/legal/${encodeURIComponent(b)}/generate`, json(location ?? {})),
+  legalItem: (b: string, itemId: string, patch: { status?: LegalStatus; note?: string | null }) =>
+    req<LegalView>(`/legal/${encodeURIComponent(b)}/items/${encodeURIComponent(itemId)}`, { ...json(patch), method: "PATCH" }),
 };
 
 export const provenanceLabel = { owner_said: "you said it", paper: "read from paper", inferred: "my guess" } as const;

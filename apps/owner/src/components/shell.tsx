@@ -30,6 +30,7 @@ const I = {
   intake: <path d="M4 6h3l1.5-2h3L13 6h3v10H4zM10 8.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z" />,
   interview: <path d="M4 4h12v9H9l-3 3v-3H4z" />,
   build: <path d="M11 3 4 11h5l-1 6 7-8h-5z" />,
+  legal: <path d="M5 3.5h10v13H5zM7.5 7l1 1 2-2M7.5 11l1 1 2-2M12 7.5h1.5M12 11.5h1.5" />,
 };
 
 const NAV: { section: string; items: NavItem[] }[] = [
@@ -51,7 +52,13 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: "/audit", label: "Audit log", icon: I.audit },
     ],
   },
-  { section: "Trust", items: [{ href: "/proof", label: "Proof report", icon: I.proof }] },
+  {
+    section: "Trust",
+    items: [
+      { href: "/proof", label: "Proof report", icon: I.proof },
+      { href: "/legal", label: "Getting legal", icon: I.legal },
+    ],
+  },
   {
     section: "Set up",
     items: [

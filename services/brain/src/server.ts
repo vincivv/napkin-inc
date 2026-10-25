@@ -19,6 +19,8 @@ import { registerPhoneRoutes } from "./phone";
 import { mountAgents } from "./agents";
 import { AccountStore, businessGate, ensureSeedAccount, GATED_PATHS, registerAccountRoutes } from "./accounts";
 import { SpecStore } from "./spec/store";
+import { LegalStore, mountLegal, profileFromConfig, profileFromSpec } from "./legal";
+import { StdbGuardPlatform } from "./guards/platform";
 
 let env: Env;
 try {
@@ -146,6 +148,23 @@ mountCompiler(app, hub, env.dataDir); // M2: compiler (POST /compile, SSE)
 const phone = registerPhoneRoutes(app, { env, hub, m2, checkout: { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront } });
 executors.push(phone.smsExecutor); // drains the platform outbox rows of kind "sms" queued by place_order
 mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront }); // M3: AI staff
+// Getting-legal checklist (gated like the setup routes). What the business is comes from the draft spec
+// during setup, else from the live configuration; nothing else is assumed.
+const configs = new StdbGuardPlatform(hub);
+mountLegal(app, {
+  store: new LegalStore(env.dataDir),
+  llm: m2.llm,
+  profile: (businessId) => {
+    const rec = specs.get(businessId);
+    if (rec) return profileFromSpec(rec.spec);
+    try {
+      const active = configs.activeConfiguration(businessId);
+      return active ? profileFromConfig(active.config) : undefined;
+    } catch {
+      return undefined; // platform not connected yet
+    }
+  },
+});
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();
