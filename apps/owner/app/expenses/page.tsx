@@ -11,6 +11,7 @@ import { Badge, Button, Card, Empty, ErrorNote, errText, Loading, Money, OwnerBu
 import { brain, type ReceiptRead } from "@/lib/brain";
 import { buildExpense, EXPENSE_DOC, expenseRows, expenseSetup, normalizeAmount, totalsByCategory, type ExpenseDraft, type ExpenseRow, type ExpenseSetup } from "@/lib/expenses";
 import { formatCents, parseDollars } from "@/lib/money";
+import { readConfig } from "@/lib/config";
 
 const inputCls = "h-8 w-full min-w-0 rounded-md border border-line-strong bg-surface px-2.5 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-50";
 const labelCls = "mb-1 flex items-center gap-1.5 text-[11.5px] font-medium text-faint";
@@ -329,6 +330,15 @@ function ExpenseTable({ rows, names, onReceipt }: { rows: ExpenseRow[]; names: R
 export default function ExpensesPage() {
   const { snapshot, session, config, names } = useData();
   const setup = useMemo(() => expenseSetup(config?.config), [config]);
+  // a recompiled version that has expenses but is still waiting to be activated
+  const waiting = useMemo(
+    () =>
+      [...snapshot.configVersions]
+        .filter((c) => c.status === "pending")
+        .sort((a, b) => b.version - a.version)
+        .find((c) => expenseSetup(readConfig(c)?.config)),
+    [snapshot.configVersions],
+  );
   const all = useMemo(() => expenseRows(snapshot.documents), [snapshot.documents]);
   const months = useMemo(() => [...new Set(all.map((r) => r.date.slice(0, 7)).filter(Boolean))].sort().reverse(), [all]);
   const [month, setMonth] = useState("all");
@@ -364,17 +374,31 @@ export default function ExpensesPage() {
       />
       {!setup ? (
         <Card>
-          <Empty
-            title="Expenses aren't turned on for this business yet"
-            hint={
-              <>
-                Your business was set up before expense tracking existed.{" "}
-                <Link href="/build" className="font-medium text-accent hover:underline">
-                  Recompile on the Build page to turn on expenses.
-                </Link>
-              </>
-            }
-          />
+          {waiting ? (
+            <Empty
+              title={`One step left: activate version ${waiting.version}`}
+              hint={
+                <>
+                  Your recompiled version {waiting.version} has expenses, but your shop still runs the old one until you activate it.{" "}
+                  <Link href="/build" className="font-medium text-accent hover:underline">
+                    Activate it on the Build page.
+                  </Link>
+                </>
+              }
+            />
+          ) : (
+            <Empty
+              title="Expenses aren't turned on for this business yet"
+              hint={
+                <>
+                  Your business was set up before expense tracking existed.{" "}
+                  <Link href="/build" className="font-medium text-accent hover:underline">
+                    Recompile on the Build page, then activate the new version.
+                  </Link>
+                </>
+              }
+            />
+          )}
         </Card>
       ) : (
         <div className="space-y-4">

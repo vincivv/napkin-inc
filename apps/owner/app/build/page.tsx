@@ -115,6 +115,20 @@ export default function BuildPage() {
         }
       />
       <div className="space-y-4">
+        {active && pendingRow && !running && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-accent/40 bg-accent-soft px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold">Version {pendingRow.version} is built and waiting for you</div>
+              <div className="text-[12.5px] text-muted">
+                Your shop keeps running v{active.row.version} until you activate it.{changed > 0 ? ` ${changed} change${changed === 1 ? "" : "s"} — see the comparison below.` : ""}
+              </div>
+              <ErrorNote error={activateError} />
+            </div>
+            <OwnerButton variant="primary" size="sm" onClick={() => void activate()} disabled={activating} {...(pending?.error ? { reason: "This version does not validate" } : {})}>
+              {activating ? "Activating…" : `Activate v${pendingRow.version}`}
+            </OwnerButton>
+          </div>
+        )}
         {active && (
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-pos/30 bg-pos-soft px-4 py-3">
             <div className="min-w-0 flex-1">
