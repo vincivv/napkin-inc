@@ -101,9 +101,9 @@ export default function InterviewPage() {
                     {q.current.source.quote && q.current.confidence > 0 && <span className="italic text-faint">“{q.current.source.quote}”</span>}
                   </div>
                 )}
-                {q.candidates && (
+                {(q.candidates ?? quickAnswers(q.fieldPath)) && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {q.candidates.map((c) => <Button key={c} disabled={busy} onClick={() => act(() => brain.answer(businessId, q.id, { answer: c }))}>{c}</Button>)}
+                    {(q.candidates ?? quickAnswers(q.fieldPath))!.map((c) => <Button key={c} disabled={busy} onClick={() => act(() => brain.answer(businessId, q.id, { answer: c }))}>{c}</Button>)}
                   </div>
                 )}
                 <form
@@ -241,4 +241,13 @@ function ReviewCard({ review, busy, onConfirm }: { review: ReviewResponse; busy:
       </div>
     </Card>
   );
+}
+
+/** One-tap answers for fields with a fixed set of values (the brain still parses and checks them). */
+function quickAnswers(fieldPath: string): string[] | undefined {
+  if (/\.(stockTracked|couponsAllowed)$/.test(fieldPath)) return ["Yes", "No"];
+  if (fieldPath === "operations.fulfillment") return ["Pickup", "Delivery"];
+  if (fieldPath === "policies.currency") return ["USD"];
+  if (fieldPath === "policies.paymentMethods") return ["Card"];
+  return undefined;
 }
