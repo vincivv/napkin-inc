@@ -4,7 +4,7 @@
 import type { BusinessSpec, OpenQuestion } from "@napkin/schema";
 import { usableForMoney } from "@napkin/schema";
 import { CoerceError, coerceValue, showValue } from "../spec/coerce";
-import { getFact, isMissing, listFacts, normalizePath, setFact, type AnyFact } from "../spec/paths";
+import { getFact, isMissing, listFacts, missingFact, normalizePath, setFact, type AnyFact } from "../spec/paths";
 import { impactScore, isMoneyRelevant, moneyImpact } from "./impact";
 
 const LABELS: Record<string, string> = {
@@ -47,10 +47,37 @@ export function labelFor(spec: BusinessSpec, path: string): string {
   return path;
 }
 
+/** Direct wording for labels that don't read as "What is <label>?" ("how long...", "whether..."). */
+const ASK: Record<string, string> = {
+  "policies.refundWindowHours": "How many hours do customers have to ask for a refund?",
+  "policies.refundMethod": "How are refunds paid back?",
+  "policies.couponsAllowed": "Do you allow coupons?",
+  "policies.paymentMethods": "How do customers pay?",
+  "operations.fulfillment": "Is it pickup or delivery?",
+  "operations.pickupLocation": "Where do customers pick up?",
+  "business.community": "Who are your customers?",
+};
+
+function askMissing(spec: BusinessSpec, path: string, label: string): string {
+  const direct = ASK[normalizePath(path)];
+  if (direct) return direct;
+  const m = /^offerings\.([^.]+)(?:\.variants\.([^.]+))?\.(stockTracked|initialStock|stockUnits)$/.exec(path);
+  if (m) {
+    const off = spec.offerings.find((o) => o.id === m[1]);
+    const offName = off && String(off.name.value) ? String(off.name.value) : "this item";
+    const v = m[2] && off ? off.variants.find((x) => x.id === m[2]) : undefined;
+    const vName = v && String(v.name.value) ? String(v.name.value) : "this size";
+    if (m[3] === "stockTracked") return `Do you want to track stock for ${offName}?`;
+    if (m[3] === "initialStock") return `How many ${offName} do you have in stock right now?`;
+    return `How many ${offName} does one ${vName} use from stock? (A box of 6 uses 6.)`;
+  }
+  return `What is ${label}?`;
+}
+
 export function describeQuestion(spec: BusinessSpec, path: string, fact: AnyFact, candidates?: string[]): string {
   const label = labelFor(spec, path);
   if (candidates && candidates.length > 1) return `Two sources disagree about ${label}: ${candidates.join(" or ")}. Which is right?`;
-  if (isMissing(fact)) return `What is ${label}?`;
+  if (isMissing(fact)) return askMissing(spec, path, label);
   const v = showValue(path, fact.value);
   if (fact.provenance === "paper") return `I read ${fact.source.quote ? `"${fact.source.quote}"` : "this"} on your paper as ${label}: ${v}. Is that right?`;
   if (fact.provenance === "owner_said") return `You said ${label} is ${v}. Can you confirm that?`;
@@ -80,8 +107,34 @@ export function moneyReady(spec: BusinessSpec): boolean {
   return moneyBlockers(spec).length === 0;
 }
 
+/**
+ * Stock fields are optional in the spec, so a photo that never mentions stock leaves them out entirely and no
+ * question would ever ask for them, while the compiler requires them for tracked stock. Add a "missing"
+ * placeholder for each one that applies, so the interview asks, and removes them again once the owner
+ * confirms stock is not tracked. Pure.
+ */
+export function withRequiredPlaceholders(spec: BusinessSpec): BusinessSpec {
+  let changed = false;
+  const offerings = spec.offerings.map((o) => {
+    if (o.stockTracked.confirmed && o.stockTracked.value === false) {
+      // not tracked: drop placeholders we added (never claims); keep anything the owner or paper actually gave
+      const stale = o.variants.some((v) => v.stockUnits && isMissing(v.stockUnits)) || (o.initialStock && isMissing(o.initialStock));
+      if (!stale) return o;
+      changed = true;
+      const variants = o.variants.map((v) => (v.stockUnits && isMissing(v.stockUnits) ? (({ stockUnits: _, ...rest }) => rest)(v) : v));
+      const { initialStock, ...rest } = o;
+      return { ...rest, variants, ...(initialStock && !isMissing(initialStock) ? { initialStock } : {}) };
+    }
+    const variants = o.variants.map((v) => (v.stockUnits ? v : ((changed = true), { ...v, stockUnits: missingFact("1") })));
+    const initialStock = o.initialStock ?? ((changed = true), missingFact(0));
+    return { ...o, variants, initialStock };
+  });
+  return changed ? { ...spec, offerings } : spec;
+}
+
 /** Regenerate openQuestions from the facts: one per path whose fact is not yet usableForMoney. Pure. */
-export function refreshQuestions(spec: BusinessSpec): BusinessSpec {
+export function refreshQuestions(input: BusinessSpec): BusinessSpec {
+  const spec = withRequiredPlaceholders(input);
   const prior = new Map<string, OpenQuestion>();
   // a conflict question (has candidates) must win over the plain question for the same path
   for (const q of [...spec.openQuestions].sort((a, b) => Number(Boolean(a.candidates)) - Number(Boolean(b.candidates)))) prior.set(q.fieldPath, q);

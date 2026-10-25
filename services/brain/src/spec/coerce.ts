@@ -7,7 +7,7 @@ export class CoerceError extends Error {
   override name = "CoerceError";
 }
 
-export type ValueKind = "money" | "pct" | "hours" | "qty" | "int" | "bool" | "fulfillment" | "currency" | "methods" | "list" | "text";
+export type ValueKind = "money" | "pct" | "points" | "hours" | "qty" | "int" | "bool" | "fulfillment" | "currency" | "methods" | "list" | "text";
 
 const KINDS: Record<string, ValueKind> = {
   "offerings.*.variants.*.price": "money",
@@ -18,8 +18,9 @@ const KINDS: Record<string, ValueKind> = {
   "offerings.*.initialStock": "int",
   "offerings.*.stockTracked": "bool",
   "policies.taxRate": "pct",
-  "policies.marginFloorPct": "pct",
-  "policies.maxDiscountPct": "pct",
+  // *Pct fields hold percent points ("20" = 20%), as the compiler reads them; taxRate is a fraction ("0.08875").
+  "policies.marginFloorPct": "points",
+  "policies.maxDiscountPct": "points",
   "policies.refundWindowHours": "hours",
   "policies.couponsAllowed": "bool",
   "policies.currency": "currency",
@@ -103,6 +104,16 @@ export function coerceValue(path: string, current: unknown, text: string): unkno
       if (Number(asFraction) > 1) throw new CoerceError("a rate above 100% is not allowed");
       return normDecimal(asFraction, 2);
     }
+    case "points": {
+      const n = firstNumber(raw);
+      if (n.startsWith("-")) throw new CoerceError("a percentage cannot be negative");
+      // "20%" / "20 percent" / bare 20 -> "20". A bare value between 0 and 1 ("0.2") could be 0.2% or 20%:
+      // ask instead of guessing (the compiler refuses it too).
+      const explicit = /%|percent|pct/i.test(raw);
+      if (!explicit && Number(n) > 0 && Number(n) < 1) throw new CoerceError(`is that ${n}% or ${shiftDecimal(n, 2)}%? Please answer with a % sign`);
+      if (Number(n) > 100) throw new CoerceError("a percentage above 100% is not allowed");
+      return normDecimal(n);
+    }
     case "hours": {
       const n = firstNumber(raw);
       if (n.startsWith("-")) throw new CoerceError("hours cannot be negative");
@@ -144,6 +155,7 @@ export function showValue(path: string, v: unknown): string {
   if (typeof v === "string") {
     if (kind === "money") return `$${v}`;
     if (kind === "pct") return `${shiftDecimal(v, 2)}%`;
+    if (kind === "points") return `${v}%`;
     if (kind === "hours") return `${v} hours`;
   }
   return String(v);
@@ -152,7 +164,7 @@ export function showValue(path: string, v: unknown): string {
 /** Canonical comparison key so "3" == "3.00" and "Sea Salt" == "sea  salt". */
 export function valueKey(path: string, v: unknown): string {
   const kind = kindOf(path);
-  if (typeof v === "string" && (kind === "money" || kind === "pct" || kind === "hours" || kind === "qty")) {
+  if (typeof v === "string" && (kind === "money" || kind === "pct" || kind === "points" || kind === "hours" || kind === "qty")) {
     try {
       return normDecimal(v);
     } catch {

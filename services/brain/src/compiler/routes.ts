@@ -20,6 +20,7 @@ import { StubProver, type ProverPort } from "./prover-port";
 import { Z3Prover } from "./z3-prover";
 import { LlmCopyProposer, type CopyProposer } from "./storefront";
 import { llmFromEnv } from "../llm";
+import { grantActors } from "../bootstrap";
 import type { RoleLimits } from "./templates/item_seller";
 
 export interface CompileRouteDeps {
@@ -27,6 +28,8 @@ export interface CompileRouteDeps {
   specs: SpecSource;
   prover: ProverPort;
   proposer?: CopyProposer;
+  /** gives a brand-new business its storefront and AI-staff identities, so it can take orders right away */
+  grantActors?: (businessId: string) => Promise<void>;
 }
 
 export type CompileEvent =
@@ -92,6 +95,10 @@ export async function runCompile(businessId: string, deps: CompileRouteDeps, sen
       activated = true;
       message = `configuration v${version} activated (bootstrap: brand-new business with no owner yet)`;
     }
+    if (activated && deps.grantActors) {
+      await step({ step: "submit", status: "running", message: "creating the storefront and AI staff identities" });
+      await deps.grantActors(businessId);
+    }
     await step({ step: "submit", status: "done", message });
     await send({ event: "result", data: { businessId, configId: row.id.toString(), version, status: activated ? "active" : "pending", activated, message } });
   } catch (e) {
@@ -137,5 +144,5 @@ export function defaultCompileDeps(platform: CompilePlatformPort, specs: SpecSou
 
 /** One-line mount for server.ts. Specs come from the intake/question engine's SpecStore. */
 export function mountCompiler(app: Hono, hub: StdbHub, dataDir: string): void {
-  registerCompileRoutes(app, defaultCompileDeps(new StdbCompilePlatform(hub), new SpecStoreSource(new SpecStore(dataDir))));
+  registerCompileRoutes(app, { ...defaultCompileDeps(new StdbCompilePlatform(hub), new SpecStoreSource(new SpecStore(dataDir))), grantActors: (id) => grantActors(hub, id) });
 }

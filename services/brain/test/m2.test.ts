@@ -9,7 +9,7 @@ import { mergeSpecs } from "../src/intake/merge";
 import type { Llm, ToolRequest } from "../src/llm";
 import { intakeRoutes } from "../src/intake/routes";
 import type { M2Deps, M2Platform } from "../src/m2deps";
-import { applyAnswer, moneyReady, nextQuestion, refreshQuestions } from "../src/questions/engine";
+import { applyAnswer, moneyBlockers, moneyReady, nextQuestion, refreshQuestions } from "../src/questions/engine";
 import { impactScore, isMoneyRelevant, moneyImpact } from "../src/questions/impact";
 import { phrasingIsFaithful } from "../src/questions/phrase";
 import { questionRoutes } from "../src/questions/routes";
@@ -63,7 +63,7 @@ describe("assembleSpec (never assume)", () => {
   it("model-claimed guesses are capped; voice facts are owner_said and unconfirmed", () => {
     const ex: Extracted = { offerings: napkin.offerings, policies: { maxDiscountPct: rf("20%", { provenance: "inferred", confidence: 0.9, quote: "seems typical" }), refundMethod: rf("original payment", { quote: "back to the card" }) } };
     const s = assembleSpec(ex, { mode: "voice", ref: "t1" }).spec;
-    expect(getFact(s, "policies.maxDiscountPct")).toMatchObject({ provenance: "inferred", value: "0.20" });
+    expect(getFact(s, "policies.maxDiscountPct")).toMatchObject({ provenance: "inferred", value: "20" });
     expect(getFact(s, "policies.maxDiscountPct")!.confidence).toBeLessThanOrEqual(0.4);
     expect(getFact(s, "policies.refundMethod")).toMatchObject({ provenance: "owner_said", confirmed: false, source: { kind: "voice", quote: "back to the card" } });
   });
@@ -82,8 +82,12 @@ describe("assembleSpec (never assume)", () => {
 describe("coerceValue", () => {
   it("parses money, percents and hours exactly", () => {
     expect(coerceValue("offerings.a.variants.b.price", "", "$3")).toBe("3.00");
-    expect(coerceValue("policies.maxDiscountPct", "", "20%")).toBe("0.20");
-    expect(coerceValue("policies.maxDiscountPct", "", "0")).toBe("0.00");
+    expect(coerceValue("policies.maxDiscountPct", "", "20%")).toBe("20");
+    expect(coerceValue("policies.maxDiscountPct", "", "0")).toBe("0");
+    // *Pct fields are percent points; a bare value between 0 and 1 could mean either, so it is asked again
+    expect(coerceValue("policies.marginFloorPct", "", "30")).toBe("30");
+    expect(coerceValue("policies.marginFloorPct", "", "0.5%")).toBe("0.5");
+    expect(() => coerceValue("policies.marginFloorPct", "", "0.3")).toThrow(CoerceError);
     expect(coerceValue("policies.taxRate", "", "0.0925")).toBe("0.0925");
     expect(coerceValue("policies.refundWindowHours", "", "2 days")).toBe("48");
     expect(shiftDecimal("7.25", -2)).toBe("0.0725");
@@ -149,6 +153,15 @@ describe("moneyReady", () => {
     const r = applyAnswer(s, q.id, { answer: "$0.40" });
     expect(getFact(r.spec, q.fieldPath)).toMatchObject({ value: "0.40", provenance: "owner_said", confirmed: true, confidence: 1 });
     expect(r.spec.openQuestions.find((x) => x.id === q.id)).toBeUndefined();
+  });
+  it("asks for stock counts even when the photo never mentioned stock (the fields are absent, not just missing)", () => {
+    const base = photoSpec();
+    const bare = { ...base, offerings: base.offerings.map(({ initialStock: _, ...o }) => ({ ...o, variants: o.variants.map(({ stockUnits: __, ...v }) => v) })) };
+    const s = refreshQuestions(bare as typeof base);
+    const asked = s.openQuestions.map((q) => q.fieldPath);
+    expect(asked).toContain("offerings.chocolate-chip-cookie.initialStock");
+    expect(asked.filter((p) => p.endsWith(".stockUnits")).length).toBe(base.offerings[0]!.variants.length);
+    expect(moneyBlockers(s).map((b) => b.path)).toContain("offerings.chocolate-chip-cookie.initialStock");
   });
   it("stock details are not required once the owner says stock is not tracked", () => {
     const ex: Extracted = { offerings: [{ ...napkin.offerings[0]!, initialStock: rf("12", { provenance: "inferred", confidence: 0.2 }) }] };
@@ -258,7 +271,7 @@ describe("statement diff", () => {
     return s;
   };
   const ctx = { statementId: "st1", text: "no discounts this week", channel: "phone" as const };
-  it("builds a diff 0.20 -> 0, applies purely and reverts exactly", () => {
+  it("builds a diff 20% -> 0%, applies purely and reverts exactly", () => {
     const s = base();
     const snapshot = structuredClone(s);
     const diff = buildDiff(s, { changes: [{ path: "policies.maxDiscountPct", newValue: "0", quote: "no discounts" }], unparsed: [], note: "this week cannot be enforced" }, ctx);
@@ -266,7 +279,7 @@ describe("statement diff", () => {
     expect(diff.changes).toHaveLength(1);
     expect(diff.changes[0]).toMatchObject({ beforeText: "20%", afterText: "0%" });
     const applied = applyDiff(s, diff);
-    expect(getFact(applied, "policies.maxDiscountPct")).toMatchObject({ value: "0.00", provenance: "owner_said", confirmed: true, source: { kind: "phone" } });
+    expect(getFact(applied, "policies.maxDiscountPct")).toMatchObject({ value: "0", provenance: "owner_said", confirmed: true, source: { kind: "phone" } });
     expect(revertDiff(applied, diff)).toEqual(s);
     expect(applied).not.toEqual(s);
   });
@@ -426,10 +439,10 @@ describe("routes", () => {
     const r = await j(h.app, "/owner/statement", { businessId: "maya-cookies", text: "no discounts this week", channel: "app" });
     const b = (await r.json()) as { statementId: string; diff: { changes: unknown[] }; appliedToSpec: boolean };
     expect(b.diff.changes).toHaveLength(1);
-    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("0.20");
+    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("20");
     const rej = await j(h.app, `/owner/statement/${b.statementId}/decide`, { businessId: "maya-cookies", confirm: false });
     expect(rej.status).toBe(200);
-    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("0.20");
+    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("20");
   });
 
   it("phone statement is queued on the platform, never applied directly, applied only after the platform shows it confirmed", async () => {
@@ -443,17 +456,17 @@ describe("routes", () => {
     const b = (await r.json()) as { statementId: string; platformQueued: boolean };
     expect(b.platformQueued).toBe(true);
     expect(h.platform.queued).toHaveLength(1);
-    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("0.20");
+    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("20");
     // the brain refuses to decide a phone statement itself
     expect((await j(h.app, `/owner/statement/${b.statementId}/decide`, { businessId: "maya-cookies", confirm: true })).status).toBe(409);
     // still queued -> still not applied
     await h.app.request("/owner/statements?businessId=maya-cookies");
-    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("0.20");
+    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("20");
     // owner confirms in the app (platform) -> next sync applies it
     h.platform.rows[0]!.status = "confirmed";
     const list = (await (await h.app.request("/owner/statements?businessId=maya-cookies")).json()) as { statements: { status: string }[] };
     expect(list.statements[0]!.status).toBe("applied");
-    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("0.00");
+    expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("0");
     expect(h.platform.marked).toEqual([7n]);
   });
 });

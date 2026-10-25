@@ -123,29 +123,7 @@ export async function bootstrap(hub: StdbHub, fixturePath = FIXTURE_PATH): Promi
     }
 
     // 4. actor identities
-    for (const role of ACTOR_ROLES) {
-      const key = actorKey(role, seed.id);
-      const actor = await hub.connect(key);
-      const row = db.actor.identity.find(actor.identity);
-      if (row) {
-        if (row.role !== role || row.businessId !== seed.id) {
-          throw new Error(`identity for ${key} already holds ${row.role}@${row.businessId}; refusing to reuse it`);
-        }
-        step(`actor ${key}: exists`);
-        continue;
-      }
-      const code = newGrantCode();
-      await hub.call("system", "createRoleGrant", (c) =>
-        c.reducers.createRoleGrant({ code, businessId: seed.id, role, name: ROLE_NAMES[role], ttlSeconds: 300 }),
-      );
-      await hub.call(key, "redeemRoleGrant", (c) => c.reducers.redeemRoleGrant({ code }));
-      const granted = await waitFor(() => {
-        const r = db.actor.identity.find(actor.identity);
-        return r && r.role === role && r.businessId === seed.id ? r : undefined;
-      });
-      if (!granted) throw new Error(`redeemRoleGrant for ${key} succeeded but no matching actor row appeared`);
-      step(`actor ${key}: granted (${actor.identityHex.slice(0, 16)}…)`);
-    }
+    await grantActors(hub, seed.id, step);
   }
 
   return { systemIdentity: sys.identityHex, steps };
@@ -166,4 +144,36 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       hub.disconnectAll();
       process.exit(1);
     });
+}
+
+/**
+ * Give a business its storefront and AI-staff identities (idempotent): each role gets its own SpacetimeDB
+ * identity through a one-time role grant. Used by bootstrap for the seed businesses and by the compiler when
+ * a napkin creates a brand-new business, so its storefront can take orders right away.
+ */
+export async function grantActors(hub: StdbHub, businessId: string, step: (s: string) => void = (s) => log.info("actors", s)): Promise<void> {
+  const db = hub.system().conn.db;
+  for (const role of ACTOR_ROLES) {
+    const key = actorKey(role, businessId);
+    const actor = await hub.connect(key);
+    const row = db.actor.identity.find(actor.identity);
+    if (row) {
+      if (row.role !== role || row.businessId !== businessId) {
+        throw new Error(`identity for ${key} already holds ${row.role}@${row.businessId}; refusing to reuse it`);
+      }
+      step(`actor ${key}: exists`);
+      continue;
+    }
+    const code = newGrantCode();
+    await hub.call("system", "createRoleGrant", (c) =>
+      c.reducers.createRoleGrant({ code, businessId, role, name: ROLE_NAMES[role], ttlSeconds: 300 }),
+    );
+    await hub.call(key, "redeemRoleGrant", (c) => c.reducers.redeemRoleGrant({ code }));
+    const granted = await waitFor(() => {
+      const r = db.actor.identity.find(actor.identity);
+      return r && r.role === role && r.businessId === businessId ? r : undefined;
+    });
+    if (!granted) throw new Error(`redeemRoleGrant for ${key} succeeded but no matching actor row appeared`);
+    step(`actor ${key}: granted (${actor.identityHex.slice(0, 16)}…)`);
+  }
 }

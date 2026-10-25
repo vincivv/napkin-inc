@@ -518,7 +518,7 @@ describe("prompt injection never grants owner mode", () => {
         expect(h.llm.calls).toEqual([]);
         // the only platform writes are order creation for checkout; nothing touches policy or prices
         expect(h.core.calls.every((c) => ["createOrder", "logPaymentIntent", "attachCheckoutSession", "enqueueOutbox:sms"].includes(c))).toBe(true);
-        expect(getFact(h.store.get(BIZ)!.spec, "policies.maxDiscountPct")!.value).toBe("0.20");
+        expect(getFact(h.store.get(BIZ)!.spec, "policies.maxDiscountPct")!.value).toBe("20");
         // every pay-link SMS went to the caller ID on record for its order
         for (const m of h.sms()) {
           const p = JSON.parse(m.payloadJson) as { to: string; orderId: string };
