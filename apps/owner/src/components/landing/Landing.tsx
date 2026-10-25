@@ -322,7 +322,8 @@ function RedTeamCard({ title, sub, baseline, napkin, max }: { title: string; sub
 
 /* ---------------------------------------------------------------- page */
 
-export function Landing({ onStart, onSignIn }: { onStart(): void; onSignIn(): void }) {
+/** Signed out it offers sign-up and sign-in; mid-setup the caller relabels both to lead back to the setup steps. */
+export function Landing({ onStart, onSignIn, startLabel = "Start your business", signInLabel = "Sign in" }: { onStart(): void; onSignIn(): void; startLabel?: string; signInLabel?: string }) {
   return (
     <div className="@container min-h-screen overflow-x-hidden bg-canvas text-ink">
       {/* nav */}
@@ -343,7 +344,7 @@ export function Landing({ onStart, onSignIn }: { onStart(): void; onSignIn(): vo
               onClick={onSignIn}
               className="rounded-md px-2.5 py-1.5 text-[13.5px] font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
             >
-              Sign in
+              {signInLabel}
             </button>
           </div>
         </nav>
@@ -366,7 +367,7 @@ export function Landing({ onStart, onSignIn }: { onStart(): void; onSignIn(): vo
               </p>
               <div className="mt-8 flex flex-col items-center gap-3 @2xl:flex-row @2xl:justify-center @5xl:justify-start">
                 <PrimaryCta onClick={onStart} className="w-full @2xl:w-auto">
-                  Start your business
+                  {startLabel}
                 </PrimaryCta>
                 <a href="#rules" className="inline-flex h-12 items-center rounded-xl px-4 text-[14.5px] font-medium text-muted hover:text-ink">
                   Why the AI can&apos;t lose your money
@@ -503,7 +504,7 @@ export function Landing({ onStart, onSignIn }: { onStart(): void; onSignIn(): vo
             </p>
             <div className="mt-8 flex justify-center">
               <PrimaryCta onClick={onStart} className="w-full @2xl:w-auto">
-                Start your business
+                {startLabel}
               </PrimaryCta>
             </div>
           </div>

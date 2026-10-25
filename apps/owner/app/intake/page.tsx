@@ -87,6 +87,28 @@ export default function IntakePage() {
     rec?.recorder.stop();
     setRec(undefined);
   }
+  function sendTyped() {
+    const text = typed.trim();
+    if (!text || busy) return;
+    void run("Reading what you said", async () => {
+      const r = await brain.sendTranscript(businessId, text);
+      setTyped("");
+      return r;
+    });
+  }
+
+  /** Undo an accidental photo: the brain forgets it and every fact read only from it; typed and spoken facts stay. */
+  function removePhoto() {
+    if (!window.confirm("Remove this photo? Everything I read only from it is forgotten. What you typed or said stays.")) return;
+    void run("Removing the photo", async () => {
+      const r = await brain.removePhoto(businessId);
+      if (localPhoto) URL.revokeObjectURL(localPhoto);
+      setLocalPhoto(undefined);
+      setStoredPhoto(undefined);
+      if (fileRef.current) fileRef.current.value = "";
+      return r;
+    });
+  }
 
   const [storedPhoto, setStoredPhoto] = useState<string | undefined>();
   const hasPhoto = Boolean(spec?.hasPhoto);
@@ -125,6 +147,7 @@ export default function IntakePage() {
             <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
             <div className="mb-3 flex flex-wrap gap-2">
               <Button variant="primary" onClick={() => fileRef.current?.click()} disabled={!!busy}>{photoSrc ? "Replace photo" : "Take or upload a photo"}</Button>
+              {photoSrc && <Button variant="danger" onClick={removePhoto} disabled={!!busy}>{busy === "Removing the photo" ? "Removing…" : "Remove photo"}</Button>}
               {!photoSrc && <Button onClick={() => void loadSample()} disabled={!!busy}>No napkin handy? Use a sample</Button>}
               {spec?.drafts.photo && spec.drafts.voice && <Button onClick={() => run("Merging", () => brain.merge(businessId))} disabled={!!busy}>Re-merge photo and voice</Button>}
             </div>
@@ -166,9 +189,25 @@ export default function IntakePage() {
               )}
               <span className="text-[12px] text-faint">e.g. your prices, discounts, refunds. Say what it costs you to make things.</span>
             </div>
-            <div className="mt-3 flex gap-2">
-              <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="…or type it" className="h-8 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2.5 text-[13px] text-ink outline-none focus:border-accent" />
-              <Button disabled={!typed.trim() || !!busy} onClick={() => run("Reading what you said", async () => { const r = await brain.sendTranscript(businessId, typed.trim()); setTyped(""); return r; })}>Send</Button>
+            <div className="mt-3">
+              <textarea
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    sendTyped();
+                  }
+                }}
+                rows={5}
+                placeholder={"…or type it. For example:\nWe sell burritos, $9 each, $1 extra for guac.\nEach one costs me about $3.50 to make."}
+                aria-label="Type what you want me to know"
+                className="block min-h-24 w-full resize-y rounded-md border border-line-strong bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none focus:border-accent"
+              />
+              <div className="mt-2 flex items-center justify-end gap-3">
+                <span className="hidden text-[11.5px] text-faint sm:inline">Drag the corner to resize · ⌘/Ctrl + Enter sends</span>
+                <Button disabled={!typed.trim() || !!busy} onClick={sendTyped}>Send</Button>
+              </div>
             </div>
             {spec?.transcript && <blockquote className="mt-3 border-l-2 border-line-strong pl-3 text-[12.5px] italic text-muted">“{spec.transcript}”</blockquote>}
           </Card>

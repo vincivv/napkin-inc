@@ -113,6 +113,8 @@ export const brain = {
     fd.set("image", file);
     return req<SpecResponse>("/intake/photo", { method: "POST", body: fd });
   },
+  /** Forget the photo and everything read only from it (typed and spoken facts stay). */
+  removePhoto: (b: string) => req<SpecResponse>(`/intake/photo/${encodeURIComponent(b)}`, { method: "DELETE" }),
   sendVoice(businessId: string, audio: Blob) {
     const fd = new FormData();
     fd.set("businessId", businessId);

@@ -15,7 +15,7 @@ import { phrasingIsFaithful } from "../src/questions/phrase";
 import { questionRoutes } from "../src/questions/routes";
 import { applyDiff, buildDiff, revertDiff, StaleDiff } from "../src/questions/statement";
 import { coerceValue, CoerceError, shiftDecimal } from "../src/spec/coerce";
-import { getFact, listFacts, setFact } from "../src/spec/paths";
+import { getFact, isMissing, listFacts, setFact } from "../src/spec/paths";
 import { SpecStore } from "../src/spec/store";
 import { Hono } from "hono";
 
@@ -480,6 +480,41 @@ describe("routes", () => {
     expect(await names()).toEqual(["Big jar candle", "Small jar candle", "Tea light"]);
     const spec = (await (await app.request("/spec/juniper")).json()) as { spec: { openQuestions: { fieldPath: string }[] } };
     expect(spec.spec.openQuestions.some((q) => q.fieldPath.includes("soy-candle"))).toBe(false);
+  });
+
+  it("removing an accidental photo forgets what was read only from it; what the owner said stays", async () => {
+    const voiceEx: Extracted = { offerings: [{ name: rf("Chocolate chip cookie"), variants: [{ name: rf("Single"), price: rf("4", { confidence: 0.9, quote: "four dollars" }) }], addOns: [] }], policies: { maxDiscountPct: rf("20%", { quote: "up to twenty percent off" }) } };
+    const h = harness(new FakeLlm((r) => (r.system.includes("OWNER SAID") ? voiceEx : napkin)));
+    const fd = new FormData();
+    fd.set("businessId", "maya-cookies");
+    fd.set("image", png());
+    expect((await h.app.request("/intake/photo", { method: "POST", body: fd })).status).toBe(200);
+    const vd = new FormData();
+    vd.set("businessId", "maya-cookies");
+    vd.set("transcript", "single is four dollars, up to twenty percent off");
+    expect((await h.app.request("/intake/voice", { method: "POST", body: vd })).status).toBe(200);
+    expect(h.deps.store.get("maya-cookies")!.spec.openQuestions.some((q) => q.id.startsWith("conflict."))).toBe(true);
+
+    const res = await h.app.request("/intake/photo/maya-cookies", { method: "DELETE" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hasPhoto: boolean; drafts: { photo: boolean; voice: boolean }; spec: BusinessSpec };
+    expect(body.hasPhoto).toBe(false);
+    expect(body.drafts).toEqual({ photo: false, voice: true });
+    const spec = body.spec;
+    expect(spec.offerings.map((o) => o.id)).toEqual(["chocolate-chip-cookie"]);
+    expect(spec.offerings[0]!.variants.map((v) => v.name.value)).toEqual(["Single"]); // "Box of 6" was only on the photo
+    expect(spec.offerings[0]!.addOns).toEqual([]);
+    const price = getFact(spec, "offerings.chocolate-chip-cookie.variants.single.price")!;
+    expect(price.value).toBe("4.00");
+    expect(price.source.kind).not.toBe("photo");
+    expect(isMissing(getFact(spec, "business.name")!)).toBe(true);
+    expect(getFact(spec, "policies.maxDiscountPct")!.value).toBe("20");
+    expect(listFacts(spec).some((f) => f.fact.source.kind === "photo" && f.fact.source.region)).toBe(false);
+    expect(spec.openQuestions.some((q) => q.id.startsWith("conflict."))).toBe(false);
+    expect(() => parseBusinessSpec(spec)).not.toThrow();
+    expect((await h.app.request("/intake/photo/maya-cookies")).status).toBe(404);
+    expect(fs.readdirSync(path.join(h.dir, "specs")).some((f) => f.includes("photo"))).toBe(false);
+    expect((await h.app.request("/intake/photo/maya-cookies", { method: "DELETE" })).status).toBe(409);
   });
 
   it("retries once on invalid model output, then fails cleanly", async () => {

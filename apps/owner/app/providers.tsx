@@ -60,9 +60,19 @@ function Gate({ children }: { children: ReactNode }) {
 /** Setup steps until the platform has the business with an active configuration; then the back office. */
 function BusinessLayout({ children }: { children: ReactNode }) {
   const { snapshot, session } = useData();
+  const { account } = useAccount();
+  const pathname = usePathname();
+  const router = useRouter();
   const live = Boolean(snapshot.business && snapshot.business.activeConfigId !== 0n);
   if (session.mode === "live" && !session.ready) return <BootScreen />;
-  if (!live && session.mode === "live") return <SetupShell>{children}</SetupShell>;
+  if (!live && session.mode === "live") {
+    // home while setting up is the landing page (the logo links here), with a way back into the steps
+    if (pathname === "/") {
+      const resume = () => router.push("/intake");
+      return <Landing onStart={resume} onSignIn={resume} startLabel={`Continue setting up ${account?.businessName ?? "your business"}`} signInLabel="Back to setup" />;
+    }
+    return <SetupShell>{children}</SetupShell>;
+  }
   return (
     <Shell>
       <OwnerAutoGrant />

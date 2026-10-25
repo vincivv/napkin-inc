@@ -84,6 +84,9 @@ export class SpecStore {
     fs.writeFileSync(file, bytes);
     return { file: path.basename(file), mime };
   }
+  deletePhoto(rec: StoredSpec): void {
+    if (rec.photo) fs.rmSync(path.join(this.dir, path.basename(rec.photo.file)), { force: true });
+  }
   readPhoto(rec: StoredSpec): { bytes: Buffer; mime: string } | undefined {
     if (!rec.photo) return undefined;
     try {

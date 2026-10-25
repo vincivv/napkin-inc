@@ -192,7 +192,7 @@ export function SetupShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { account, signOut } = useAccount();
   useEffect(() => {
-    if (!SETUP_PATHS.some((p) => pathname.startsWith(p))) router.replace("/intake");
+    if (pathname !== "/" && !SETUP_PATHS.some((p) => pathname.startsWith(p))) router.replace("/intake");
   }, [pathname, router]);
   return (
     <div className="min-h-dvh bg-canvas">

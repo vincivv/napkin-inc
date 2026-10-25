@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { BusinessSpec } from "@napkin/schema";
 import { checkBusinessId, HttpError, newRouter, requireLlm, requireSpec, specView, type M2Deps } from "../m2deps";
 import { refreshQuestions } from "../questions/engine";
+import { getFact, isMissing, listFacts, missingFact, removeFact, setFact, slugify, type AnyFact } from "../spec/paths";
 import type { Draft, StoredSpec } from "../spec/store";
 import { mergeAlternatives, mergeSpecs } from "./merge";
 import { extractFromPhoto, extractFromTranscript, transcribe } from "./run";
@@ -32,6 +33,58 @@ function withoutReplacedItems(cur: StoredSpec, draft: Draft): Pick<StoredSpec, "
   };
 }
 const voiceItems = (cur: StoredSpec | undefined) => [...new Set([...(cur?.voiceItems ?? []), ...(cur?.drafts.voice?.spec.offerings.map((o) => o.id) ?? [])])];
+
+const OPTIONAL_FIELDS = new Set(["description", "initialStock", "stockUnits"]);
+const fromPhoto = (f: AnyFact | undefined) => f?.source.kind === "photo";
+
+/**
+ * Forget the photo (an accidental upload): what was read only from it goes, what the owner typed or said
+ * stays. Offerings not named in a note are dropped (as for a replaced photo); every other photo-read fact
+ * falls back to what the owner said for the same field (a recorded alternative, else the last voice draft),
+ * else to "not provided" (optional fields are removed). Variants, add-ons and suppliers that only the photo
+ * named are dropped. Conflict questions on the touched fields go with the photo's side of them.
+ */
+export function withoutPhoto(cur: StoredSpec): Omit<StoredSpec, "version" | "updatedAt" | "businessId"> {
+  const voiceSpec = cur.drafts.voice?.spec;
+  const said = (path: string): AnyFact | undefined => {
+    const alts = (cur.alternatives[path] ?? []).filter((f) => !fromPhoto(f) && !isMissing(f));
+    alts.sort((a, b) => Number(b.confirmed) - Number(a.confirmed) || b.confidence - a.confidence);
+    const v = voiceSpec ? getFact(voiceSpec, path) : undefined;
+    return alts[0] ?? (v && !isMissing(v) && !fromPhoto(v) ? v : undefined);
+  };
+  const keepOffering = new Set(voiceItems(cur));
+  const onlyOnPhoto = <T extends { name: AnyFact }>(base: string, key: (x: T) => string) => (x: T) => !(fromPhoto(x.name) && !said(`${base}.${key(x)}.name`));
+  let spec: BusinessSpec = {
+    ...cur.spec,
+    offerings: cur.spec.offerings
+      .filter((o) => keepOffering.has(o.id))
+      .map((o) => ({ ...o, variants: o.variants.filter(onlyOnPhoto(`offerings.${o.id}.variants`, (v) => v.id)), addOns: o.addOns.filter(onlyOnPhoto(`offerings.${o.id}.addOns`, (a) => a.id)) })),
+    operations: { ...cur.spec.operations, suppliers: cur.spec.operations.suppliers.filter(onlyOnPhoto("operations.suppliers", (s) => slugify(String(s.name.value)))) },
+  };
+  const touched = new Set<string>();
+  for (const { path, fact } of listFacts(spec)) {
+    if (!fromPhoto(fact)) continue;
+    touched.add(path);
+    const repl = said(path);
+    if (repl) spec = setFact(spec, path, repl);
+    else if (/^offerings\.[^.]+\.name$/.test(path)) spec = setFact(spec, path, { ...fact, source: { kind: fact.source.kind, ref: fact.source.ref, ...(fact.source.quote ? { quote: fact.source.quote } : {}) } }); // a kept item's name: the owner named it too, but the box on the photo is gone
+    else if (OPTIONAL_FIELDS.has(path.split(".").at(-1)!)) spec = removeFact(spec, path);
+    else spec = setFact(spec, path, missingFact(fact.value));
+  }
+  // a conflict with the photo is over whichever side was shown
+  for (const [path, fs] of Object.entries(cur.alternatives)) if (fs.some(fromPhoto)) touched.add(path);
+  const live = new Set(listFacts(spec).map((f) => f.path));
+  spec = { ...spec, openQuestions: spec.openQuestions.filter((q) => live.has(q.fieldPath) && !(q.candidates && touched.has(q.fieldPath))) };
+  const alternatives = Object.fromEntries(
+    Object.entries(cur.alternatives)
+      .filter(([path]) => live.has(path))
+      .map(([path, fs]) => [path, fs.filter((f) => !fromPhoto(f))] as const)
+      .filter(([, fs]) => fs.length > 0),
+  );
+  const { photo: _photo, ...drafts } = cur.drafts;
+  const { photo: _file, ...rest } = cur;
+  return { ...rest, spec: refreshQuestions(spec), alternatives, drafts };
+}
 
 /** Fold a new draft into the stored record. The first draft becomes the spec; later ones are merged (deterministically). */
 function fold(cur: StoredSpec | undefined, kind: "photo" | "voice", draft: Draft): Omit<StoredSpec, "version" | "updatedAt" | "businessId"> {
@@ -116,6 +169,15 @@ export function intakeRoutes(d: M2Deps) {
       }
       return { ...cur!, spec: refreshQuestions(spec), alternatives: alts };
     });
+    return c.json(specView(rec));
+  });
+
+  r.delete("/intake/photo/:businessId", async (c) => {
+    const businessId = checkBusinessId(c.req.param("businessId"));
+    const old = requireSpec(d, businessId);
+    if (!old.photo && !old.drafts.photo) throw new HttpError(409, "no photo to remove");
+    const rec = await d.store.update(businessId, (cur) => withoutPhoto(cur!));
+    d.store.deletePhoto(old);
     return c.json(specView(rec));
   });
 

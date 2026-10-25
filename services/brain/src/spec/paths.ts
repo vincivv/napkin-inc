@@ -98,6 +98,14 @@ export function setFact(spec: BusinessSpec, path: string, fact: AnyFact): Busine
   return next;
 }
 
+/** Immutable: returns a new spec without the fact at `path` (for optional fields only; required ones take missingFact). */
+export function removeFact(spec: BusinessSpec, path: string): BusinessSpec {
+  const next = structuredClone(spec);
+  const r = resolve(next, path);
+  if (r && isFact(r.parent[r.key])) delete r.parent[r.key];
+  return next;
+}
+
 /** offerings.<id>.variants.<id>.price -> offerings.*.variants.*.price */
 export function normalizePath(path: string): string {
   return path
