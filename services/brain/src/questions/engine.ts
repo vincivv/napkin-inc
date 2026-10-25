@@ -279,3 +279,42 @@ export function dismissQuestion(spec: BusinessSpec, questionId: string): Busines
   if (q.moneyRelevant) throw new AnswerError("money-relevant questions cannot be skipped");
   return { ...spec, openQuestions: spec.openQuestions.map((x) => (x.id === questionId ? { ...x, status: "dismissed" as const } : x)) };
 }
+
+/**
+ * Questions the owner may confirm from a review list in one step: the value is the owner's own words or was
+ * read from the paper, it is present and valid, and no two sources disagree about it. Guesses ("inferred")
+ * and conflicts still need a typed answer, one at a time.
+ */
+export function batchConfirmable(spec: BusinessSpec): OpenQuestion[] {
+  const invalid = invalidFacts(spec);
+  return spec.openQuestions.filter((q) => {
+    if (q.status !== "open" && q.status !== "asked") return false;
+    if (q.candidates && q.candidates.length > 1) return false;
+    const f = getFact(spec, q.fieldPath);
+    return !!f && !isMissing(f) && f.provenance !== "inferred" && !invalid.has(q.fieldPath);
+  });
+}
+
+/** Pure. Confirms each listed question that is still batch-confirmable when its turn comes; the rest are skipped with a reason. */
+export function confirmMany(
+  spec: BusinessSpec,
+  questionIds: readonly string[],
+): { spec: BusinessSpec; confirmed: { path: string; before: AnyFact; after: AnyFact }[]; skipped: { id: string; reason: string }[] } {
+  let cur = spec;
+  const confirmed: { path: string; before: AnyFact; after: AnyFact }[] = [];
+  const skipped: { id: string; reason: string }[] = [];
+  for (const id of new Set(questionIds)) {
+    if (!batchConfirmable(cur).some((q) => q.id === id)) {
+      skipped.push({ id, reason: "needs a typed answer (a guess, a conflict, missing or invalid)" });
+      continue;
+    }
+    try {
+      const r = applyAnswer(cur, id, { confirm: true });
+      cur = r.spec;
+      confirmed.push({ path: r.path, before: r.before, after: r.after });
+    } catch (e) {
+      skipped.push({ id, reason: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { spec: cur, confirmed, skipped };
+}

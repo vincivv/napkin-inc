@@ -9,7 +9,7 @@ import { mergeSpecs } from "../src/intake/merge";
 import type { Llm, ToolRequest } from "../src/llm";
 import { intakeRoutes } from "../src/intake/routes";
 import type { M2Deps, M2Platform } from "../src/m2deps";
-import { applyAnswer, moneyBlockers, moneyReady, nextQuestion, refreshQuestions } from "../src/questions/engine";
+import { applyAnswer, batchConfirmable, confirmMany, moneyBlockers, moneyReady, nextQuestion, refreshQuestions } from "../src/questions/engine";
 import { impactScore, isMoneyRelevant, moneyImpact } from "../src/questions/impact";
 import { phrasingIsFaithful } from "../src/questions/phrase";
 import { questionRoutes } from "../src/questions/routes";
@@ -125,6 +125,50 @@ describe("impact scoring", () => {
   it("phrasing must keep every number", () => {
     expect(phrasingIsFaithful("Is $3.00 right for 6?", "Is $3.00 right for 6 cookies?")).toBe(true);
     expect(phrasingIsFaithful("Is $3.00 right?", "Is $4.00 right?")).toBe(false);
+  });
+});
+
+describe("review list (batch confirm)", () => {
+  it("offers only present, valid, non-guessed values; confirming them makes them the owner's own", () => {
+    const s = refreshQuestions(photoSpec());
+    const list = batchConfirmable(s);
+    expect(list.length).toBeGreaterThan(0);
+    for (const q of list) {
+      const f = getFact(s, q.fieldPath)!;
+      expect(f.provenance).not.toBe("inferred");
+      expect(f.source.ref).not.toBe("missing");
+    }
+    // the paper-read single price is in the list; a missing cost is not
+    expect(list.some((q) => q.fieldPath === "offerings.chocolate-chip-cookie.variants.single.price")).toBe(true);
+    expect(list.some((q) => q.fieldPath.endsWith("single.cost"))).toBe(false);
+    const r = confirmMany(s, list.map((q) => q.id));
+    expect(r.skipped).toEqual([]);
+    for (const q of list) {
+      const f = getFact(r.spec, q.fieldPath)!;
+      expect(usableForMoney(f)).toBe(true);
+      expect(f.provenance).toBe("owner_said");
+    }
+    expect(batchConfirmable(r.spec)).toEqual([]);
+  });
+  it("skips guesses, missing values and unknown ids instead of confirming them", () => {
+    const s = refreshQuestions(photoSpec());
+    const notListed = s.openQuestions.filter((q) => !batchConfirmable(s).some((b) => b.id === q.id));
+    expect(notListed.length).toBeGreaterThan(0);
+    const r = confirmMany(s, [...notListed.map((q) => q.id), "q.nope"]);
+    expect(r.confirmed).toEqual([]);
+    expect(r.skipped.length).toBe(notListed.length + 1);
+    for (const q of notListed) expect(usableForMoney(getFact(r.spec, q.fieldPath)!)).toBe(false);
+  });
+  it("property: whatever ids are sent, no inferred or missing fact ever becomes usable for money", () => {
+    const base = refreshQuestions(photoSpec());
+    const ids = base.openQuestions.map((q) => q.id);
+    fc.assert(
+      fc.property(fc.subarray(ids), (pick) => {
+        const r = confirmMany(base, pick);
+        for (const x of r.confirmed) expect(x.before.provenance).not.toBe("inferred");
+      }),
+      { numRuns: 60 },
+    );
   });
 });
 

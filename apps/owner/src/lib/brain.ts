@@ -64,6 +64,22 @@ export interface PendingStatement {
   diff: { changes: DiffChange[]; unparsed: string[]; note?: string };
 }
 
+export interface ReviewItem {
+  id: string;
+  fieldPath: string;
+  label: string;
+  display: string;
+  provenance: "owner_said" | "paper";
+  quote: string;
+  moneyRelevant: boolean;
+}
+export interface ReviewResponse {
+  items: ReviewItem[];
+  /** open questions that still need a typed answer (guesses, conflicts, missing values) */
+  needAnswers: number;
+  moneyReady: boolean;
+}
+
 export class BrainError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -77,8 +93,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new BrainError(0, `Cannot reach the brain at ${BRAIN_URL}. Is it running?`);
   }
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new BrainError(res.status, body.error ?? `request failed (${res.status})`);
+  const body = (await res.json().catch(() => ({}))) as { error?: string; reasons?: string[] };
+  if (!res.ok) throw new BrainError(res.status, [body.error ?? `request failed (${res.status})`, ...(body.reasons ?? [])].join(" · "));
   return body as T;
 }
 const json = (body: unknown): RequestInit => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -112,6 +128,8 @@ export const brain = {
   merge: (businessId: string) => req<SpecResponse>("/intake/merge", json({ businessId })),
   next: (b: string) => req<NextResponse>(`/questions/next?businessId=${encodeURIComponent(b)}`),
   answer: (businessId: string, id: string, body: { answer?: string; confirm?: boolean }) => req<SpecResponse & { decisionRecorded: boolean }>(`/questions/${encodeURIComponent(id)}/answer`, json({ businessId, ...body })),
+  review: (b: string) => req<ReviewResponse>(`/questions/review?businessId=${encodeURIComponent(b)}`),
+  confirmMany: (businessId: string, questionIds: string[]) => req<SpecResponse & { confirmed: string[]; skipped: { id: string; reason: string }[] }>("/questions/confirm", json({ businessId, questionIds })),
   dismiss: (businessId: string, id: string) => req<SpecResponse>(`/questions/${encodeURIComponent(id)}/dismiss`, json({ businessId })),
   statement: (businessId: string, text: string, channel: "app" | "phone") => req<{ statementId: string; diff: PendingStatement["diff"] }>("/owner/statement", json({ businessId, text, channel })),
   statements: (b: string) => req<{ statements: PendingStatement[] }>(`/owner/statements?businessId=${encodeURIComponent(b)}`),

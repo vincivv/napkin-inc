@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { log } from "../log";
 import { checkBusinessId, HttpError, newRouter, requireLlm, requireSpec, sha, specView, type M2Deps } from "../m2deps";
-import { applyAnswer, dismissQuestion, moneyReady, nextQuestion, refreshQuestions } from "./engine";
+import { applyAnswer, batchConfirmable, confirmMany, dismissQuestion, labelFor, moneyReady, nextQuestion, refreshQuestions } from "./engine";
 import { phraseQuestion } from "./phrase";
 import { applyDiff, buildDiff, parseStatement, StaleDiff, type StatementDiff } from "./statement";
 import type { PendingStatement, StoredSpec } from "../spec/store";
@@ -33,6 +33,7 @@ async function recordDecision(d: M2Deps, businessId: string, a: { action: string
   }
 }
 
+const ConfirmMany = z.object({ businessId: z.string(), questionIds: z.array(z.string().max(200)).min(1).max(200) });
 const Answer = z.object({ businessId: z.string(), answer: z.string().max(500).optional(), confirm: z.boolean().optional() });
 const Statement = z.object({ businessId: z.string(), text: z.string().min(1).max(1000), channel: z.enum(["app", "phone"]) });
 const Decide = z.object({ businessId: z.string(), confirm: z.boolean() });
@@ -168,6 +169,42 @@ export function questionRoutes(d: M2Deps) {
       wouldChangeIf: "the owner states a different value",
     });
     return c.json({ ...specView(rec), answered: { path: res.path, value: res.after.value }, decisionRecorded });
+  });
+
+  /** The review list: facts the owner may confirm in one step (their own words or read from the paper). */
+  r.get("/questions/review", async (c) => {
+    const id = checkBusinessId(c.req.query("businessId"));
+    const rec = await withFreshQuestions(d, id);
+    const items = batchConfirmable(rec.spec).map((q) => {
+      const f = getFact(rec.spec, q.fieldPath)!;
+      return { id: q.id, fieldPath: q.fieldPath, label: labelFor(rec.spec, q.fieldPath), display: showValue(q.fieldPath, f.value), provenance: f.provenance, quote: f.source.quote ?? "", moneyRelevant: q.moneyRelevant };
+    });
+    const open = rec.spec.openQuestions.filter((x) => x.status === "open" || x.status === "asked").length;
+    return c.json({ items, needAnswers: open - items.length, moneyReady: moneyReady(rec.spec), version: rec.version });
+  });
+
+  r.post("/questions/confirm", async (c) => {
+    const body = ConfirmMany.parse(await c.req.json());
+    const businessId = checkBusinessId(body.businessId);
+    await withFreshQuestions(d, businessId);
+    let result: ReturnType<typeof confirmMany> | undefined;
+    const rec = await d.store.update(businessId, (cur) => {
+      result = confirmMany(cur!.spec, body.questionIds);
+      return { ...cur!, spec: result.spec };
+    });
+    const res = result!;
+    let decisionsRecorded = 0;
+    for (const x of res.confirmed) {
+      const ok = await recordDecision(d, businessId, {
+        action: "owner_confirmed_fact",
+        reason: `Owner confirmed ${x.path} from the review list: ${showValue(x.path, x.after.value)} (was ${x.before.provenance})`,
+        evidence: [`spec:${businessId}@v${rec.version}`, x.path],
+        inputs: { path: x.path, before: x.before, after: x.after },
+        wouldChangeIf: "the owner states a different value",
+      });
+      if (ok) decisionsRecorded++;
+    }
+    return c.json({ ...specView(rec), confirmed: res.confirmed.map((x) => x.path), skipped: res.skipped, decisionsRecorded });
   });
 
   r.post("/questions/:id/dismiss", async (c) => {

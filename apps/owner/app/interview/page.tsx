@@ -5,13 +5,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useData } from "@/data/context";
 import { Badge, Button, Card, Empty, ErrorNote, errText, Loading, PageHeader, cx } from "@/components/ui";
 import { Confidence, ProvenanceBadge } from "@/components/facts";
-import { brain, BrainError, type NextResponse, type PendingStatement, type SpecResponse } from "@/lib/brain";
+import { brain, BrainError, type NextResponse, type PendingStatement, type ReviewResponse, type SpecResponse } from "@/lib/brain";
 
 export default function InterviewPage() {
   const { snapshot } = useData();
   const businessId = snapshot.businessId;
   const [spec, setSpec] = useState<SpecResponse | undefined>();
   const [next, setNext] = useState<NextResponse | undefined>();
+  const [review, setReview] = useState<ReviewResponse | undefined>();
   const [statements, setStatements] = useState<PendingStatement[]>([]);
   const [loading, setLoading] = useState(true);
   const [noSpec, setNoSpec] = useState(false);
@@ -22,9 +23,10 @@ export default function InterviewPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [s, n, st] = await Promise.all([brain.spec(businessId), brain.next(businessId), brain.statements(businessId)]);
+      const [s, n, st, rv] = await Promise.all([brain.spec(businessId), brain.next(businessId), brain.statements(businessId), brain.review(businessId).catch(() => undefined)]);
       setSpec(s);
       setNext(n);
+      setReview(rv);
       setStatements(st.statements);
       setNoSpec(false);
     } catch (e) {
@@ -77,6 +79,7 @@ export default function InterviewPage() {
       <ErrorNote error={error} />
       <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="space-y-4">
+          {review && review.items.length > 1 && <ReviewCard review={review} busy={busy} onConfirm={(ids) => act(() => brain.confirmMany(businessId, ids))} />}
           <Card title={q ? `Question · ${next!.remaining} left` : "Question"}>
             {!q ? (
               <Empty compact title="No open questions" hint={next?.moneyReady ? "Everything that touches money is confirmed." : "Nothing left to ask."} />
@@ -194,5 +197,48 @@ function StatementCard({ s, busy, onDecide }: { s: PendingStatement; busy: boole
         <p className="mt-2 text-[12px] text-muted">Given by phone: confirm it in the <Link href="/inbox#statements" className="text-accent underline">Inbox</Link>.</p>
       )}
     </div>
+  );
+}
+
+/**
+ * The review list: values the owner typed or that were read from the paper, shown with their quote. The
+ * owner ticks the ones that are right and confirms them in one step. Guesses never appear here.
+ */
+function ReviewCard({ review, busy, onConfirm }: { review: ReviewResponse; busy: boolean; onConfirm: (ids: string[]) => void }) {
+  const [off, setOff] = useState<Set<string>>(new Set());
+  const picked = review.items.filter((i) => !off.has(i.id));
+  const toggle = (id: string) => setOff((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id);
+    else n.add(id);
+    return n;
+  });
+  return (
+    <Card title={`Check what I have · ${review.items.length}`}>
+      <p className="mb-2 text-[12.5px] text-muted">These came from your own words or your napkin. Untick anything that&apos;s wrong (I&apos;ll ask about it), then confirm the rest in one go.</p>
+      <ul className="max-h-[340px] divide-y divide-line overflow-y-auto rounded-md border border-line">
+        {review.items.map((i) => (
+          <li key={i.id}>
+            <label className="flex cursor-pointer items-start gap-2.5 px-3 py-2 hover:bg-surface-2">
+              <input type="checkbox" className="mt-0.5 accent-[var(--color-accent)]" checked={!off.has(i.id)} onChange={() => toggle(i.id)} />
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-[13px] text-muted">{i.label}</span>
+                  <b className="text-[13px] text-ink">{i.display}</b>
+                  {i.moneyRelevant && <Badge tone="accent">money</Badge>}
+                </span>
+                {i.quote && <span className="block truncate text-[11.5px] italic text-faint">{i.provenance === "paper" ? "on the napkin" : "you said"}: “{i.quote}”</span>}
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11.5px] text-faint">{review.needAnswers > 0 ? `${review.needAnswers} more need a typed answer below.` : "Nothing else to answer after this."}</span>
+        <Button variant="primary" disabled={busy || picked.length === 0} onClick={() => onConfirm(picked.map((i) => i.id))}>
+          Confirm {picked.length} {picked.length === 1 ? "fact" : "facts"}
+        </Button>
+      </div>
+    </Card>
   );
 }
