@@ -109,19 +109,27 @@ export async function submitOwnerStatement(d: M2Deps, businessId: string, text: 
   return { statementId: id, status: "pending" as const, channel, diff, platformQueued: queued, appliedToSpec: false as const };
 }
 
+/** A spec saved before a question rule changed may lack questions it now needs; regenerate and persist them. */
+async function withFreshQuestions(d: M2Deps, businessId: string): Promise<StoredSpec> {
+  const rec = requireSpec(d, businessId);
+  const key = (qs: StoredSpec["spec"]["openQuestions"]) => JSON.stringify(qs.map((q) => [q.id, q.status, q.question]));
+  if (key(refreshQuestions(rec.spec).openQuestions) === key(rec.spec.openQuestions)) return rec;
+  return d.store.update(businessId, (cur) => ({ ...cur!, spec: refreshQuestions(cur!.spec) }));
+}
+
 export function questionRoutes(d: M2Deps) {
   const r = newRouter();
 
   r.get("/spec/:businessId", async (c) => {
     const id = checkBusinessId(c.req.param("businessId"));
-    requireSpec(d, id);
+    await withFreshQuestions(d, id);
     const rec = (await syncStatements(d, id)) ?? requireSpec(d, id);
     return c.json(specView(rec));
   });
 
   r.get("/questions/next", async (c) => {
     const id = checkBusinessId(c.req.query("businessId"));
-    const rec = requireSpec(d, id);
+    const rec = await withFreshQuestions(d, id);
     const q = nextQuestion(rec.spec);
     const open = rec.spec.openQuestions.filter((x) => x.status === "open" || x.status === "asked");
     if (!q) return c.json({ question: null, remaining: 0, moneyReady: moneyReady(rec.spec), version: rec.version });
@@ -145,7 +153,7 @@ export function questionRoutes(d: M2Deps) {
     const body = Answer.parse(await c.req.json());
     const businessId = checkBusinessId(body.businessId);
     const qid = c.req.param("id");
-    requireSpec(d, businessId);
+    await withFreshQuestions(d, businessId);
     let result: ReturnType<typeof applyAnswer> | undefined;
     const rec = await d.store.update(businessId, (cur) => {
       result = applyAnswer(cur!.spec, qid, { answer: body.answer, confirm: body.confirm });

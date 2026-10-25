@@ -1,6 +1,7 @@
 // Client for the brain's M2 endpoints (intake, questions, owner statements, spec).
 
 import { BRAIN_URL } from "@/data/env";
+import { authHeaders } from "@/data/account";
 
 export interface FactView {
   value: unknown;
@@ -22,7 +23,7 @@ export interface SpecResponse {
   businessId: string;
   version: number;
   moneyReady: boolean;
-  blockers: { path: string; why: "missing" | "guess" | "unconfirmed" }[];
+  blockers: { path: string; why: "missing" | "guess" | "unconfirmed" | "invalid" }[];
   counts: { paper: number; owner_said: number; inferred: number; missing: number; confirmed: number; total: number };
   facts: FactRow[];
   hasPhoto: boolean;
@@ -71,7 +72,7 @@ export class BrainError extends Error {
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${BRAIN_URL}${path}`, init);
+    res = await fetch(`${BRAIN_URL}${path}`, { ...init, headers: { ...authHeaders(), ...(init?.headers as Record<string, string> | undefined) } });
   } catch {
     throw new BrainError(0, `Cannot reach the brain at ${BRAIN_URL}. Is it running?`);
   }
@@ -82,7 +83,12 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 const json = (body: unknown): RequestInit => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 export const brain = {
-  photoUrl: (businessId: string, v: number) => `${BRAIN_URL}/intake/photo/${businessId}?v=${v}`,
+  /** The napkin photo as an object URL (fetched with the session; an <img src> could not send it). */
+  async photoObjectUrl(businessId: string, v: number): Promise<string> {
+    const res = await fetch(`${BRAIN_URL}/intake/photo/${businessId}?v=${v}`, { headers: authHeaders() });
+    if (!res.ok) throw new BrainError(res.status, `photo unavailable (${res.status})`);
+    return URL.createObjectURL(await res.blob());
+  },
   spec: (b: string) => req<SpecResponse>(`/spec/${b}`),
   uploadPhoto(businessId: string, file: File) {
     const fd = new FormData();

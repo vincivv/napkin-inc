@@ -48,6 +48,8 @@ export const OwnerLoginRequest = z.object({
 export interface OwnerLoginDeps {
   platform: Pick<PlatformPort, "business" | "createRoleGrant">;
   ownerPin: string | undefined;
+  /** the one business the shared PIN is for (the phone line's); every other business signs in with its account */
+  pinBusinessId?: string;
   /** per client address */
   perClient: RateLimiter;
   /** across all clients (a tunnel makes every client look the same) */
@@ -68,6 +70,7 @@ export async function ownerLogin(input: unknown, clientKey: string, deps: OwnerL
   if (!parsed.success) return { status: 400, body: { error: "expected {pin, businessId?}" } };
   const { pin, businessId } = parsed.data;
   if (!pinMatches(pin, deps.ownerPin)) return { status: 401, body: { error: "wrong PIN" } };
+  if (deps.pinBusinessId && businessId !== deps.pinBusinessId) return { status: 401, body: { error: "the PIN only signs in to the phone line's business; use your account" } };
   if (!deps.platform.business(businessId)) return { status: 404, body: { error: `unknown business ${businessId}` } };
   const code = (deps.newCode ?? newGrantCode)();
   await deps.platform.createRoleGrant({ code, businessId, role: "owner", name: "Owner", ttlSeconds: OWNER_GRANT_TTL_SECONDS });

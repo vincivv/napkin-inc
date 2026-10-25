@@ -1,8 +1,10 @@
 // Deterministic question engine. Which question comes next is decided here by impactScore; the LLM may
 // only re-word the chosen question (see ./phrase), never choose or change it.
 
+import { Rational } from "@napkin/ledger-core";
 import type { BusinessSpec, OpenQuestion } from "@napkin/schema";
 import { usableForMoney } from "@napkin/schema";
+import { moneyFacts } from "../compiler/facts";
 import { CoerceError, coerceValue, showValue } from "../spec/coerce";
 import { getFact, isMissing, listFacts, missingFact, normalizePath, setFact, type AnyFact } from "../spec/paths";
 import { impactScore, isMoneyRelevant, moneyImpact } from "./impact";
@@ -94,13 +96,63 @@ export function isApplicable(spec: BusinessSpec, path: string): boolean {
 
 export interface Blocker {
   path: string;
-  why: "missing" | "guess" | "unconfirmed";
+  why: "missing" | "guess" | "unconfirmed" | "invalid";
+}
+
+/**
+ * Confirmed facts the compiler would still refuse (e.g. a fractional stockUnits saved before the interview
+ * checked it), as engine paths. They must be asked again, or the owner is stuck with nothing to answer.
+ */
+export function invalidFacts(spec: BusinessSpec): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of moneyFacts(spec)) {
+    const problem = m.fact && usableForMoney(m.fact) ? m.validate?.(m.fact.value) : undefined;
+    if (problem) out.set(m.path.replace(/\[([^\]]+)\]/g, ".$1"), problem);
+  }
+  if (out.size === 0) for (const [path, problem] of stockCostProblems(spec)) out.set(path, problem);
+  return out;
+}
+
+/**
+ * The books keep one stock item per tracked offering, so every variant must cost the same per unit of stock
+ * (the compiler refuses otherwise). The smallest variant sets the unit cost; the others are asked to agree.
+ */
+function stockCostProblems(spec: BusinessSpec): Map<string, string> {
+  const dollars = (r: Rational) => (Number(r.toCents()) / 100).toFixed(2);
+  const out = new Map<string, string>();
+  const usable = (f: AnyFact | undefined): f is AnyFact => Boolean(f && usableForMoney(f));
+  for (const o of spec.offerings) {
+    if (!usable(o.stockTracked as AnyFact) || o.stockTracked.value !== true) continue;
+    if (!o.variants.every((v) => usable(v.cost as AnyFact) && usable(v.stockUnits as AnyFact | undefined))) continue;
+    const vs = [...o.variants].sort((a, b) => Number(a.stockUnits!.value) - Number(b.stockUnits!.value));
+    const ref = vs[0];
+    if (!ref) continue;
+    const unit = Rational.parse(ref.cost.value).div(Rational.parse(ref.stockUnits!.value));
+    const name = o.name.value;
+    if (!unit.mul(Rational.of(100n)).isInteger()) {
+      out.set(`offerings.${o.id}.variants.${ref.id}.cost`, `does not split into a whole number of cents across its ${ref.stockUnits!.value} units of stock`);
+      continue;
+    }
+    for (const v of vs.slice(1)) {
+      const expected = unit.mul(Rational.parse(v.stockUnits!.value));
+      if (Rational.parse(v.cost.value).eq(expected)) continue;
+      out.set(
+        `offerings.${o.id}.variants.${v.id}.cost`,
+        `should be $${dollars(expected)}: it uses ${v.stockUnits!.value} units of ${name} stock and one unit costs $${dollars(unit)} (from ${ref.name.value}), and every option of ${name} draws on the same stock`,
+      );
+    }
+  }
+  return out;
 }
 
 export function moneyBlockers(spec: BusinessSpec): Blocker[] {
+  const invalid = invalidFacts(spec);
   return listFacts(spec)
-    .filter(({ path, fact }) => isMoneyRelevant(path) && isApplicable(spec, path) && !usableForMoney(fact))
-    .map(({ path, fact }) => ({ path, why: isMissing(fact) ? ("missing" as const) : fact.provenance === "inferred" ? ("guess" as const) : ("unconfirmed" as const) }));
+    .filter(({ path, fact }) => isMoneyRelevant(path) && isApplicable(spec, path) && (!usableForMoney(fact) || invalid.has(path)))
+    .map(({ path, fact }) => ({
+      path,
+      why: invalid.has(path) ? ("invalid" as const) : isMissing(fact) ? ("missing" as const) : fact.provenance === "inferred" ? ("guess" as const) : ("unconfirmed" as const),
+    }));
 }
 /** True iff every money-relevant fact is usableForMoney. The compiler refuses to compile when false. */
 export function moneyReady(spec: BusinessSpec): boolean {
@@ -139,8 +191,9 @@ export function refreshQuestions(input: BusinessSpec): BusinessSpec {
   // a conflict question (has candidates) must win over the plain question for the same path
   for (const q of [...spec.openQuestions].sort((a, b) => Number(Boolean(a.candidates)) - Number(Boolean(b.candidates)))) prior.set(q.fieldPath, q);
   const out: OpenQuestion[] = [];
+  const invalid = invalidFacts(spec);
   for (const { path, fact } of listFacts(spec)) {
-    if (usableForMoney(fact) || !isApplicable(spec, path)) continue;
+    if ((usableForMoney(fact) && !invalid.has(path)) || !isApplicable(spec, path)) continue;
     const old = prior.get(path);
     if (old?.status === "dismissed" && !isMoneyRelevant(path)) {
       out.push(old);
@@ -150,8 +203,10 @@ export function refreshQuestions(input: BusinessSpec): BusinessSpec {
     out.push({
       id: conflict ? conflict.id : `q.${path}`,
       fieldPath: path,
-      question: describeQuestion(spec, path, fact, conflict?.candidates),
-      impactScore: conflict ? moneyImpact(path) : impactScore(path, fact.confidence),
+      question: invalid.has(path)
+        ? `You said ${labelFor(spec, path)} is ${showValue(path, fact.value)}, but it ${invalid.get(path)}. What should it be?`
+        : describeQuestion(spec, path, fact, conflict?.candidates),
+      impactScore: conflict || invalid.has(path) ? moneyImpact(path) : impactScore(path, fact.confidence),
       moneyRelevant: isMoneyRelevant(path),
       status: old?.status === "asked" ? "asked" : "open",
       ...(conflict?.candidates ? { candidates: conflict.candidates } : {}),
@@ -193,6 +248,8 @@ export function applyAnswer(spec: BusinessSpec, questionId: string, input: Answe
     quote = input.answer.trim();
   } else if (input.confirm) {
     if (isMissing(before)) throw new AnswerError("there is no value to confirm yet; please type the answer");
+    const problem = invalidFacts(spec).get(q.fieldPath);
+    if (problem) throw new AnswerError(`that value ${problem}; please type the right one`);
     value = before.value;
     quote = `confirmed: ${showValue(q.fieldPath, before.value)}`;
   } else throw new AnswerError("send an answer or confirm=true");
@@ -203,6 +260,8 @@ export function applyAnswer(spec: BusinessSpec, questionId: string, input: Answe
     source: { kind: "chat", ref: questionId, ...(before.source.region ? { region: before.source.region } : {}), quote },
     confirmed: true,
   };
+  const problem = input.answer !== undefined && input.answer.trim() !== "" ? invalidFacts(setFact(spec, q.fieldPath, after)).get(q.fieldPath) : undefined;
+  if (problem) throw new AnswerError(`${showValue(q.fieldPath, value)} ${problem}`);
   const next = refreshQuestions(
     markAnswered(setFact(spec, q.fieldPath, after), q, input.answer ?? quote),
   );

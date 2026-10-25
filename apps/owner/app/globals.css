@@ -133,3 +133,91 @@ body {
 ::selection {
   background: var(--accent-soft);
 }
+
+/* ---- landing ---- */
+.landing-hand,
+.landing-hand-accent {
+  font-family: "Bradley Hand", "Segoe Print", "Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive;
+}
+.landing-hand-accent {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--accent-ink);
+  background: linear-gradient(transparent 62%, var(--accent-soft) 62%);
+  padding: 0 0.08em;
+}
+.landing-napkin {
+  background-color: #fbf8ef;
+  background-image:
+    repeating-linear-gradient(45deg, rgb(0 0 0 / 0.025) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(-45deg, rgb(0 0 0 / 0.025) 0 1px, transparent 1px 9px);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.6) inset,
+    0 18px 40px -16px rgb(0 0 0 / 0.35),
+    0 2px 6px rgb(0 0 0 / 0.08);
+  animation: landing-float 6s ease-in-out infinite;
+}
+.landing-napkin-fold {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, transparent 49.6%, rgb(0 0 0 / 0.05) 50%, transparent 50.4%),
+    linear-gradient(0deg, transparent 49.6%, rgb(0 0 0 / 0.05) 50%, transparent 50.4%);
+  pointer-events: none;
+}
+.landing-grid {
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
+  opacity: 0.55;
+}
+.landing-glow {
+  background: radial-gradient(closest-side, var(--accent-soft), transparent);
+  opacity: 0.9;
+}
+@keyframes landing-write {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes landing-float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -6px;
+  }
+}
+.landing-write {
+  animation: landing-write 0.6s ease-out both;
+}
+.landing-rise {
+  animation: landing-rise 0.6s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-write,
+  .landing-rise,
+  .landing-napkin {
+    animation: none;
+  }
+}

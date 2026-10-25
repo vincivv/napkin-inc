@@ -527,7 +527,7 @@ describe("prompt injection never grants owner mode", () => {
       }),
       { numRuns: 60 },
     );
-  });
+  }, 30_000); // 60 random call sequences: well under 5 s alone, but it timed out under full-suite load
 });
 
 // ---------- SMS ----------

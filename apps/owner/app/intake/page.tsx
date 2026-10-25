@@ -78,7 +78,27 @@ export default function IntakePage() {
     setRec(undefined);
   }
 
-  const photoSrc = localPhoto ?? (spec?.hasPhoto ? brain.photoUrl(businessId, spec.version) : undefined);
+  const [storedPhoto, setStoredPhoto] = useState<string | undefined>();
+  const hasPhoto = Boolean(spec?.hasPhoto);
+  const specVersion = spec?.version ?? 0;
+  useEffect(() => {
+    if (!hasPhoto || localPhoto) return;
+    let url: string | undefined;
+    let live = true;
+    brain
+      .photoObjectUrl(businessId, specVersion)
+      .then((u) => {
+        url = u;
+        if (live) setStoredPhoto(u);
+        else URL.revokeObjectURL(u);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [businessId, hasPhoto, specVersion, localPhoto]);
+  const photoSrc = localPhoto ?? (hasPhoto ? storedPhoto : undefined);
   const withRegion = (spec?.facts ?? []).filter((f) => f.fact.source.region && f.fact.source.kind === "photo" && !f.missing);
 
   return (

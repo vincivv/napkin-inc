@@ -93,6 +93,8 @@ export function coerceValue(path: string, current: unknown, text: string): unkno
     case "qty": {
       const n = firstNumber(raw);
       if (n.startsWith("-")) throw new CoerceError("quantity cannot be negative");
+      // stock units per sale must be whole (the compiler and ledger count whole units)
+      if (!/^\d+$/.test(n) || Number(n) < 1) throw new CoerceError(`"${raw}" is not a whole number of at least 1`);
       return normDecimal(n);
     }
     case "pct": {

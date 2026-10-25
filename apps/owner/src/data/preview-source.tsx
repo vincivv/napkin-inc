@@ -7,7 +7,7 @@ import { DataValueProvider, type PreviewControls } from "./context";
 import { previewWorld } from "./preview";
 import { PREVIEW_KEY, safeSet } from "./env";
 
-export function PreviewSource({ setBusiness, children }: { setBusiness(slug: string): void; children: ReactNode }) {
+export function PreviewSource({ children }: { children: ReactNode }) {
   const world = previewWorld();
   const snapshot = useSyncExternalStore(world.subscribe, world.getSnapshot, world.getSnapshot);
   const session = useMemo(() => world.session(), [world, snapshot.actors]); // role changes with the actor rows
@@ -24,7 +24,7 @@ export function PreviewSource({ setBusiness, children }: { setBusiness(slug: str
     [world],
   );
   return (
-    <DataValueProvider snapshot={snapshot} session={session} actions={world.actions} preview={controls} setBusiness={setBusiness}>
+    <DataValueProvider snapshot={snapshot} session={session} actions={world.actions} preview={controls}>
       {children}
     </DataValueProvider>
   );

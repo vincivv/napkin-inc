@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { useData } from "@/data/context";
+import { useAccount } from "@/data/account";
 import { Badge, Button, cx, shortId } from "./ui";
 import { booksCheck } from "@/lib/reports";
 import { safeGet, safeSet } from "@/data/env";
@@ -172,15 +173,11 @@ function SignInChip() {
         )}
       </span>
     );
-  return (
-    <Link href="/signin" className="inline-flex h-7 items-center rounded-md border border-line-strong bg-surface px-2.5 text-[12px] font-medium hover:bg-surface-2">
-      {session.role ? `Signed in as ${session.role}` : "Owner sign-in"}
-    </Link>
-  );
+  return <span className="text-[12px] text-faint">{session.role ? `Signed in as ${session.role}` : session.ready ? "Unlocking owner access…" : ""}</span>;
 }
 
 function Banners() {
-  const { session, snapshot, preview } = useData();
+  const { session, preview } = useData();
   return (
     <>
       {preview && (
@@ -212,21 +209,13 @@ function Banners() {
           )}
         </div>
       )}
-      {session.mode === "live" && session.ready && !snapshot.business && (
-        <div className="border-b border-line bg-info-soft px-4 py-2 text-[12.5px] text-info md:px-6">
-          No business <code className="font-mono">{snapshot.businessId}</code> in database <code className="font-mono">{session.dbName}</code> yet. Screens fill in live once the platform registers it and activates a configuration.{" "}
-          <a className="underline" href="?preview=fixture">
-            See the design with fake data
-          </a>
-          .
-        </div>
-      )}
     </>
   );
 }
 
 function SidebarFooter() {
-  const { snapshot, setBusiness, session } = useData();
+  const { session } = useData();
+  const { account, signOut } = useAccount();
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   useEffect(() => {
     const t = safeGet("local", "napkin-owner:theme");
@@ -239,17 +228,15 @@ function SidebarFooter() {
     if (next === "system") delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = next;
   };
-  const others = snapshot.businesses.filter((b) => b.id !== snapshot.businessId);
   return (
     <div className="space-y-2 border-t border-line p-3 text-[12px]">
-      {others.length > 0 && (
-        <select className="h-7 w-full rounded-md border border-line bg-surface px-2 text-[12px]" value={snapshot.businessId} onChange={(e) => setBusiness(e.target.value)} aria-label="Business">
-          {[snapshot.business ?? { id: snapshot.businessId, name: snapshot.businessId }, ...others].map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name} ({b.id})
-            </option>
-          ))}
-        </select>
+      {account && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate text-muted" title={account.email}>{account.email}</span>
+          <button onClick={() => void signOut()} className="shrink-0 rounded px-1.5 py-0.5 text-faint hover:bg-surface-2 hover:text-ink">
+            Sign out
+          </button>
+        </div>
       )}
       <div className="flex items-center justify-between text-faint">
         <span title={session.identityHex}>id {shortId(session.identityHex)}</span>

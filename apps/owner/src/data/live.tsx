@@ -10,29 +10,29 @@ import { DataValueProvider } from "./context";
 import type { Actions, ConnectionStatus, Session, Snapshot } from "./types";
 import { STDB_DB, STDB_URI, safeGet, safeSet, tokenKey } from "./env";
 
-export function LiveSource({ businessId, setBusiness, children }: { businessId: string; setBusiness(slug: string): void; children: ReactNode }) {
+export function LiveSource({ businessId, accountId, children }: { businessId: string; accountId: string; children: ReactNode }) {
   const builder = useMemo(() => {
-    const key = tokenKey(STDB_URI, STDB_DB);
+    const key = tokenKey(STDB_URI, STDB_DB, accountId);
     return DbConnection.builder()
       .withUri(STDB_URI)
       .withDatabaseName(STDB_DB)
       .withToken(safeGet("local", key) ?? undefined)
       .withAutomaticReconnect()
       .onConnect((_conn, _identity, token) => {
-        // The app's own SpacetimeDB identity; the owner role is attached to it after PIN sign-in.
+        // This account's own SpacetimeDB identity in this browser; the owner role is attached to it after sign-in.
         safeSet("local", key, token);
       });
-  }, []);
+  }, [accountId]);
   return (
     <SpacetimeDBProvider connectionBuilder={builder}>
-      <LiveData businessId={businessId} setBusiness={setBusiness}>
+      <LiveData businessId={businessId}>
         {children}
       </LiveData>
     </SpacetimeDBProvider>
   );
 }
 
-function LiveData({ businessId, setBusiness, children }: { businessId: string; setBusiness(slug: string): void; children: ReactNode }) {
+function LiveData({ businessId, children }: { businessId: string; children: ReactNode }) {
   const conn = useSpacetimeDB();
   const b = businessId;
   const [businesses, r0] = useTable(tables.business);
@@ -99,7 +99,7 @@ function LiveData({ businessId, setBusiness, children }: { businessId: string; s
   }, []);
 
   return (
-    <DataValueProvider snapshot={snapshot} session={session} actions={actions} setBusiness={setBusiness}>
+    <DataValueProvider snapshot={snapshot} session={session} actions={actions}>
       {children}
     </DataValueProvider>
   );

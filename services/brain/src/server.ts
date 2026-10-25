@@ -17,6 +17,8 @@ import { registerM2Routes } from "./m2";
 import { mountCompiler } from "./compiler/routes";
 import { registerPhoneRoutes } from "./phone";
 import { mountAgents } from "./agents";
+import { AccountStore, businessGate, ensureSeedAccount, GATED_PATHS, registerAccountRoutes } from "./accounts";
+import { SpecStore } from "./spec/store";
 
 let env: Env;
 try {
@@ -95,6 +97,18 @@ function health(): Record<string, unknown> {
   };
 }
 
+/** Rate-limit key: the caller's address; behind the Cloudflare tunnel every request comes from loopback, so use the address Cloudflare saw. */
+function clientKey(c: Parameters<NonNullable<Parameters<typeof createApp>[0]["clientKey"]>>[0]): string {
+  let remote = "unknown";
+  try {
+    remote = getConnInfo(c).remote.address ?? "unknown";
+  } catch {
+    /* not a node request */
+  }
+  const viaTunnel = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  return (viaTunnel && c.req.header("cf-connecting-ip")) || remote;
+}
+
 const sessions = new SessionStore(env.dataDir);
 const hasStorefront = (businessId: string) => Boolean(hub.get(actorKey("storefront", businessId)));
 const app = createApp({
@@ -105,16 +119,27 @@ const app = createApp({
   corsOrigins: env.corsOrigins,
   webhookSecret: env.stripeWebhookSecret,
   ownerPin: env.ownerPin,
+  pinBusinessId: env.phoneBusinessId,
   hasStorefront,
   health,
-  clientKey: (c) => {
-    try {
-      return getConnInfo(c).remote.address ?? "unknown";
-    } catch {
-      return "unknown";
-    }
-  },
+  clientKey,
 });
+
+// Owner accounts (one business per account). The gate runs before the setup routes below, so intake,
+// questions, owner statements and compile only ever touch the signed-in account's own business.
+const accounts = new AccountStore(env.dataDir);
+const specs = new SpecStore(env.dataDir);
+ensureSeedAccount(accounts, { email: process.env["MAYA_ACCOUNT_EMAIL"], password: process.env["MAYA_ACCOUNT_PASSWORD"], businessId: "maya-cookies", businessName: "Maya's Cookies" });
+registerAccountRoutes(app, {
+  store: accounts,
+  businessIdTaken: (id) => Boolean(platform.business(id)) || Boolean(specs.get(id)),
+  businessExists: (id) => Boolean(platform.business(id)),
+  createOwnerGrant: (g) => platform.createRoleGrant({ ...g, role: "owner", name: "Owner" }),
+  clientKey,
+});
+const gate = businessGate(accounts);
+for (const p of GATED_PATHS) app.use(p, gate);
+
 const m2 = registerM2Routes(app, hub, env.dataDir); // M2: intake + question engine
 mountCompiler(app, hub, env.dataDir); // M2: compiler (POST /compile, SSE)
 // M3-K: phone line webhook tools. Orders go through the same createCheckout path as the storefront.

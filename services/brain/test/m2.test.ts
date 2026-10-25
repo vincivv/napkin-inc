@@ -163,6 +163,43 @@ describe("moneyReady", () => {
     expect(asked.filter((p) => p.endsWith(".stockUnits")).length).toBe(base.offerings[0]!.variants.length);
     expect(moneyBlockers(s).map((b) => b.path)).toContain("offerings.chocolate-chip-cookie.initialStock");
   });
+  it("reopens a confirmed fact the compiler would refuse, and only takes whole stock units", () => {
+    const base = photoSpec();
+    const o = base.offerings[0]!;
+    const owner = (value: unknown) => ({ value, provenance: "owner_said" as const, confidence: 1, source: { kind: "chat" as const, ref: "t", quote: String(value) }, confirmed: true });
+    const v = o.variants[0]!;
+    const bad = { ...base, offerings: [{ ...o, stockTracked: owner(true), variants: [{ ...v, stockUnits: owner("3.30") }, ...o.variants.slice(1)] }, ...base.offerings.slice(1)] } as typeof base;
+    const path = `offerings.${o.id}.variants.${v.id}.stockUnits`;
+    const s = refreshQuestions(bad);
+    const q = s.openQuestions.find((x) => x.fieldPath === path)!;
+    expect(q.question).toMatch(/whole number/);
+    expect(moneyBlockers(s)).toContainEqual({ path, why: "invalid" });
+    expect(() => applyAnswer(s, q.id, { confirm: true })).toThrow(/whole number/);
+    expect(() => applyAnswer(s, q.id, { answer: "3.3" })).toThrow(/whole number/);
+    expect(() => applyAnswer(s, q.id, { answer: "0" })).toThrow(/whole number/);
+    const r = applyAnswer(s, q.id, { answer: "3" });
+    expect(getFact(r.spec, path)).toMatchObject({ value: "3" });
+    expect(r.spec.openQuestions.some((x) => x.fieldPath === path)).toBe(false);
+  });
+  it("asks for a variant cost that disagrees with the shared stock's unit cost, instead of letting the compiler stall", () => {
+    const base = photoSpec();
+    const o = base.offerings[0]!;
+    const owner = (value: unknown) => ({ value, provenance: "owner_said" as const, confidence: 1, source: { kind: "chat" as const, ref: "t", quote: String(value) }, confirmed: true });
+    const [single, box] = o.variants as [(typeof o.variants)[number], (typeof o.variants)[number]];
+    const variants = [
+      { ...single, price: owner("4.00"), cost: owner("1.20"), stockUnits: owner("1") },
+      { ...box, price: owner("11.00"), cost: owner("3.30"), stockUnits: owner("3") },
+    ];
+    const spec = { ...base, offerings: [{ ...o, stockTracked: owner(true), initialStock: owner(60), variants }] } as typeof base;
+    const path = `offerings.${o.id}.variants.${box.id}.cost`;
+    const s = refreshQuestions(spec);
+    const q = s.openQuestions.find((x) => x.fieldPath === path)!;
+    expect(q.question).toMatch(/should be \$3\.60/);
+    expect(moneyBlockers(s)).toContainEqual({ path, why: "invalid" });
+    expect(() => applyAnswer(s, q.id, { answer: "$3.30" })).toThrow(/should be \$3\.60/);
+    const r = applyAnswer(s, q.id, { answer: "$3.60" });
+    expect(r.spec.openQuestions.some((x) => x.fieldPath === path)).toBe(false);
+  });
   it("stock details are not required once the owner says stock is not tracked", () => {
     const ex: Extracted = { offerings: [{ ...napkin.offerings[0]!, initialStock: rf("12", { provenance: "inferred", confidence: 0.2 }) }] };
     let s = refreshQuestions(assembleSpec(ex, { mode: "voice", ref: "t" }).spec);

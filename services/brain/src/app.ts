@@ -22,6 +22,8 @@ export interface AppDeps {
   corsOrigins: string[];
   webhookSecret: string | undefined;
   ownerPin: string | undefined;
+  /** the one business the shared OWNER_PIN signs in to (the phone line's) */
+  pinBusinessId?: string;
   hasStorefront: (businessId: string) => boolean;
   health: () => Record<string, unknown>;
   clientKey?: (c: Context) => string;
@@ -48,7 +50,7 @@ export function createApp(deps: AppDeps): Hono {
     cors({
       origin: deps.corsOrigins,
       allowMethods: ["GET", "POST", "OPTIONS"],
-      allowHeaders: ["Content-Type"],
+      allowHeaders: ["Content-Type", "Authorization"],
       maxAge: 600,
     }),
   );
@@ -128,7 +130,7 @@ export function createApp(deps: AppDeps): Hono {
       body = undefined;
     }
     const key = deps.clientKey?.(c) ?? "unknown";
-    const r = await ownerLogin(body, key, { platform: deps.platform, ownerPin: deps.ownerPin, ...limiters });
+    const r = await ownerLogin(body, key, { platform: deps.platform, ownerPin: deps.ownerPin, ...(deps.pinBusinessId ? { pinBusinessId: deps.pinBusinessId } : {}), ...limiters });
     if (r.status !== 200) log.warn("auth", `owner login ${r.status} from ${key}`);
     else log.info("auth", `owner grant minted for ${r.body.businessId}`);
     return c.json(r.body, r.status);

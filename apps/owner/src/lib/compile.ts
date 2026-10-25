@@ -3,6 +3,7 @@
 
 import type { Configuration } from "@napkin/schema";
 import { BRAIN_URL } from "@/data/env";
+import { authHeaders } from "@/data/account";
 import { formatCents, parseDollars, rateToPct } from "./money";
 
 export const BUILD_STEPS = ["facts", "template", "synthesis", "proofs", "configuration", "storefront", "agents", "submit"] as const;
@@ -33,7 +34,7 @@ export type CompileEvent =
 export async function streamCompile(businessId: string, onEvent: (e: CompileEvent) => void, signal?: AbortSignal): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(`${BRAIN_URL}/compile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ businessId }), ...(signal ? { signal } : {}) });
+    res = await fetch(`${BRAIN_URL}/compile`, { method: "POST", headers: { "content-type": "application/json", ...authHeaders() }, body: JSON.stringify({ businessId }), ...(signal ? { signal } : {}) });
   } catch (e) {
     if ((e as Error).name === "AbortError") return;
     throw new Error(`Cannot reach the brain at ${BRAIN_URL}. Is it running?`);
@@ -67,7 +68,7 @@ export async function streamCompile(businessId: string, onEvent: (e: CompileEven
 
 export async function latestCompile(businessId: string): Promise<{ running: boolean; events: CompileEvent[] } | undefined> {
   try {
-    const r = await fetch(`${BRAIN_URL}/compile/${businessId}/latest`);
+    const r = await fetch(`${BRAIN_URL}/compile/${businessId}/latest`, { headers: authHeaders() });
     return r.ok ? ((await r.json()) as { running: boolean; events: CompileEvent[] }) : undefined;
   } catch {
     return undefined;
