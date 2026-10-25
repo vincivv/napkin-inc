@@ -238,14 +238,24 @@ export class OpenverseImages implements ImageResolver {
 
   /** Ordered usable photos for one slot (best first); [] when nothing fits. */
   private async slotCandidates(slot: ImageSlot): Promise<DesignImage[]> {
-    // Openverse matches every word, so a precise query often finds nothing: relax it until there is a choice,
-    // ending with the plain product name. Stock-photo providers first, then everything (Flickr, Wikimedia...).
-    const queries = [...new Set([...relaxedQueries(slot.query), ...(slot.fallback ? [slot.fallback] : [])])];
+    // Round 1: the proposed query, relaxed until there is a choice (Openverse matches every word). Round 2,
+    // only if round 1 finds nothing the vision pick accepts: the plain product name, which usually works.
+    const first = relaxedQueries(slot.query);
+    const rounds = [first, ...(slot.fallback && !first.includes(slot.fallback) ? [[slot.fallback]] : [])];
+    for (const queries of rounds) {
+      const found = await this.round(slot, queries);
+      if (found.length > 0) return found;
+    }
+    return [];
+  }
+
+  private async round(slot: ImageSlot, queries: string[]): Promise<DesignImage[]> {
     const cands: OpenverseResult[] = [];
     const add = (rs: OpenverseResult[]) => {
       for (const r of filterCandidates(rs)) if (!cands.some((c) => c.id === r.id)) cands.push(r);
     };
-    // both searches at once: uncached Openverse queries can take 15-30 s each
+    // stock-photo providers first, then everything (Flickr, Wikimedia...); both at once, since uncached
+    // Openverse queries can take 15-30 s each
     const quiet = (p: Promise<OpenverseResult[]>) => p.catch((e: Error) => (log.warn("design", `image search for ${slot.key}: ${e.message}`), []));
     for (const q of queries) {
       const [stock, general] = await Promise.all([quiet(this.search(q, slot.aspect, STOCK_SOURCES)), quiet(this.search(q, slot.aspect))]);

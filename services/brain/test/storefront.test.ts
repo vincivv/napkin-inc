@@ -270,6 +270,14 @@ describe("Openverse photos", () => {
     await ov.resolve(slots);
     expect(searches()).toBe(before); // served from the disk cache
   });
+  it("when vision rejects the proposed query's photos, a second round searches the plain product name", async () => {
+    const net = fakeFetch({ "gooey cookie": [result("blondie")], "chocolate chip cookies@rawpixel,stocksnap": [result("good")] });
+    let n = 0;
+    const vision: Llm = { tool: async () => ({ index: n++ === 0 ? -1 : 0 }), text: async () => "" };
+    const out = await new OpenverseImages({ fetch: net.fn, vision }).resolve([{ key: "hero", query: "gooey cookie", aspect: "wide", topic: "t", fallback: "chocolate chip cookies" }]);
+    expect(out["hero"]!.url).toBe("https://live.staticflickr.com/1/good_b.jpg");
+    expect(n).toBe(2);
+  });
   it("searches stock-photo providers first and falls back to the plain product name", async () => {
     const stock = result("stock1", { url: "https://images.rawpixel.com/editor_1024/stock1.jpg", source: "rawpixel", license: "cc0", license_version: "1.0" });
     const net = fakeFetch({ "chocolate chip cookies@rawpixel,stocksnap": [stock], "chocolate chip cookies": [result("flickr1")] });
