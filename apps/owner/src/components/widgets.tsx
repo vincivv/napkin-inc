@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useData } from "@/data/context";
 import type { CustomerOrderRow, DecisionRecordRow } from "@/data/types";
-import { booksCheck, nextOrderAction, stockLevel, stockRows, type StockLevel } from "@/lib/reports";
+import { booksCheck, nextOrderAction, type StockLevel } from "@/lib/reports";
+import { stockItems, stockLevelLabel, type StockItemView } from "@/lib/stock";
 import { productsUsingStock } from "@/lib/config";
-import { newestFirst, refHref, useDocMap } from "@/lib/hooks";
+import { newestFirst, refHref, useDocMap, useTz } from "@/lib/hooks";
+import { initial, orderItems, paymentWords, shortTime } from "@/lib/orders";
 import { formatCents } from "@/lib/money";
-import { Badge, Empty, Money, OwnerButton, RelTime, StatusBadge, cx, errText, rowLinkCls, tableCls, tdCls, thCls, useArrivals } from "./ui";
+import { Empty, OwnerButton, RelTime, StatusBadge, cx, errText, useArrivals } from "./ui";
 
 export function BooksBalance({ large }: { large?: boolean }) {
   const { snapshot, names } = useData();
@@ -73,45 +75,67 @@ export function BooksBalance({ large }: { large?: boolean }) {
   );
 }
 
-const levelTone: Record<StockLevel, "neg" | "warn" | "pos"> = { out: "neg", critical: "neg", low: "warn", ok: "pos" };
-
-export function StockLevels() {
-  const { snapshot, names, config } = useData();
+/** Every stock item with its count, for the dashboard and the Stock page (same numbers on both). */
+export function useStockItems(): StockItemView[] {
+  const { snapshot, config } = useData();
+  const tz = useTz();
+  const docs = useDocMap();
   const packs = useMemo(() => productsUsingStock(config?.config), [config]);
-  const rows = stockRows(snapshot.registerBalances);
-  const unconfirmed = new Set(config?.config?._unconfirmed?.paths ?? []);
-  if (!rows.length) return <Empty compact title="No stock on the books yet" hint="Stock appears when the opening balance or a stock receipt is posted." />;
+  return useMemo(
+    () => stockItems(config?.config, snapshot.registerBalances, snapshot.registerMovements, packs, tz, (id) => docs.get(id)),
+    [config, snapshot.registerBalances, snapshot.registerMovements, packs, tz, docs],
+  );
+}
+
+const levelText: Record<StockLevel, string> = { out: "text-neg", critical: "text-neg", low: "text-warn", ok: "text-ink" };
+const levelBar: Record<StockLevel, string> = { out: "bg-neg", critical: "bg-neg", low: "bg-warn", ok: "bg-accent" };
+
+/** "94 / 100": what is left of the last fill. */
+export function StockCount({ v, className }: { v: Pick<StockItemView, "qty" | "full" | "level">; className?: string }) {
   return (
-    <div className="divide-y divide-line">
-      {rows.map((r) => {
-        const usedBy = packs.get(r.item) ?? [];
-        const largest = usedBy.reduce<(typeof usedBy)[number] | undefined>((m, p) => (!m || p.units > m.units ? p : m), undefined);
-        const lvl = stockLevel(r.qty, largest?.units);
-        const fits = usedBy.map((p) => `${p.name}: ${r.qty > 0n ? r.qty / p.units : 0n}`).join(" · ");
-        return (
-          <div key={r.key} className={cx("flex items-center gap-3 px-4 py-2.5", lvl !== "ok" && (lvl === "low" ? "bg-warn-soft/60" : "bg-neg-soft/60"))}>
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{names.entry(r.item)}</div>
-              <div className="truncate text-[12px] text-faint">{fits ? `Can fill → ${fits}` : r.item}</div>
-            </div>
-            <div className="text-right">
-              <div className={cx("num text-[18px] font-semibold", lvl === "out" || lvl === "critical" ? "text-neg" : lvl === "low" ? "text-warn" : "")}>{r.qty.toString()}</div>
-              <div className="text-[11.5px] text-faint">
-                <Money cents={r.amountCents} /> at cost
-              </div>
-            </div>
-            <Badge
-              tone={levelTone[lvl]}
-              title={largest ? `Display only: "critical" below one ${largest.name} (${largest.units}), "low" below two.` : "No product draws on this item"}
-            >
-              {lvl === "out" ? "Out" : lvl === "critical" ? `Can’t fill ${largest?.name ?? "pack"}` : lvl === "low" ? "Low" : "OK"}
-            </Badge>
+    <span className={cx("num whitespace-nowrap font-mono text-[13px]", className)}>
+      <span className={cx("font-semibold", levelText[v.level])}>{v.qty.toString()}</span>
+      <span className="text-faint"> / {v.full.toString()}</span>
+    </span>
+  );
+}
+
+/** The bar under a stock count: blue when fine, amber when running low, red when a pack can't be filled. */
+export function StockMeter({ v, className }: { v: Pick<StockItemView, "qty" | "full" | "level" | "name">; className?: string }) {
+  const pct = v.full > 0n && v.qty > 0n ? Math.max(2, Math.min(100, Number((v.qty * 1000n) / v.full) / 10)) : 0;
+  return (
+    <div
+      role="meter"
+      aria-label={`${v.name} left`}
+      aria-valuemin={0}
+      aria-valuemax={Number(v.full)}
+      aria-valuenow={Number(v.qty)}
+      className={cx("h-1.5 overflow-hidden rounded-full bg-surface-2", className)}
+    >
+      <div className={cx("h-full rounded-full transition-[width] duration-500", levelBar[v.level])} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+/** Dashboard card: each stock item's count and bar. */
+export function StockLevels() {
+  const { config } = useData();
+  const items = useStockItems();
+  const placeholder = (config?.config?._unconfirmed?.paths ?? []).some((p) => p.startsWith("initialStock"));
+  if (!items.length) return <Empty compact title="No stock on the books yet" hint="Stock appears when the opening balance or a stock receipt is posted." />;
+  return (
+    <div className="space-y-4 px-5 py-4">
+      {items.map((v) => (
+        <div key={v.item} title={v.largest ? `“Can’t fill” is below one ${v.largest.name} (${v.largest.units}); “running low” is below two.` : undefined}>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="min-w-0 truncate text-[14px] font-medium text-ink">{v.name}</span>
+            <StockCount v={v} />
           </div>
-        );
-      })}
-      {[...unconfirmed].some((p) => p.startsWith("initialStock")) && (
-        <div className="px-4 py-2 text-[11.5px] text-warn">Starting stock is a placeholder the owner hasn’t confirmed.</div>
-      )}
+          <StockMeter v={v} className="mt-2" />
+          {v.level !== "ok" && <div className={cx("mt-1 text-[12px]", levelText[v.level])}>{stockLevelLabel(v)}</div>}
+        </div>
+      ))}
+      {placeholder && <div className="text-[11.5px] text-warn">Starting stock is a placeholder the owner hasn’t confirmed.</div>}
     </div>
   );
 }
@@ -147,56 +171,76 @@ export function OrderAction({ order, size = "sm" }: { order: CustomerOrderRow; s
   );
 }
 
+/**
+ * Orders as a list people read at a glance: initial, name, what they bought and how they paid, time, total.
+ * Paid orders still to prepare are tinted so they stand out. `compact` drops the order number (dashboard).
+ */
 export function OrdersTable({ orders, compact }: { orders: readonly CustomerOrderRow[]; compact?: boolean }) {
   const router = useRouter();
+  const { names } = useData();
+  const docs = useDocMap();
+  const tz = useTz();
+  const now = BigInt(Date.now()) * 1000n;
   const sorted = newestFirst(orders, (o) => o.createdAt.microsSinceUnixEpoch, (o) => o.id);
   const isNew = useArrivals(orders.map((o) => o.id));
+  const withActions = sorted.some((o) => nextOrderAction(o));
   if (!sorted.length) return <Empty compact={compact} title="No orders yet" hint="Orders from the storefront, the phone line and agents appear here the moment they are created." />;
   return (
-    <div className="overflow-x-auto">
-      <table className={tableCls}>
-        <thead>
-          <tr>
-            <th className={thCls}>Order</th>
-            <th className={thCls}>Customer</th>
-            {!compact && <th className={thCls}>Channel</th>}
-            <th className={thCls}>Status</th>
-            <th className={cx(thCls, "text-right")}>Total</th>
-            {!compact && <th className={cx(thCls, "text-right")}>Refunded</th>}
-            <th className={thCls}>Created</th>
-            <th className={cx(thCls, "text-right")} />
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((o) => (
-            <tr key={o.id} className={cx(rowLinkCls, isNew(o.id) && "arrive")} onClick={() => router.push(`/orders/${encodeURIComponent(o.id)}`)}>
-              <td className={tdCls}>
-                <span className="font-mono text-[12px] font-medium">{o.id}</span>
-              </td>
-              <td className={tdCls}>{o.customerName || <span className="text-faint">—</span>}</td>
-              {!compact && <td className={cx(tdCls, "text-muted")}>{o.channel}</td>}
-              <td className={tdCls}>
-                <StatusBadge status={o.status} />
-              </td>
-              <td className={cx(tdCls, "text-right")}>
-                <Money cents={o.totalCents} />
-              </td>
-              {!compact && (
-                <td className={cx(tdCls, "text-right")}>
-                  <Money cents={o.refundedCents} muted0 />
-                </td>
+    <ul className="divide-y divide-line">
+      {sorted.map((o) => {
+        const items = orderItems(docs.get(o.saleDocumentId), names.entry);
+        const href = `/orders/${encodeURIComponent(o.id)}`;
+        const time = shortTime(o.createdAt.microsSinceUnixEpoch, tz, now);
+        return (
+          <li
+            key={o.id}
+            role="link"
+            tabIndex={0}
+            onClick={() => router.push(href)}
+            onKeyDown={(e) => e.key === "Enter" && router.push(href)}
+            className={cx(
+              "flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none sm:gap-4",
+              o.status === "paid" && "bg-accent-soft/50",
+              isNew(o.id) && "arrive",
+            )}
+          >
+            <span aria-hidden className="grid size-10 shrink-0 place-items-center rounded-full bg-accent-soft text-[15px] font-semibold text-accent-ink">
+              {initial(o.customerName)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                <span className="min-w-[3rem] truncate text-[15px] font-semibold text-ink">{o.customerName || "Customer"}</span>
+                {/* payment states are already in the line below; the badge is for the steps the owner acts on */}
+                {(o.status === "paid" || o.status === "ready") && <StatusBadge status={o.status} />}
+              </div>
+              <div className="truncate text-[13px] text-muted">
+                {[items || (compact ? "" : o.id), paymentWords(o)].filter(Boolean).join(" · ")}
+              </div>
+              {/* on a phone the button sits under the text, so the row keeps room for the name */}
+              {nextOrderAction(o) && (
+                <div className="mt-2 sm:hidden">
+                  <OrderAction order={o} />
+                </div>
               )}
-              <td className={tdCls}>
-                <RelTime ts={o.createdAt} />
-              </td>
-              <td className={cx(tdCls, "py-1.5 text-right")}>
+            </div>
+            <div className="hidden w-[4.5rem] shrink-0 text-right sm:block">
+              <div className="num whitespace-nowrap font-mono text-[12.5px] text-faint">{time}</div>
+              {!compact && items && <div className="font-mono text-[11px] text-faint">{o.id}</div>}
+            </div>
+            <div className="shrink-0 text-right sm:w-20">
+              <div className={cx("num text-[17px] font-semibold", o.status === "cancelled" || o.status === "refunded" ? "text-faint line-through" : "text-ink")}>{formatCents(o.totalCents)}</div>
+              <div className="num whitespace-nowrap font-mono text-[11.5px] text-faint sm:hidden">{time}</div>
+            </div>
+            {/* one fixed-width slot on every row once any order has a button, so the totals line up */}
+            {withActions && (
+              <div className="hidden w-[124px] shrink-0 justify-end sm:flex">
                 <OrderAction order={o} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

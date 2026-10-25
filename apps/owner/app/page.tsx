@@ -72,10 +72,11 @@ export default function DashboardPage() {
           )}
 
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Stat label="Net sales today" value={formatCents(m.day.netRevenueCents)} sub={`${formatCents(m.all.netRevenueCents)} all time`} href="/reports" />
-            <Stat label="Orders today" value={m.ordersToday.toString()} sub={m.awaiting ? `${m.awaiting} awaiting payment · ${m.toFulfil} to fulfil` : `${m.toFulfil} to fulfil`} href="/orders" />
-            <Stat label="Cash" value={formatCents(m.bank)} sub={`${formatCents(m.clearing)} on its way from Stripe`} href="/reports" />
+            <Stat big label="Net sales today" value={formatCents(m.day.netRevenueCents)} sub={`${formatCents(m.all.netRevenueCents)} all time`} href="/reports" />
+            <Stat big label="Orders today" value={m.ordersToday.toString()} sub={m.awaiting ? `${m.awaiting} awaiting payment · ${m.toFulfil} to fulfil` : `${m.toFulfil} to fulfil`} href="/orders" />
+            <Stat big label="Cash" value={formatCents(m.bank)} sub={`${formatCents(m.clearing)} on its way from Stripe`} href="/reports" />
             <Stat
+              big
               label="Gross margin"
               value={pct(m.all.grossProfitCents, m.all.netRevenueCents)}
               sub={`${formatCents(m.all.grossProfitCents)} profit on ${formatCents(m.all.netRevenueCents)}`}
@@ -102,7 +103,7 @@ export default function DashboardPage() {
             </Card>
             <div className="space-y-6">
               <Card
-                title="Stock"
+                title="Stock left"
                 pad={false}
                 actions={
                   <Link href="/stock" className="text-accent-ink hover:underline">

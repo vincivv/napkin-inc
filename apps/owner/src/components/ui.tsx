@@ -94,11 +94,12 @@ export function Money({ cents, className, sign, muted0 }: { cents: bigint; class
   return <span className={cx("num", cents < 0n && "text-neg", muted0 && cents === 0n && "text-faint", className)}>{formatCents(cents, { sign })}</span>;
 }
 
-export function Stat({ label, value, sub, tone, href }: { label: ReactNode; value: ReactNode; sub?: ReactNode; tone?: Tone; href?: string }) {
+/** `big` is the dashboard's headline figures. */
+export function Stat({ label, value, sub, tone, href, big }: { label: ReactNode; value: ReactNode; sub?: ReactNode; tone?: Tone; href?: string; big?: boolean }) {
   const inner = (
-    <div className="flex h-full flex-col justify-between gap-1 rounded-lg border border-line bg-surface px-4 py-3 shadow-card transition-colors hover:border-line-strong">
-      <div className="text-[12px] font-medium text-muted">{label}</div>
-      <div className={cx("num text-[22px] font-semibold tracking-tight", tone === "neg" ? "text-neg" : tone === "pos" ? "text-pos" : "text-ink")}>{value}</div>
+    <div className={cx("flex h-full flex-col justify-between rounded-lg border border-line bg-surface shadow-card transition-colors hover:border-line-strong", big ? "gap-2 px-5 py-4" : "gap-1 px-4 py-3")}>
+      <div className={cx("font-medium text-muted", big ? "text-[13px]" : "text-[12px]")}>{label}</div>
+      <div className={cx("num font-semibold tracking-tight", big ? "text-[30px] leading-none sm:text-[34px]" : "text-[22px]", tone === "neg" ? "text-neg" : tone === "pos" ? "text-pos" : "text-ink")}>{value}</div>
       {sub && <div className="truncate text-[12px] text-faint">{sub}</div>}
     </div>
   );

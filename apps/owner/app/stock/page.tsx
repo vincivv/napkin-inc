@@ -7,32 +7,20 @@
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
 import { useData } from "@/data/context";
-import { Badge, Card, Empty, ErrorNote, Loading, Money, OwnerButton, PageHeader, RelTime, Stat, cx, errText, fmtTime, tableCls, tdCls, thCls, type Tone } from "@/components/ui";
-import { productsUsingStock } from "@/lib/config";
+import { Badge, Card, Empty, ErrorNote, Loading, Money, OwnerButton, PageHeader, RelTime, Stat, cx, errText, fmtTime, type Tone } from "@/components/ui";
 import { docLabel, useDocMap, useTz } from "@/lib/hooks";
-import { buildStockChange, canChangeStock, daysLeft, lineValue, PAID_FROM, pendingDeliveries, REMOVE_REASONS, stockItems, type StockChange, type StockDraft, type StockItemView } from "@/lib/stock";
+import { buildStockChange, canChangeStock, daysLeft, lineValue, PAID_FROM, pendingDeliveries, REMOVE_REASONS, stockLevelLabel, type StockChange, type StockDraft, type StockItemView } from "@/lib/stock";
+import { StockCount, StockMeter, useStockItems } from "@/components/widgets";
 import { formatCents } from "@/lib/money";
 import type { StockLevel } from "@/lib/reports";
 import type { DocumentRow } from "@/data/types";
 
 const levelTone: Record<StockLevel, Tone> = { out: "neg", critical: "neg", low: "warn", ok: "pos" };
 
-function levelLabel(v: StockItemView): string {
-  if (v.level === "out") return "Out";
-  if (v.level === "critical") return `Can’t fill ${v.largest?.name ?? "one"}`;
-  if (v.level === "low") return "Running low";
-  return "OK";
-}
-
 export default function StockPage() {
   const { snapshot, session, config } = useData();
   const tz = useTz();
-  const packs = useMemo(() => productsUsingStock(config?.config), [config]);
-  const docs = useDocMap();
-  const items = useMemo(
-    () => stockItems(config?.config, snapshot.registerBalances, snapshot.registerMovements, packs, tz, (id) => docs.get(id)?.docType),
-    [config, snapshot.registerBalances, snapshot.registerMovements, packs, tz, docs],
-  );
+  const items = useStockItems();
   const pending = useMemo(() => pendingDeliveries(snapshot.documents), [snapshot.documents]);
   const [open, setOpen] = useState<string>();
   const [change, setChange] = useState<{ kind: StockChange; item: string }>();
@@ -97,15 +85,16 @@ export default function StockPage() {
       ) : (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label="Items tracked" value={items.length} />
-            <Stat label="Stock value at cost" value={<Money cents={totalValue} />} />
+            <Stat big label="Items tracked" value={items.length} />
+            <Stat big label="Stock value at cost" value={<Money cents={totalValue} />} />
             <Stat
+              big
               label="Need restocking"
               value={attention.length}
               tone={attention.some((v) => v.level === "out" || v.level === "critical") ? "neg" : undefined}
               sub={attention.length ? attention.map((v) => v.name).join(", ") : "Everything is stocked"}
             />
-            <Stat label="Sold today" value={usedToday.toString()} sub="units, across all items" />
+            <Stat big label="Sold today" value={usedToday.toString()} sub="units, across all items" />
           </div>
 
           {placeholder && (
@@ -117,99 +106,65 @@ export default function StockPage() {
           {pending.length > 0 && <PendingDeliveries docs={pending} />}
 
           <Card title="On hand" pad={false}>
-            <div className="overflow-x-auto">
-              <table className={tableCls}>
-                <thead>
-                  <tr>
-                    <th className={thCls}>Item</th>
-                    <th className={cx(thCls, "text-right")}>On hand</th>
-                    <th className={thCls}>Can fill</th>
-                    <th className={cx(thCls, "text-right")}>Sold today</th>
-                    <th className={thCls}>Sold, 7 days</th>
-                    <th className={cx(thCls, "text-right")}>Value at cost</th>
-                    <th className={thCls}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((v) => {
-                    const left = daysLeft(v);
-                    const isOpen = open === v.item;
-                    return (
-                      <Fragment key={v.item}>
-                        <tr
-                          className={cx("cursor-pointer hover:bg-surface-2", v.level !== "ok" && (v.level === "low" ? "bg-warn-soft/40" : "bg-neg-soft/40"))}
-                          onClick={() => setOpen(isOpen ? undefined : v.item)}
-                          aria-expanded={isOpen}
-                        >
-                          <td className={tdCls}>
-                            <div className="font-medium">
-                              <span className="mr-1.5 inline-block w-3 text-faint">{isOpen ? "▾" : "▸"}</span>
-                              {v.name}
-                            </div>
-                            <div className="whitespace-nowrap pl-[18px] text-[11.5px] text-faint">
-                              {v.lastIn ? <>Last added <RelTime ts={v.lastIn.postedAt} /></> : "No stock added yet"}
-                            </div>
-                          </td>
-                          <td className={cx(tdCls, "text-right")}>
-                            <span className={cx("num text-[16px] font-semibold", v.level === "out" || v.level === "critical" ? "text-neg" : v.level === "low" ? "text-warn" : "")}>{v.qty.toString()}</span>
-                            {left !== undefined && <div className="whitespace-nowrap text-[11.5px] text-faint">≈ {left === 0 ? "under a day" : `${left} day${left === 1 ? "" : "s"}`} left</div>}
-                          </td>
-                          <td className={cx(tdCls, "text-[12.5px]")}>
-                            {v.fills.length === 0 ? (
-                              <span className="text-faint">Not used by any item</span>
-                            ) : (
-                              v.fills.map((f) => (
-                                <div key={f.productId} className="whitespace-nowrap">
-                                  <span className="num font-medium">{f.count.toString()}</span> × {f.name}
-                                  {f.units > 1n && <span className="text-faint"> ({f.units.toString()} each)</span>}
-                                </div>
-                              ))
+            <ul className="divide-y divide-line">
+              {items.map((v) => {
+                const left = daysLeft(v);
+                const isOpen = open === v.item;
+                return (
+                  <li key={v.item}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={isOpen}
+                      onClick={() => setOpen(isOpen ? undefined : v.item)}
+                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setOpen(isOpen ? undefined : v.item))}
+                      className="flex cursor-pointer gap-3 px-4 py-4 transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none sm:px-5"
+                    >
+                      <span aria-hidden className="mt-0.5 w-3 shrink-0 text-faint">{isOpen ? "▾" : "▸"}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="truncate text-[15px] font-semibold text-ink">{v.name}</span>
+                            {v.level !== "ok" && (
+                              <Badge tone={levelTone[v.level]} title={v.largest ? `“Can’t fill” is below one ${v.largest.name} (${v.largest.units}); “running low” is below two.` : undefined}>
+                                {stockLevelLabel(v)}
+                              </Badge>
                             )}
-                          </td>
-                          <td className={cx(tdCls, "num text-right")}>{v.usedToday.toString()}</td>
-                          <td className={tdCls}>
+                          </div>
+                          <StockCount v={v} className="text-[14px]" />
+                        </div>
+                        <StockMeter v={v} className="mt-2.5" />
+                        <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-muted">
+                          <span>
+                            {v.fills.length === 0
+                              ? "Not used by any item"
+                              : <>Can fill {v.fills.map((f, i) => <Fragment key={f.productId}>{i > 0 && ", "}<span className="num font-medium text-ink">{f.count.toString()}</span> × {f.name}</Fragment>)}</>}
+                          </span>
+                          {left !== undefined && <span>≈ {left === 0 ? "under a day" : `${left} day${left === 1 ? "" : "s"}`} left</span>}
+                          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="num">{v.usedToday.toString()}</span> sold today
+                            <span className="text-faint">·</span>
                             <Spark daily={v.daily} />
-                          </td>
-                          <td className={cx(tdCls, "text-right")}>
-                            <Money cents={v.valueCents} muted0 />
-                            {v.unitCostCents !== undefined && (
-                              <div className="text-[11.5px] text-faint">
-                                <Money cents={v.unitCostCents} /> each
-                              </div>
-                            )}
-                          </td>
-                          <td className={tdCls}>
-                            <Badge
-                              tone={levelTone[v.level]}
-                              title={v.largest ? `“Can’t fill” is below one ${v.largest.name} (${v.largest.units}); “running low” is below two.` : undefined}
-                            >
-                              {levelLabel(v)}
-                            </Badge>
-                            {editable && (
-                              <div className="-ml-1.5 mt-1 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                              <button className="rounded px-1.5 py-0.5 text-[12px] font-medium text-accent-ink hover:bg-accent-soft" onClick={() => start("add", v.item)}>
-                                + Add
-                              </button>
-                              <button className="rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40" disabled={v.qty <= 0n} onClick={() => start("remove", v.item)}>
-                                Remove
-                              </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                        {isOpen && (
-                          <tr>
-                            <td colSpan={7} className="border-b border-line bg-surface-2/60 px-4 py-3">
-                              <History v={v} tz={tz} />
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                            <span className="text-faint">7 days</span>
+                          </span>
+                          <span>
+                            <Money cents={v.valueCents} muted0 /> at cost
+                          </span>
+                          <span className="text-faint">{v.lastIn ? <>Last added <RelTime ts={v.lastIn.postedAt} /></> : "No stock added yet"}</span>
+                        </div>
+                        {editable && <StockRowActions v={v} onStart={start} className="-ml-2 mt-2 flex sm:hidden" />}
+                      </div>
+                      {editable && <StockRowActions v={v} onStart={start} className="hidden sm:flex" />}
+                    </div>
+                    {isOpen && (
+                      <div className="border-t border-line bg-surface-2/60 px-4 py-3 sm:pl-11">
+                        <History v={v} tz={tz} />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           </Card>
           <p className="text-[12px] text-faint">
             Counts come from your books: starting stock and stock you add go in, sales and stock you remove come out, refunds don’t put items back. Click a row to see every change.
@@ -221,6 +176,19 @@ export default function StockPage() {
 }
 
 /** Seven small bars, one per day, so a busy day stands out. */
+function StockRowActions({ v, onStart, className }: { v: StockItemView; onStart: (kind: StockChange, item: string) => void; className?: string }) {
+  return (
+    <div className={cx("shrink-0 items-start gap-1", className)} onClick={(e) => e.stopPropagation()}>
+      <button className="rounded px-2 py-0.5 text-[12.5px] font-medium text-accent-ink hover:bg-accent-soft" onClick={() => onStart("add", v.item)}>
+        + Add
+      </button>
+      <button className="rounded px-2 py-0.5 text-[12.5px] text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40" disabled={v.qty <= 0n} onClick={() => onStart("remove", v.item)}>
+        Remove
+      </button>
+    </div>
+  );
+}
+
 function Spark({ daily }: { daily: StockItemView["daily"] }) {
   const max = daily.reduce((m, d) => (d.used > m ? d.used : m), 0n);
   const total = daily.reduce((s, d) => s + d.used, 0n);

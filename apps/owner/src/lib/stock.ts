@@ -14,6 +14,11 @@ export interface StockItemView {
   item: string;
   name: string;
   qty: bigint;
+  /**
+   * What "full" means for the bar ("94 / 100"): the count right after stock last came in (starting stock or a
+   * delivery), less anything taken off by hand since (a removal, or reversing a delivery). Never below qty.
+   */
+  full: bigint;
   valueCents: bigint;
   /** catalog unit cost, else value ÷ quantity; undefined when neither is known */
   unitCostCents: bigint | undefined;
@@ -50,9 +55,10 @@ export function stockItems(
   movements: readonly RegisterMovementRow[],
   packs: Map<string, { productId: string; name: string; units: bigint }[]>,
   timeZone: string,
-  docTypeOf: (documentId: bigint) => string | undefined,
+  docOf: (documentId: bigint) => Pick<DocumentRow, "docType" | "reversalOf"> | undefined,
   nowMs = Date.now(),
 ): StockItemView[] {
+  const docTypeOf = (id: bigint) => docOf(id)?.docType;
   const catalog = config?.catalogs.find((c) => c.lineKey === "stockItem")?.entries ?? [];
   const bal = new Map<string, RegisterBalanceRow>();
   for (const b of balances) if (b.registerId === STOCK_REGISTER) bal.set(parseDims(b.dimsKey)[STOCK_DIM] ?? b.dimsKey, b);
@@ -86,6 +92,7 @@ export function stockItems(
         item,
         name: String(entry?.data["name"] ?? item),
         qty,
+        full: fullLevel(ms, qty, docOf),
         valueCents,
         unitCostCents: dollarsToCents(entry?.data["unitCost"]) ?? (qty > 0n ? valueCents / qty : undefined),
         level: stockLevel(qty, largest?.units),
@@ -99,6 +106,42 @@ export function stockItems(
       };
     })
     .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level] || a.name.localeCompare(b.name));
+}
+
+/** "Out", "Can’t fill Pack of 5", "Running low" or "OK". */
+export function stockLevelLabel(v: Pick<StockItemView, "level" | "largest">): string {
+  if (v.level === "out") return "Out";
+  if (v.level === "critical") return `Can’t fill ${v.largest?.name ?? "one"}`;
+  if (v.level === "low") return "Running low";
+  return "OK";
+}
+
+/** See StockItemView.full. `newestFirst` is the item's movements, newest first. */
+export function fullLevel(
+  newestFirst: readonly RegisterMovementRow[],
+  qty: bigint,
+  docOf: (documentId: bigint) => Pick<DocumentRow, "docType" | "reversalOf"> | undefined,
+): bigint {
+  let balance = 0n;
+  let full = 0n;
+  // Each time stock came in, what "full" was before, so reversing that delivery puts it back.
+  const fills: { doc: bigint; before: bigint }[] = [];
+  for (let i = newestFirst.length - 1; i >= 0; i--) {
+    const m = newestFirst[i]!;
+    const units = m.qty < 0n ? -m.qty : m.qty;
+    const doc = docOf(m.documentId);
+    balance += m.kind === "in" ? units : -units;
+    if (doc?.docType === "sale") continue;
+    if (m.kind === "in") {
+      fills.push({ doc: m.documentId, before: full });
+      full = balance;
+    } else if (doc?.reversalOf && fills.at(-1)?.doc === doc.reversalOf) {
+      full = fills.pop()!.before;
+    } else {
+      full -= units;
+    }
+  }
+  return full > qty ? full : qty;
 }
 
 const LEVEL_ORDER: Record<StockLevel, number> = { out: 0, critical: 1, low: 2, ok: 3 };
