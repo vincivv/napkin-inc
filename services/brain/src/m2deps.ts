@@ -11,7 +11,7 @@ import { labelFor, moneyBlockers, moneyReady } from "./questions/engine";
 import { isMoneyRelevant, moneyImpact } from "./questions/impact";
 import { showValue } from "./spec/coerce";
 import { listFacts, isMissing } from "./spec/paths";
-import { BUSINESS_ID_RE, type SpecStore, type StoredSpec } from "./spec/store";
+import { BUSINESS_ID_RE, photosOf, type SpecStore, type StoredSpec } from "./spec/store";
 
 export interface OwnerStatementRow {
   id: bigint;
@@ -83,7 +83,8 @@ export function specView(rec: StoredSpec) {
     moneyReady: moneyReady(rec.spec),
     blockers: moneyBlockers(rec.spec),
     counts: countByProvenance(rec.spec),
-    hasPhoto: Boolean(rec.photo),
+    hasPhoto: photosOf(rec).length > 0,
+    photoCount: photosOf(rec).length,
     drafts: { photo: Boolean(rec.drafts.photo), voice: Boolean(rec.drafts.voice) },
   };
 }

@@ -7,6 +7,9 @@ import { Button, Card, Empty, ErrorNote, errText, Loading, PageHeader, Badge, cx
 import { Confidence, Confirmed, EditValue, ProvenanceBadge, regionColor } from "@/components/facts";
 import { brain, BrainError, type FactRow, type SpecResponse } from "@/lib/brain";
 
+/** the brain keeps at most this many photos per shop (MAX_PHOTOS in services/brain/src/spec/store.ts) */
+const MAX_PHOTOS = 6;
+
 export default function IntakePage() {
   const { snapshot } = useData();
   const businessId = snapshot.businessId;
@@ -15,7 +18,8 @@ export default function IntakePage() {
   const [busy, setBusy] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [hover, setHover] = useState<string | undefined>();
-  const [localPhoto, setLocalPhoto] = useState<string | undefined>();
+  /** photos on their way to the brain, shown until the stored copies come back (append: after the stored ones) */
+  const [pending, setPending] = useState<{ urls: string[]; append: boolean } | undefined>();
   const [typed, setTyped] = useState("");
   const [rec, setRec] = useState<{ recorder: MediaRecorder; chunks: Blob[]; startedAt: number } | undefined>();
   const [secs, setSecs] = useState(0);
@@ -49,17 +53,44 @@ export default function IntakePage() {
     }
   }
 
-  function onFile(f: File | undefined) {
-    if (!f) return;
-    setLocalPhoto(URL.createObjectURL(f));
-    void run("Reading the photo", () => brain.uploadPhoto(businessId, f));
+  function clearPending() {
+    setPending((p) => {
+      p?.urls.forEach((u) => URL.revokeObjectURL(u));
+      return undefined;
+    });
+  }
+
+  /** Send the chosen photos; with `append` they join the ones already there and all are read again together. */
+  function onFiles(list: FileList | File[] | null | undefined, append: boolean) {
+    const files = [...(list ?? [])];
+    if (fileRef.current) fileRef.current.value = "";
+    if (!files.length) return;
+    const total = (append ? photoCount : 0) + files.length;
+    if (total > MAX_PHOTOS) {
+      setError(`Up to ${MAX_PHOTOS} photos. ${append ? `You have ${photoCount}, so add at most ${MAX_PHOTOS - photoCount} more.` : "Pick fewer."}`);
+      return;
+    }
+    clearPending();
+    setPending({ urls: files.map((f) => URL.createObjectURL(f)), append });
+    void run("Reading the photo", async () => {
+      try {
+        return await brain.uploadPhotos(businessId, files, append);
+      } catch (e) {
+        clearPending();
+        throw e;
+      }
+    });
+  }
+  function pickFiles(append: boolean) {
+    appendRef.current = append;
+    fileRef.current?.click();
   }
 
   /** "No paper handy?": the bundled demo sketch (fixtures/demo), uploaded like any photo. */
   async function loadSample() {
     try {
       const blob = await (await fetch("/sample-napkin.png")).blob();
-      onFile(new File([blob], "sample-napkin.png", { type: "image/png" }));
+      onFiles([new File([blob], "sample-napkin.png", { type: "image/png" })], false);
     } catch (e) {
       setError(`Could not load the sample: ${errText(e)}`);
     }
@@ -111,40 +142,47 @@ export default function IntakePage() {
     void run("Removing", () => brain.removeFact(businessId, f.path));
   }
 
-  /** Undo an accidental photo: the brain forgets it and every fact read only from it; typed and spoken facts stay. */
-  function removePhoto() {
-    if (!window.confirm("Remove this photo? Everything I read only from it is forgotten. What you typed or said stays.")) return;
+  /** Undo an accidental photo (`i`), or all of them: the brain forgets what it read only from them; typed and spoken facts stay. */
+  function removePhoto(i?: number) {
+    const what = i === undefined ? (photoCount > 1 ? `all ${photoCount} photos` : "this photo") : `photo ${i + 1}`;
+    const rest = i !== undefined && photoCount > 1 ? " I read the other photos again." : "";
+    const it = i === undefined && photoCount > 1 ? "them" : "it";
+    if (!window.confirm(`Remove ${what}? Everything I read only from ${it} is forgotten. What you typed or said stays.${rest}`)) return;
     void run("Removing the photo", async () => {
-      const r = await brain.removePhoto(businessId);
-      if (localPhoto) URL.revokeObjectURL(localPhoto);
-      setLocalPhoto(undefined);
-      setStoredPhoto(undefined);
-      if (fileRef.current) fileRef.current.value = "";
+      const r = await brain.removePhoto(businessId, photoCount > 1 ? i : undefined);
+      clearPending();
       return r;
     });
   }
 
-  const [storedPhoto, setStoredPhoto] = useState<string | undefined>();
-  const hasPhoto = Boolean(spec?.hasPhoto);
+  const appendRef = useRef(false);
+  const [stored, setStored] = useState<string[]>([]);
+  const photoCount = spec ? (spec.photoCount ?? (spec.hasPhoto ? 1 : 0)) : 0;
   const specVersion = spec?.version ?? 0;
   useEffect(() => {
-    if (!hasPhoto || localPhoto) return;
-    let url: string | undefined;
+    let urls: string[] = [];
     let live = true;
-    brain
-      .photoObjectUrl(businessId, specVersion)
+    if (!photoCount) {
+      setStored([]);
+      return;
+    }
+    Promise.all(Array.from({ length: photoCount }, (_, i) => brain.photoObjectUrl(businessId, specVersion, i)))
       .then((u) => {
-        url = u;
-        if (live) setStoredPhoto(u);
-        else URL.revokeObjectURL(u);
+        urls = u;
+        if (!live) return u.forEach((x) => URL.revokeObjectURL(x));
+        setStored(u);
+        // the stored copies are here: drop the local previews
+        clearPending();
       })
       .catch(() => undefined);
     return () => {
       live = false;
-      if (url) URL.revokeObjectURL(url);
+      urls.forEach((x) => URL.revokeObjectURL(x));
     };
-  }, [businessId, hasPhoto, specVersion, localPhoto]);
-  const photoSrc = localPhoto ?? (hasPhoto ? storedPhoto : undefined);
+  }, [businessId, photoCount, specVersion]);
+  const shown: { src: string; index?: number }[] = pending
+    ? [...(pending.append ? stored.map((src, index) => ({ src, index })) : []), ...pending.urls.map((src) => ({ src }))]
+    : stored.map((src, index) => ({ src, index }));
   const withRegion = (spec?.facts ?? []).filter((f) => f.fact.source.region && f.fact.source.kind === "photo" && !f.missing);
 
   return (
@@ -157,37 +195,67 @@ export default function IntakePage() {
       <ErrorNote error={error} />
       <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <div className="space-y-4">
-          <Card title="1 · Photo" actions={busy === "Reading the photo" && <Loading label="Reading…" />}>
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
+          <Card title={photoCount > 1 ? `1 · Photos (${photoCount})` : "1 · Photo"} actions={busy === "Reading the photo" && <Loading label="Reading…" />}>
+            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => onFiles(e.target.files, appendRef.current)} />
             <div className="mb-3 flex flex-wrap gap-2">
-              <Button variant="primary" onClick={() => fileRef.current?.click()} disabled={!!busy}>{photoSrc ? "Replace photo" : "Take or upload a photo"}</Button>
-              {photoSrc && <Button variant="danger" onClick={removePhoto} disabled={!!busy}>{busy === "Removing the photo" ? "Removing…" : "Remove photo"}</Button>}
-              {!photoSrc && <Button onClick={() => void loadSample()} disabled={!!busy}>No paper handy? Use a sample</Button>}
+              {shown.length ? (
+                <>
+                  <Button variant="primary" onClick={() => pickFiles(true)} disabled={!!busy || photoCount >= MAX_PHOTOS} title={photoCount >= MAX_PHOTOS ? `Up to ${MAX_PHOTOS} photos` : "Another page, the back side, a second sheet"}>
+                    Add photos
+                  </Button>
+                  <Button onClick={() => pickFiles(false)} disabled={!!busy}>Replace all</Button>
+                  <Button variant="danger" onClick={() => removePhoto()} disabled={!!busy}>{busy === "Removing the photo" ? "Removing…" : photoCount > 1 ? "Remove all" : "Remove photo"}</Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="primary" onClick={() => pickFiles(false)} disabled={!!busy}>Take or upload photos</Button>
+                  <Button onClick={() => void loadSample()} disabled={!!busy}>No paper handy? Use a sample</Button>
+                </>
+              )}
               {spec?.drafts.photo && spec.drafts.voice && <Button onClick={() => run("Merging", () => brain.merge(businessId))} disabled={!!busy}>Re-merge photo and voice</Button>}
             </div>
-            {photoSrc ? (
-              <div className="relative overflow-hidden rounded-md border border-line bg-surface-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photoSrc} alt="Your paper" className="block w-full" />
-                {withRegion.map((f) => {
-                  const r = f.fact.source.region!;
-                  const active = hover === f.path;
-                  return (
-                    <div
-                      key={f.path}
-                      onMouseEnter={() => setHover(f.path)}
-                      onMouseLeave={() => setHover(undefined)}
-                      title={`${f.label}: ${f.display}`}
-                      className="absolute rounded-[3px] transition-all"
-                      style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%`, border: `2px solid ${regionColor[f.fact.provenance]}`, background: active ? `color-mix(in srgb, ${regionColor[f.fact.provenance]} 30%, transparent)` : `color-mix(in srgb, ${regionColor[f.fact.provenance]} 8%, transparent)`, opacity: hover && !active ? 0.35 : 1 }}
-                    >
-                      {active && <span className="absolute -top-6 left-0 whitespace-nowrap rounded bg-ink px-1.5 py-0.5 text-[11px] text-canvas">{f.display}</span>}
-                    </div>
-                  );
-                })}
+            {shown.length ? (
+              <div className="space-y-3">
+                {shown.map(({ src, index }, n) => (
+                  <figure key={src} className="m-0">
+                    {shown.length > 1 && (
+                      <figcaption className="mb-1 flex items-center justify-between text-[12px] text-muted">
+                        <span>
+                          Photo {n + 1} of {shown.length}
+                          {index === undefined && " · reading…"}
+                        </span>
+                        {index !== undefined && photoCount > 1 && (
+                          <button type="button" onClick={() => removePhoto(index)} disabled={!!busy} className="font-medium text-neg hover:underline disabled:opacity-50">
+                            Remove
+                          </button>
+                        )}
+                      </figcaption>
+                    )}
+                  <div className="relative overflow-hidden rounded-md border border-line bg-surface-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={shown.length > 1 ? `Your paper, photo ${n + 1}` : "Your paper"} className="block w-full" />
+                    {index !== undefined && withRegion.filter((f) => (f.fact.source.region!.photo ?? 0) === index).map((f) => {
+                      const r = f.fact.source.region!;
+                      const active = hover === f.path;
+                      return (
+                        <div
+                          key={f.path}
+                          onMouseEnter={() => setHover(f.path)}
+                          onMouseLeave={() => setHover(undefined)}
+                          title={`${f.label}: ${f.display}`}
+                          className="absolute rounded-[3px] transition-all"
+                          style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%`, border: `2px solid ${regionColor[f.fact.provenance]}`, background: active ? `color-mix(in srgb, ${regionColor[f.fact.provenance]} 30%, transparent)` : `color-mix(in srgb, ${regionColor[f.fact.provenance]} 8%, transparent)`, opacity: hover && !active ? 0.35 : 1 }}
+                        >
+                          {active && <span className="absolute -top-6 left-0 whitespace-nowrap rounded bg-ink px-1.5 py-0.5 text-[11px] text-canvas">{f.display}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  </figure>
+                ))}
               </div>
             ) : (
-              <Empty compact title="No photo yet" hint="A menu, a price list, a whiteboard or a sketch on paper. I will box each thing I read." />
+              <Empty compact title="No photo yet" hint={`A menu, a price list, a whiteboard or a sketch on paper. Several pages? Pick them together (up to ${MAX_PHOTOS}). I will box each thing I read.`} />
             )}
             {spec?.notes && <p className="mt-2 text-[12px] text-muted">Note from the reader: {spec.notes}</p>}
           </Card>

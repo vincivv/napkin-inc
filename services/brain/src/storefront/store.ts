@@ -21,6 +21,17 @@ export class DesignStore {
     if (!ok.success) log.warn("design", `saved design for ${businessId} fails the schema; ignoring it`);
     return ok.success ? ok.data : undefined;
   }
+  /** Forget the business's design; returns the uploaded media files it referenced, for the caller to delete. */
+  remove(businessId: string): string[] {
+    let media: string[] = [];
+    this.file.update((all) => {
+      const raw = all[businessId];
+      if (raw === undefined) return;
+      media = [...new Set([...JSON.stringify(raw).matchAll(/\/media\/([A-Za-z0-9_-]{22}\.(?:jpg|png|webp))\b/g)].map((m) => m[1]!))];
+      delete all[businessId];
+    });
+    return media;
+  }
   put(design: StorefrontDesign): void {
     const d = StorefrontDesign.parse(design);
     this.file.update((all) => {

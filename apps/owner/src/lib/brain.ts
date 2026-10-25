@@ -9,7 +9,8 @@ export interface FactView {
   provenance: "owner_said" | "paper" | "inferred";
   confidence: number;
   confirmed: boolean;
-  source: { kind: string; ref: string; quote?: string; region?: { x: number; y: number; w: number; h: number } };
+  /** region.photo: which of the owner's photos the box is on (0-based; absent = the first) */
+  source: { kind: string; ref: string; quote?: string; region?: { x: number; y: number; w: number; h: number; photo?: number } };
 }
 export interface FactRow {
   path: string;
@@ -28,6 +29,8 @@ export interface SpecResponse {
   counts: { paper: number; owner_said: number; inferred: number; missing: number; confirmed: number; total: number };
   facts: FactRow[];
   hasPhoto: boolean;
+  /** how many photos are stored (older brains only say hasPhoto) */
+  photoCount?: number;
   drafts: { photo: boolean; voice: boolean };
   transcript?: string;
   notes?: string;
@@ -149,21 +152,23 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 const json = (body: unknown): RequestInit => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 export const brain = {
-  /** The paper photo as an object URL (fetched with the session; an <img src> could not send it). */
-  async photoObjectUrl(businessId: string, v: number): Promise<string> {
-    const res = await fetch(`${BRAIN_URL}/intake/photo/${businessId}?v=${v}`, { headers: authHeaders() });
+  /** One of the paper photos as an object URL (fetched with the session; an <img src> could not send it). */
+  async photoObjectUrl(businessId: string, v: number, i = 0): Promise<string> {
+    const res = await fetch(`${BRAIN_URL}/intake/photo/${businessId}?v=${v}&i=${i}`, { headers: authHeaders() });
     if (!res.ok) throw new BrainError(res.status, `photo unavailable (${res.status})`);
     return URL.createObjectURL(await res.blob());
   },
   spec: (b: string) => req<SpecResponse>(`/spec/${b}`),
-  uploadPhoto(businessId: string, file: File) {
+  /** Send photos to be read together; `append` keeps the ones already there (all are read again), else they are replaced. */
+  uploadPhotos(businessId: string, files: File[], append = false) {
     const fd = new FormData();
     fd.set("businessId", businessId);
-    fd.set("image", file);
+    for (const f of files) fd.append("image", f);
+    if (append) fd.set("append", "true");
     return req<SpecResponse>("/intake/photo", { method: "POST", body: fd });
   },
-  /** Forget the photo and everything read only from it (typed and spoken facts stay). */
-  removePhoto: (b: string) => req<SpecResponse>(`/intake/photo/${encodeURIComponent(b)}`, { method: "DELETE" }),
+  /** Remove photo `i` (the rest are read again), or all photos and everything read only from them (typed and spoken facts stay). */
+  removePhoto: (b: string, i?: number) => req<SpecResponse>(`/intake/photo/${encodeURIComponent(b)}${i === undefined ? "" : `?i=${i}`}`, { method: "DELETE" }),
   /** The owner types the right value for a fact (it becomes their own confirmed word). */
   editFact: (businessId: string, path: string, value: string) => req<SpecResponse>("/intake/edit", json({ businessId, path, value })),
   /** Remove an item (by its name's path) or forget a value. */

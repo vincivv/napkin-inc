@@ -18,6 +18,10 @@ export class LegalStore {
     return path.join(this.dir, `${businessId}.json`);
   }
 
+  remove(businessId: string): void {
+    fs.rmSync(this.file(businessId), { force: true });
+  }
+
   get(businessId: string): LegalChecklist | undefined {
     try {
       return JSON.parse(fs.readFileSync(this.file(businessId), "utf8")) as LegalChecklist;

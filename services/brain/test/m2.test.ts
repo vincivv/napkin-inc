@@ -20,7 +20,7 @@ import { SpecStore } from "../src/spec/store";
 import { unitsPerSale } from "../src/spec/stock";
 import { Hono } from "hono";
 
-const rf = (value: string, o: Partial<{ confidence: number; provenance: "paper" | "inferred"; quote: string; region: { x: number; y: number; w: number; h: number } }> = {}) => ({
+const rf = (value: string, o: Partial<{ confidence: number; provenance: "paper" | "inferred"; quote: string; region: { x: number; y: number; w: number; h: number; photo?: number } }> = {}) => ({
   value,
   confidence: o.confidence ?? 0.9,
   provenance: o.provenance ?? ("paper" as const),
@@ -739,5 +739,95 @@ describe("routes", () => {
     expect(list.statements[0]!.status).toBe("applied");
     expect(getFact(h.deps.store.get("maya-cookies")!.spec, "policies.maxDiscountPct")!.value).toBe("0");
     expect(h.platform.marked).toEqual([7n]);
+  });
+});
+
+describe("several photos", () => {
+  const page2: Extracted = {
+    business: { name: rf("Maya's Cookies", { region: { x: 0.1, y: 0.05, w: 0.6, h: 0.1, photo: 1 } }) },
+    offerings: [
+      { name: rf("Chocolate chip cookie"), variants: [{ name: rf("Single"), price: rf("3", { quote: "$3", region: { x: 0.1, y: 0.2, w: 0.5, h: 0.08, photo: 1 } }) }], addOns: [] },
+      { name: rf("Brownie"), variants: [{ name: rf("Brownie"), price: rf("4", { quote: "brownie $4", region: { x: 0.2, y: 0.5, w: 0.4, h: 0.08, photo: 2 } }) }], addOns: [] },
+    ],
+  };
+  const imagesIn = (r: ToolRequest) => r.content.filter((c) => c.type === "image").length;
+  const labels = (r: ToolRequest) => r.content.flatMap((c) => (c.type === "text" && /^Photo \d of \d:$/.test(c.text) ? [c.text] : []));
+  const upload = (app: Hono, n: number, append = false) => {
+    const fd = new FormData();
+    fd.set("businessId", "maya-cookies");
+    for (let i = 0; i < n; i++) fd.append("image", new File([new Uint8Array([137, 80, 78, 71, i])], `page${i + 1}.png`, { type: "image/png" }));
+    if (append) fd.set("append", "true");
+    return app.request("/intake/photo", { method: "POST", body: fd });
+  };
+  const view = async (app: Hono) => (await (await app.request("/spec/maya-cookies")).json()) as { photoCount: number; hasPhoto: boolean; spec: BusinessSpec };
+
+  it("reads several photos in one pass and remembers which photo each box is on", async () => {
+    const llm = new FakeLlm(() => page2);
+    const h = harness(llm);
+    expect((await upload(h.app, 2)).status).toBe(200);
+    expect(llm.calls).toHaveLength(1);
+    expect(imagesIn(llm.calls[0]!)).toBe(2);
+    expect(labels(llm.calls[0]!)).toEqual(["Photo 1 of 2:", "Photo 2 of 2:"]);
+    const v = await view(h.app);
+    expect(v.photoCount).toBe(2);
+    expect(getFact(v.spec, "offerings.brownie.variants.brownie.price")!.source.region).toMatchObject({ photo: 1 });
+    expect(getFact(v.spec, "offerings.chocolate-chip-cookie.variants.single.price")!.source.region).toMatchObject({ photo: 0 });
+    const second = await h.app.request("/intake/photo/maya-cookies?i=1");
+    expect(second.status).toBe(200);
+    expect([...new Uint8Array(await second.arrayBuffer())]).toEqual([137, 80, 78, 71, 1]);
+    expect((await h.app.request("/intake/photo/maya-cookies?i=2")).status).toBe(404);
+  });
+
+  it("adding photos reads the old and new ones together; replacing drops the old files; at most 6", async () => {
+    const llm = new FakeLlm(() => page2);
+    const h = harness(llm);
+    await upload(h.app, 1);
+    expect((await upload(h.app, 2, true)).status).toBe(200);
+    expect(imagesIn(llm.calls[1]!)).toBe(3);
+    expect((await view(h.app)).photoCount).toBe(3);
+    expect((await upload(h.app, 4, true)).status).toBe(413);
+    const files = () => fs.readdirSync(path.join(h.dir, "specs")).filter((f) => f.includes(".photo-"));
+    expect(files()).toHaveLength(3);
+    expect((await upload(h.app, 1)).status).toBe(200); // no append: replaces all three
+    expect((await view(h.app)).photoCount).toBe(1);
+    expect(files()).toHaveLength(1);
+  });
+
+  it("removing one photo re-reads the rest; removing the last forgets what only photos said", async () => {
+    const llm = new FakeLlm(() => page2);
+    const h = harness(llm);
+    await upload(h.app, 2);
+    const one = await h.app.request("/intake/photo/maya-cookies?i=0", { method: "DELETE" });
+    expect(one.status).toBe(200);
+    expect(llm.calls).toHaveLength(2);
+    expect(imagesIn(llm.calls[1]!)).toBe(1);
+    const left = await h.app.request("/intake/photo/maya-cookies?i=0");
+    expect([...new Uint8Array(await left.arrayBuffer())]).toEqual([137, 80, 78, 71, 1]); // page 2 stayed
+    expect((await h.app.request("/intake/photo/maya-cookies?i=5", { method: "DELETE" })).status).toBe(404);
+    expect((await h.app.request("/intake/photo/maya-cookies", { method: "DELETE" })).status).toBe(200);
+    const v = await view(h.app);
+    expect(v.hasPhoto).toBe(false);
+    expect(v.photoCount).toBe(0);
+  });
+
+  it("a box with no or an impossible photo number is dropped when there are several photos", () => {
+    const ex: Extracted = { business: { name: rf("X", { region: { x: 0.1, y: 0.1, w: 0.2, h: 0.1 } }), oneLiner: rf("y", { region: { x: 0.1, y: 0.1, w: 0.2, h: 0.1, photo: 3 } }) }, offerings: [] };
+    const s = assembleSpec(ex, { mode: "photo", ref: "a, b", photos: 2 }).spec;
+    expect(getFact(s, "business.name")!.source.region).toBeUndefined();
+    expect(getFact(s, "business.oneLiner")!.source.region).toBeUndefined();
+    const single = assembleSpec(ex, { mode: "photo", ref: "a" }).spec;
+    expect(getFact(single, "business.name")!.source.region).toEqual({ x: 0.1, y: 0.1, w: 0.2, h: 0.1 });
+  });
+
+  it("an old record with a single photo still reads as one photo", async () => {
+    const h = harness(new FakeLlm(() => napkin));
+    await upload(h.app, 1);
+    const file = path.join(h.dir, "specs", "maya-cookies.json");
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    raw.photo = raw.photos[0];
+    delete raw.photos;
+    fs.writeFileSync(file, JSON.stringify(raw));
+    expect((await view(h.app)).photoCount).toBe(1);
+    expect((await h.app.request("/intake/photo/maya-cookies")).status).toBe(200);
   });
 });

@@ -376,6 +376,7 @@ function routes(o: { images?: ImageResolver; waitMs?: number } = {}) {
     businessIdTaken: () => false,
     businessExists: () => true,
     createOwnerGrant: async () => undefined,
+    deleteBusiness: async () => undefined,
     clientKey: () => "t",
     limits: { perClient: new RateLimiter(1000, 60_000), global: new RateLimiter(10_000, 60_000) },
   });

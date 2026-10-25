@@ -6,17 +6,23 @@ import { describe, expect, it } from "vitest";
 import { AccountStore, businessGate, ensureSeedAccount, GATED_PATHS, hashPassword, registerAccountRoutes, slugify, verifyPassword } from "../src/accounts";
 import { RateLimiter } from "../src/auth";
 
-function harness(opts: { live?: string[]; taken?: string[]; perClient?: number } = {}) {
+function harness(opts: { live?: string[]; taken?: string[]; perClient?: number; failDelete?: boolean } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "napkin-accounts-"));
   const store = new AccountStore(dir);
   const live = new Set(opts.live ?? []);
   const grants: { code: string; businessId: string }[] = [];
+  const deleted: string[] = [];
   const app = new Hono();
   registerAccountRoutes(app, {
     store,
     businessIdTaken: (id) => live.has(id) || (opts.taken ?? []).includes(id),
     businessExists: (id) => live.has(id),
     createOwnerGrant: async (g) => void grants.push(g),
+    deleteBusiness: async (id) => {
+      if (opts.failDelete) throw new Error("platform unreachable");
+      deleted.push(id);
+      live.delete(id);
+    },
     clientKey: () => "test",
     limits: { perClient: new RateLimiter(opts.perClient ?? 1000, 60_000), global: new RateLimiter(10_000, 60_000) },
   });
@@ -37,7 +43,7 @@ function harness(opts: { live?: string[]; taken?: string[]; perClient?: number }
     return { status: r.status, body: (await r.json()) as Record<string, any> };
   };
   const signup = async (email = "sam@example.com", password = "correct horse") => (await call("POST", "/accounts/signup", { email, password })).body as { token: string; account: { id: string } };
-  return { store, live, grants, call, signup, dir };
+  return { store, live, grants, deleted, call, signup, dir };
 }
 
 describe("passwords and slugs", () => {
@@ -108,6 +114,36 @@ describe("account routes", () => {
     expect(h.grants).toEqual([expect.objectContaining({ businessId: "tacos", code: g.body.code })]);
     expect((await h.call("POST", "/accounts/owner-grant")).status).toBe(401);
   });
+  it("deletes the account's business after the name is typed; the account can then start a new one", async () => {
+    const h = harness();
+    const { token } = await h.signup();
+    expect((await h.call("POST", "/accounts/business/delete", { confirm: "x" }, token)).status).toBe(409); // nothing to delete yet
+    await h.call("POST", "/accounts/business", { name: "Maya's Cookies" }, token);
+    h.live.add("mayas-cookies");
+    const wrong = await h.call("POST", "/accounts/business/delete", { confirm: "Maya" }, token);
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error).toContain("Maya's Cookies");
+    expect(h.deleted).toEqual([]);
+    expect((await h.call("POST", "/accounts/business/delete", { confirm: "maya’s  cookies" })).status).toBe(401);
+
+    const ok = await h.call("POST", "/accounts/business/delete", { confirm: " maya’s  cookies " }, token);
+    expect(ok.status).toBe(200);
+    expect(ok.body.account).toMatchObject({ businessId: null, businessName: null });
+    expect(h.deleted).toEqual(["mayas-cookies"]);
+    expect((await h.call("GET", "/accounts/me", undefined, token)).body.account.businessId).toBeNull();
+    // the slug is free again
+    const again = await h.call("POST", "/accounts/business", { name: "Maya's Cookies" }, token);
+    expect(again.body.account.businessId).toBe("mayas-cookies");
+  });
+
+  it("keeps the business bound to the account when the delete fails, so it can be retried", async () => {
+    const h = harness({ failDelete: true });
+    const { token } = await h.signup();
+    await h.call("POST", "/accounts/business", { name: "Tacos" }, token);
+    await expect(h.call("POST", "/accounts/business/delete", { confirm: "tacos" }, token)).rejects.toThrow();
+    expect((await h.call("GET", "/accounts/me", undefined, token)).body.account.businessId).toBe("tacos");
+  });
+
   it("rate-limits signup/login attempts", async () => {
     const h = harness({ perClient: 3 });
     for (let i = 0; i < 3; i++) await h.call("POST", "/accounts/login", { email: "x@example.com", password: "whatever1" });

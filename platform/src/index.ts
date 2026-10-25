@@ -149,6 +149,44 @@ export const registerBusiness = spacetimedb.reducer({ id: t.string(), name: t.st
 );
 
 /**
+ * system: delete a business and every row that belongs to it (books, orders, catalog, roles, inbox, audit).
+ * The brain calls this only after the signed-in owner confirmed by typing the business name. What remains is
+ * one platform-level audit row (businessId "*") saying it was deleted, so the slug can be reused.
+ */
+export const deleteBusiness = spacetimedb.reducer({ businessId: t.string() }, (ctx, args) =>
+  run("deleteBusiness", () => {
+    requireSystemActor(ctx);
+    const biz = getBusiness(ctx, args.businessId);
+    const id = biz.id;
+    const orderIds = new Set([...ctx.db.customerOrder.businessId.filter(id)].map((o) => o.id));
+    let rows = 0;
+    const drop = <R,>(table: { delete(row: R): boolean }, list: Iterable<R>) => {
+      for (const row of [...list]) if (table.delete(row)) rows++;
+    };
+    drop(ctx.db.configVersion, ctx.db.configVersion.businessId.filter(id));
+    drop(ctx.db.actor, ctx.db.actor.businessId.filter(id));
+    drop(ctx.db.roleGrant, [...ctx.db.roleGrant.iter()].filter((g) => g.businessId === id));
+    drop(ctx.db.catalogItem, ctx.db.catalogItem.businessId.filter(id));
+    drop(ctx.db.document, ctx.db.document.businessId.filter(id));
+    drop(ctx.db.journalLine, ctx.db.journalLine.businessId.filter(id));
+    drop(ctx.db.registerMovement, ctx.db.registerMovement.businessId.filter(id));
+    drop(ctx.db.registerBalance, ctx.db.registerBalance.businessId.filter(id));
+    drop(ctx.db.period, ctx.db.period.businessId.filter(id));
+    drop(ctx.db.customerOrder, ctx.db.customerOrder.businessId.filter(id));
+    drop(ctx.db.paymentIntentLog, [...ctx.db.paymentIntentLog.iter()].filter((p) => orderIds.has(p.orderId)));
+    drop(ctx.db.processorEvent, [...ctx.db.processorEvent.iter()].filter((e) => e.businessId === id));
+    drop(ctx.db.outbox, ctx.db.outbox.businessId.filter(id));
+    drop(ctx.db.decisionRecord, ctx.db.decisionRecord.businessId.filter(id));
+    drop(ctx.db.inboxItem, ctx.db.inboxItem.businessId.filter(id));
+    drop(ctx.db.precedent, ctx.db.precedent.businessId.filter(id));
+    drop(ctx.db.ownerStatement, ctx.db.ownerStatement.businessId.filter(id));
+    drop(ctx.db.auditLog, ctx.db.auditLog.businessId.filter(id));
+    ctx.db.business.delete(biz);
+    audit(ctx, "*", "system", "deleteBusiness", `deleted business "${id}" (${biz.name}) and ${rows} rows`);
+  }),
+);
+
+/**
  * system: store a compiled Configuration as "pending". Rejects JSON that does not parse, documents whose
  * expressions do not compile, any proof report containing a "failed" proof (never accept failed proofs), and
  * rate policies (marginFloor, maxDiscount, taxRate) outside [0, 1] or with more than 4 decimal places.

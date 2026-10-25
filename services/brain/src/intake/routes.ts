@@ -1,13 +1,14 @@
-// POST /intake/photo, /intake/voice, /intake/merge ; GET /intake/photo/:businessId
+// POST /intake/photo, /intake/voice, /intake/merge ; GET|DELETE /intake/photo/:businessId (?i=N for one photo)
 
 import { randomUUID } from "node:crypto";
 import type { BusinessSpec } from "@napkin/schema";
 import { checkBusinessId, HttpError, newRouter, requireLlm, requireSpec, specView, type M2Deps } from "../m2deps";
 import { refreshQuestions } from "../questions/engine";
 import { getFact, isMissing, listFacts, missingFact, removeFact, setFact, slugify, type AnyFact } from "../spec/paths";
-import type { Draft, StoredSpec } from "../spec/store";
+import { MAX_PHOTOS, photosOf, type Draft, type StoredPhoto, type StoredSpec } from "../spec/store";
+import { placeholderOffering } from "./extract";
 import { mergeAlternatives, mergeSpecs } from "./merge";
-import { extractFromPhoto, extractFromTranscript, transcribe } from "./run";
+import { extractFromPhoto, extractFromTranscript, transcribe, type PhotoInput } from "./run";
 
 const MAX_IMAGE = 5 * 1024 * 1024;
 const MEDIA = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
@@ -18,7 +19,7 @@ function knownNames(spec: BusinessSpec | undefined): string[] {
 }
 
 /**
- * A new photo replaces the old one. Items come only from photos and voice notes, so an item that is
+ * A new set of photos replaces the old reading. Items come only from photos and voice notes, so an item that is
  * neither on the new photo nor named by the owner in a note came from an earlier photo: it is dropped
  * with its alternatives instead of lingering as a product that is no longer on the paper.
  */
@@ -54,11 +55,13 @@ export function withoutPhoto(cur: StoredSpec): Omit<StoredSpec, "version" | "upd
   };
   const keepOffering = new Set(voiceItems(cur));
   const onlyOnPhoto = <T extends { name: AnyFact }>(base: string, key: (x: T) => string) => (x: T) => !(fromPhoto(x.name) && !said(`${base}.${key(x)}.name`));
+  const offerings = cur.spec.offerings
+    .filter((o) => keepOffering.has(o.id))
+    .map((o) => ({ ...o, variants: o.variants.filter(onlyOnPhoto(`offerings.${o.id}.variants`, (v) => v.id)), addOns: o.addOns.filter(onlyOnPhoto(`offerings.${o.id}.addOns`, (a) => a.id)) }));
   let spec: BusinessSpec = {
     ...cur.spec,
-    offerings: cur.spec.offerings
-      .filter((o) => keepOffering.has(o.id))
-      .map((o) => ({ ...o, variants: o.variants.filter(onlyOnPhoto(`offerings.${o.id}.variants`, (v) => v.id)), addOns: o.addOns.filter(onlyOnPhoto(`offerings.${o.id}.addOns`, (a) => a.id)) })),
+    // only the photo named items: back to one unnamed item, as if nothing had been read yet
+    offerings: offerings.length > 0 ? offerings : [placeholderOffering()],
     operations: { ...cur.spec.operations, suppliers: cur.spec.operations.suppliers.filter(onlyOnPhoto("operations.suppliers", (s) => slugify(String(s.name.value)))) },
   };
   const touched = new Set<string>();
@@ -82,7 +85,7 @@ export function withoutPhoto(cur: StoredSpec): Omit<StoredSpec, "version" | "upd
       .filter(([, fs]) => fs.length > 0),
   );
   const { photo: _photo, ...drafts } = cur.drafts;
-  const { photo: _file, ...rest } = cur;
+  const { photo: _file, photos: _files, ...rest } = cur;
   return { ...rest, spec: refreshQuestions(spec), alternatives, drafts };
 }
 
@@ -100,29 +103,51 @@ function fold(cur: StoredSpec | undefined, kind: "photo" | "voice", draft: Draft
     spec: refreshQuestions(spec),
     alternatives,
     drafts: { ...(cur?.drafts ?? {}), [kind]: draft },
-    ...(cur?.photo ? { photo: cur.photo } : {}),
+    ...(cur?.photos ? { photos: cur.photos } : {}),
     transcripts: cur?.transcripts ?? [],
     statements: cur?.statements ?? [],
     voiceItems: kind === "voice" ? [...new Set([...voiceItems(cur), ...draft.spec.offerings.map((o) => o.id)])] : voiceItems(cur),
   };
 }
 
+/** Read every photo in one extraction and wrap it as the photo draft. */
+async function readPhotos(llm: Parameters<typeof extractFromPhoto>[0], imgs: PhotoInput[], names: string[]): Promise<Draft> {
+  const out = await extractFromPhoto(llm, imgs, names.join(", ") || "photo");
+  return { spec: out.spec, createdAt: new Date().toISOString(), rejected: out.rejected, ...(out.notes ? { notes: out.notes } : {}) };
+}
+
+function storedInput(d: M2Deps, p: StoredPhoto): PhotoInput {
+  const got = d.store.readPhoto({ photos: [p] });
+  if (!got) throw new HttpError(409, "an earlier photo is missing on the server; remove it and upload it again");
+  return { base64: got.bytes.toString("base64"), mediaType: got.mime as PhotoInput["mediaType"] };
+}
+
 export function intakeRoutes(d: M2Deps) {
   const r = newRouter();
 
+  /**
+   * One or more photos (multipart `image`, repeated). With `append=true` they join the photos already stored;
+   * otherwise they replace them. Every photo kept is read again together, so facts across pages fit as one draft.
+   */
   r.post("/intake/photo", async (c) => {
-    const body = await c.req.parseBody();
-    const businessId = checkBusinessId(body.businessId);
-    const file = body.image;
-    if (!(file instanceof File)) throw new HttpError(400, "multipart field `image` (a photo) is required");
-    if (!MEDIA.has(file.type)) throw new HttpError(415, `unsupported image type ${file.type || "unknown"}; use jpeg, png, webp or gif`);
-    if (file.size > MAX_IMAGE) throw new HttpError(413, "image is over 5 MB");
-    const bytes = Buffer.from(await file.arrayBuffer());
+    const body = await c.req.parseBody({ all: true });
+    const one = (v: unknown) => (Array.isArray(v) ? v[0] : v);
+    const businessId = checkBusinessId(one(body.businessId));
+    const files = [body.image].flat().filter((f): f is File => f instanceof File);
+    if (files.length === 0) throw new HttpError(400, "multipart field `image` (one or more photos) is required");
+    for (const file of files) {
+      if (!MEDIA.has(file.type)) throw new HttpError(415, `unsupported image type ${file.type || "unknown"}; use jpeg, png, webp or gif`);
+      if (file.size > MAX_IMAGE) throw new HttpError(413, `${file.name || "a photo"} is over 5 MB`);
+    }
+    const cur0 = d.store.get(businessId);
+    const kept = one(body.append) === "true" ? photosOf(cur0) : [];
+    if (kept.length + files.length > MAX_PHOTOS) throw new HttpError(413, `up to ${MAX_PHOTOS} photos; you have ${kept.length} and sent ${files.length}`);
     const llm = requireLlm(d);
-    const out = await extractFromPhoto(llm, { base64: bytes.toString("base64"), mediaType: file.type as "image/png" }, file.name || "photo");
-    const photo = d.store.savePhoto(businessId, bytes, file.type);
-    const draft: Draft = { spec: out.spec, createdAt: new Date().toISOString(), rejected: out.rejected, ...(out.notes ? { notes: out.notes } : {}) };
-    const rec = await d.store.update(businessId, (cur) => ({ ...fold(cur, "photo", draft), photo }));
+    const added = await Promise.all(files.map(async (f) => ({ bytes: Buffer.from(await f.arrayBuffer()), mime: f.type, name: f.name || "photo" })));
+    const out = await readPhotos(llm, [...kept.map((p) => storedInput(d, p)), ...added.map((a) => ({ base64: a.bytes.toString("base64"), mediaType: a.mime as PhotoInput["mediaType"] }))], [...kept.map((p) => p.file), ...added.map((a) => a.name)]);
+    const saved = added.map((a) => d.store.savePhoto(businessId, a.bytes, a.mime));
+    const rec = await d.store.update(businessId, (cur) => ({ ...fold(cur, "photo", out), photos: [...kept, ...saved] }));
+    if (cur0) d.store.deletePhoto(cur0, photosOf(cur0).filter((p) => !kept.some((k) => k.file === p.file)));
     return c.json({ ...specView(rec), rejected: out.rejected, notes: out.notes });
   });
 
@@ -172,18 +197,29 @@ export function intakeRoutes(d: M2Deps) {
     return c.json(specView(rec));
   });
 
+  /** Remove one photo (?i=N) or all of them. The rest are read again; with none left, what only the photos said is forgotten. */
   r.delete("/intake/photo/:businessId", async (c) => {
     const businessId = checkBusinessId(c.req.param("businessId"));
     const old = requireSpec(d, businessId);
-    if (!old.photo && !old.drafts.photo) throw new HttpError(409, "no photo to remove");
-    const rec = await d.store.update(businessId, (cur) => withoutPhoto(cur!));
-    d.store.deletePhoto(old);
+    const photos = photosOf(old);
+    if (photos.length === 0 && !old.drafts.photo) throw new HttpError(409, "no photo to remove");
+    const i = c.req.query("i");
+    const index = i === undefined ? -1 : Number(i);
+    if (i !== undefined && !(Number.isInteger(index) && index >= 0 && index < photos.length)) throw new HttpError(404, "no such photo");
+    const rest = index < 0 ? [] : photos.filter((_, k) => k !== index);
+    let rec: StoredSpec;
+    if (rest.length === 0) rec = await d.store.update(businessId, (cur) => withoutPhoto(cur!));
+    else {
+      const out = await readPhotos(requireLlm(d), rest.map((p) => storedInput(d, p)), rest.map((p) => p.file));
+      rec = await d.store.update(businessId, (cur) => ({ ...fold(cur, "photo", out), photos: rest }));
+    }
+    d.store.deletePhoto(old, photos.filter((p) => !rest.includes(p)));
     return c.json(specView(rec));
   });
 
   r.get("/intake/photo/:businessId", (c) => {
     const rec = requireSpec(d, checkBusinessId(c.req.param("businessId")));
-    const p = d.store.readPhoto(rec);
+    const p = d.store.readPhoto(rec, Number(c.req.query("i") ?? 0) || 0);
     if (!p) throw new HttpError(404, "no photo stored");
     return new Response(new Uint8Array(p.bytes), { headers: { "content-type": p.mime, "cache-control": "no-store" } });
   });

@@ -20,6 +20,7 @@ import { createLiveBookkeeperReview, mountAgents } from "./agents";
 import { AccountStore, businessGate, ensureSeedAccount, GATED_PATHS, registerAccountRoutes } from "./accounts";
 import { SpecStore } from "./spec/store";
 import { activeConfigReader, designInputFromConfig, mountStorefront } from "./storefront";
+import { MediaStore } from "./storefront/store";
 import { StdbCompilePlatform } from "./compiler/platform";
 import { llmFromEnv } from "./llm";
 import { RateLimiter } from "./auth";
@@ -144,6 +145,15 @@ registerAccountRoutes(app, {
   businessIdTaken: (id) => Boolean(platform.business(id)) || Boolean(specs.get(id)),
   businessExists: (id) => Boolean(platform.business(id)),
   createOwnerGrant: (g) => platform.createRoleGrant({ ...g, role: "owner", name: "Owner" }),
+  // Platform rows first (if it went live), so a failure leaves the brain's files and the account binding in place to retry.
+  deleteBusiness: async (id) => {
+    if (platform.business(id)) await platform.deleteBusiness(id);
+    await m2.store.remove(id);
+    for (const name of designs.designs.remove(id)) media.remove(name);
+    legal.remove(id);
+    receipts.removeAll(id);
+    phone.deps.codes.release(id);
+  },
   clientKey,
 });
 const gate = businessGate(accounts);
@@ -151,6 +161,7 @@ for (const p of GATED_PATHS) app.use(p, gate);
 
 const m2 = registerM2Routes(app, hub, env.dataDir); // M2: intake + question engine
 // Storefront designs: public GET for the store, owner edits/uploads behind the same account gate.
+const media = new MediaStore(env.dataDir);
 const designs = mountStorefront(app, { dataDir: env.dataDir, mediaBaseUrl: env.brainUrl, gate, activeConfig: activeConfigReader(new StdbCompilePlatform(hub)), llm: llmFromEnv() });
 // M3-K: phone line webhook tools. Orders go through the same createCheckout path as the storefront.
 const phone = registerPhoneRoutes(app, { env, hub, m2, checkout: { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront } });
@@ -174,12 +185,14 @@ mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePu
 // opens ONE owner inbox item (guarded escalate) only for new findings. Started after bootstrap.
 const bookkeeperReview = createLiveBookkeeperReview(hub, { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront });
 // Owner expenses: receipt photo -> pre-filled values. The owner app posts the expense itself (createDocument as the owner).
-mountExpenses(app, { llm: m2.llm, receipts: new ReceiptStore(env.dataDir) });
+const receipts = new ReceiptStore(env.dataDir);
+mountExpenses(app, { llm: m2.llm, receipts });
 // Getting-legal checklist (gated like the setup routes). What the business is comes from the draft spec
 // during setup, else from the live configuration; nothing else is assumed.
 const configs = new StdbGuardPlatform(hub);
+const legal = new LegalStore(env.dataDir);
 mountLegal(app, {
-  store: new LegalStore(env.dataDir),
+  store: legal,
   llm: m2.llm,
   profile: (businessId) => {
     const rec = specs.get(businessId);

@@ -220,9 +220,14 @@ function SidebarFooter() {
       <span className="min-w-0 truncate text-muted" title={account.email}>
         {account.email}
       </span>
-      <button onClick={() => void signOut()} className="shrink-0 rounded px-2 py-1 text-faint hover:bg-surface-2 hover:text-ink">
-        Sign out
-      </button>
+      <span className="flex shrink-0 items-center">
+        <Link href="/settings" className="rounded px-2 py-1 text-faint hover:bg-surface-2 hover:text-ink">
+          Settings
+        </Link>
+        <button onClick={() => void signOut()} className="rounded px-2 py-1 text-faint hover:bg-surface-2 hover:text-ink">
+          Sign out
+        </button>
+      </span>
     </div>
   );
 }

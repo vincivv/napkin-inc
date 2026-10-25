@@ -233,6 +233,13 @@ export class PhoneCodes {
     return code;
   }
 
+  /** A deleted shop gives its code back. */
+  release(businessId: string): void {
+    this.backend.update((d) => {
+      delete d.codes[businessId];
+    });
+  }
+
   businessFor(code: string): string | undefined {
     return Object.entries(this.backend.read().codes).find(([, c]) => c === code)?.[0];
   }

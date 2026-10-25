@@ -15,8 +15,8 @@ export type Provenance = z.infer<typeof Provenance>;
 export const FactSource = z.object({
   kind: z.enum(["photo", "voice", "chat", "phone"]),
   ref: z.string(),
-  /** photo region the fact was read from, normalized 0..1 (approximate, from the vision model) */
-  region: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1) }).optional(),
+  /** photo region the fact was read from, normalized 0..1 (approximate, from the vision model); `photo` is which of the owner's photos (0-based, absent = the first) */
+  region: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1), photo: z.number().int().min(0).optional() }).optional(),
   quote: z.string().optional(),
 });
 

@@ -94,6 +94,8 @@ export interface PlatformPort {
   claimOutbox(id: bigint): Promise<void>;
   completeOutbox(id: bigint, ok: boolean, resultJson: string): Promise<void>;
   createRoleGrant(args: { code: string; businessId: string; role: string; name: string; ttlSeconds: number }): Promise<void>;
+  /** Removes the business and every row of it from the platform (the owner confirmed in the app). */
+  deleteBusiness(businessId: string): Promise<void>;
 }
 
 const fieldsToRecord = (fs: readonly { name: string; value: string }[]): Record<string, string> =>
@@ -222,5 +224,9 @@ export class StdbPlatform implements PlatformPort {
 
   createRoleGrant(a: { code: string; businessId: string; role: string; name: string; ttlSeconds: number }): Promise<void> {
     return this.hub.call("system", "createRoleGrant", (c) => c.reducers.createRoleGrant(a));
+  }
+
+  deleteBusiness(businessId: string): Promise<void> {
+    return this.hub.call("system", "deleteBusiness", (c) => c.reducers.deleteBusiness({ businessId }));
   }
 }

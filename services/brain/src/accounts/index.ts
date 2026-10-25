@@ -133,6 +133,19 @@ export class AccountStore {
     return out!;
   }
 
+  /** The account's business was deleted: it may name a new one. */
+  clearBusiness(accountId: string): Account {
+    let out: Account | undefined;
+    this.file.update((f) => {
+      const a = f.accounts.find((x) => x.id === accountId);
+      if (!a) throw new AccountError(404, "unknown account");
+      a.businessId = null;
+      a.businessName = null;
+      out = a;
+    });
+    return out!;
+  }
+
   newSession(accountId: string): string {
     const token = crypto.randomBytes(32).toString("base64url");
     const t = this.now();
@@ -168,6 +181,13 @@ const Credentials = z.object({
   password: z.string().min(8, "use at least 8 characters").max(200),
 });
 const BusinessName = z.object({ name: z.string().trim().min(2).max(60) });
+const DeleteConfirm = z.object({ confirm: z.string().max(200) });
+
+/** "Maya’s  Cookies " and "maya's cookies" are the same typed confirmation. */
+const sameName = (a: string, b: string) => {
+  const norm = (s: string) => s.normalize("NFKC").replace(/[’‘]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();
+  return norm(a) === norm(b);
+};
 
 export interface AccountDeps {
   store: AccountStore;
@@ -175,6 +195,8 @@ export interface AccountDeps {
   businessIdTaken(id: string): boolean;
   businessExists(id: string): boolean;
   createOwnerGrant(g: { code: string; businessId: string; ttlSeconds: number }): Promise<void>;
+  /** Everything the business left behind: its platform rows (if it went live) and the brain's own files for it. */
+  deleteBusiness(businessId: string): Promise<void>;
   clientKey(c: Context): string;
   limits?: { perClient: RateLimiter; global: RateLimiter };
 }
@@ -269,6 +291,26 @@ export function registerAccountRoutes(app: Hono, d: AccountDeps): void {
       const updated = d.store.setBusiness(a.id, id, name);
       log.info("accounts", `${a.id} created business ${id}`);
       return c.json({ account: view(updated) }, 201);
+    } catch (e) {
+      return fail(c, e);
+    }
+  });
+
+  /**
+   * Delete the account's business for good: the books, orders, catalog, storefront and setup draft. The owner types
+   * the business name to confirm. The account stays and can name a new business.
+   */
+  app.post("/accounts/business/delete", async (c) => {
+    try {
+      limited(c);
+      const a = requireAccount(c);
+      if (!a.businessId) throw new AccountError(409, "this account has no business to delete");
+      const { confirm } = DeleteConfirm.parse(await readJson(c));
+      if (!sameName(confirm, a.businessName ?? a.businessId) && confirm.trim() !== a.businessId) throw new AccountError(400, `type the business name (${a.businessName ?? a.businessId}) to confirm`);
+      await d.deleteBusiness(a.businessId);
+      const updated = d.store.clearBusiness(a.id);
+      log.info("accounts", `${a.id} deleted business ${a.businessId}`);
+      return c.json({ account: view(updated) });
     } catch (e) {
       return fail(c, e);
     }

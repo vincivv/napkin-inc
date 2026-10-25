@@ -21,8 +21,8 @@ const factSchema = (what: string) => ({
     quote: { type: "string", description: "The exact words/characters from the source that support this value." },
     region: {
       type: "object",
-      description: "Photo only: where on the image the supporting text is, normalized 0..1 from the top-left (x,y = top-left corner, w,h = size). Approximate.",
-      properties: { x: { type: "number" }, y: { type: "number" }, w: { type: "number" }, h: { type: "number" } },
+      description: "Photo only: where on the image the supporting text is, normalized 0..1 from the top-left (x,y = top-left corner, w,h = size). Approximate. With several photos, `photo` says which one (1 = the first).",
+      properties: { x: { type: "number" }, y: { type: "number" }, w: { type: "number" }, h: { type: "number" }, photo: { type: "integer", minimum: 1 } },
       required: ["x", "y", "w", "h"],
     },
   },
@@ -78,7 +78,7 @@ export const EXTRACTION_SCHEMA = {
 } as const;
 
 // ---------- validation of what came back ----------
-const Region = z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() });
+const Region = z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number(), photo: z.number().optional() });
 const RawFact = z.object({
   value: z.union([z.string(), z.number(), z.boolean()]).transform(String),
   confidence: z.number().transform((n) => Math.min(1, Math.max(0, n))),
@@ -114,19 +114,26 @@ export interface AssembleCtx {
   mode: Mode;
   /** photo file name, or transcript id */
   ref: string;
+  /** photo mode: how many photos were read together (regions name one of them; default 1) */
+  photos?: number;
 }
 
 /** Confidence caps. A guess can never look sure of itself. */
 export const INFERRED_MAX_CONFIDENCE = 0.4;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
-function sanitizeRegion(r: z.infer<typeof Region> | undefined) {
+function sanitizeRegion(r: z.infer<typeof Region> | undefined, photos = 1) {
   if (!r) return undefined;
   const x = clamp01(r.x);
   const y = clamp01(r.y);
   const w = Math.min(clamp01(r.w), 1 - x);
   const h = Math.min(clamp01(r.h), 1 - y);
-  return w > 0 && h > 0 ? { x, y, w, h } : undefined;
+  if (!(w > 0 && h > 0)) return undefined;
+  if (photos <= 1) return { x, y, w, h };
+  // the model numbers photos from 1; a missing or impossible number means we can't place the box
+  const n = r.photo;
+  if (n === undefined || !Number.isInteger(n) || n < 1 || n > photos) return undefined;
+  return { x, y, w, h, photo: n - 1 };
 }
 
 export function buildFact(path: string, raw: RawFact, ctx: AssembleCtx, rejected: string[]): AnyFact | undefined {
@@ -153,7 +160,7 @@ export function buildFact(path: string, raw: RawFact, ctx: AssembleCtx, rejected
     source: {
       kind: ctx.mode === "photo" ? "photo" : ctx.mode === "voice" ? "voice" : "chat",
       ref: ctx.ref,
-      ...(ctx.mode === "photo" && sanitizeRegion(raw.region) ? { region: sanitizeRegion(raw.region)! } : {}),
+      ...(ctx.mode === "photo" && sanitizeRegion(raw.region, ctx.photos) ? { region: sanitizeRegion(raw.region, ctx.photos)! } : {}),
       ...(quote ? { quote } : {}),
     },
     confirmed: false,
@@ -161,6 +168,17 @@ export function buildFact(path: string, raw: RawFact, ctx: AssembleCtx, rejected
 }
 
 /** Never throws on content problems: unusable fields are listed in `rejected` and left as missing. */
+/** A spec always has at least one offering: when nobody named one yet, an unnamed item the interview asks about. */
+export function placeholderOffering(): BusinessSpec["offerings"][number] {
+  return {
+    id: "item",
+    name: missingFact(""),
+    variants: [{ id: "default", name: missingFact(""), price: missingFact("0"), cost: missingFact("0") }],
+    addOns: [],
+    stockTracked: missingFact(false),
+  };
+}
+
 export function assembleSpec(ex: Extracted, ctx: AssembleCtx): { spec: BusinessSpec; rejected: string[] } {
   const rejected: string[] = [];
   const pick = <T,>(path: string, raw: RawFact | undefined, dflt: T): Fact<T> => (raw ? ((buildFact(path, raw, ctx, rejected) as Fact<T> | undefined) ?? missingFact(dflt)) : missingFact(dflt));
@@ -226,15 +244,7 @@ export function assembleSpec(ex: Extracted, ctx: AssembleCtx): { spec: BusinessS
     };
   }).filter((x): x is NonNullable<typeof x> => x !== undefined);
 
-  if (offerings.length === 0) {
-    offerings.push({
-      id: "item",
-      name: missingFact(""),
-      variants: [{ id: "default", name: missingFact(""), price: missingFact("0"), cost: missingFact("0") }],
-      addOns: [],
-      stockTracked: missingFact(false),
-    });
-  }
+  if (offerings.length === 0) offerings.push(placeholderOffering());
 
   const usedS = new Set<string>();
   const suppliers = (o.suppliers ?? [])

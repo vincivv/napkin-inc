@@ -45,6 +45,7 @@ import CreateDocumentReducer from "./create_document_reducer";
 import CreateOrderReducer from "./create_order_reducer";
 import CreateRoleGrantReducer from "./create_role_grant_reducer";
 import DecideOwnerStatementReducer from "./decide_owner_statement_reducer";
+import DeleteBusinessReducer from "./delete_business_reducer";
 import EnqueueOutboxReducer from "./enqueue_outbox_reducer";
 import LogPaymentIntentReducer from "./log_payment_intent_reducer";
 import MarkOwnerStatementAppliedReducer from "./mark_owner_statement_applied_reducer";
@@ -350,6 +351,7 @@ const reducersSchema = __reducers(
   __reducerSchema("create_order", CreateOrderReducer),
   __reducerSchema("create_role_grant", CreateRoleGrantReducer),
   __reducerSchema("decide_owner_statement", DecideOwnerStatementReducer),
+  __reducerSchema("delete_business", DeleteBusinessReducer),
   __reducerSchema("enqueue_outbox", EnqueueOutboxReducer),
   __reducerSchema("log_payment_intent", LogPaymentIntentReducer),
   __reducerSchema("mark_owner_statement_applied", MarkOwnerStatementAppliedReducer),

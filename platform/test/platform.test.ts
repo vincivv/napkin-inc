@@ -827,3 +827,32 @@ describe("rates are whole basis points in [0, 1] (the prover's domain)", () => {
     expect(w.rows("configVersion").filter((c) => c.status === "pending")).toHaveLength(1);
   });
 });
+
+describe("deleteBusiness", () => {
+  it("removes every row of one business, leaves the others alone, and frees the slug", () => {
+    const w = new World();
+    const maya = bootMaya(w);
+    const other = bootMaya(w, { id: "other-shop", claim: false });
+    sell(maya, "o1", [line("cookie_box6", 1)]);
+    sell(other, "o2", [line("cookie_box6", 1)]);
+    const otherBefore = (table: string) => w.rows(table).filter((r) => r.businessId === "other-shop").length;
+    const keep = ["actor", "catalogItem", "document", "journalLine", "customerOrder", "auditLog"].map((t) => [t, otherBefore(t)] as const);
+
+    expect(() => w.call(maya.actors.owner, "deleteBusiness", { businessId: BIZ })).toThrow(/only the platform system actor/);
+    w.call(w.system, "deleteBusiness", { businessId: BIZ });
+
+    expect(w.db.business.id.find(BIZ)).toBeNull();
+    for (const table of ["configVersion", "actor", "catalogItem", "document", "journalLine", "registerMovement", "registerBalance", "period", "customerOrder", "processorEvent", "outbox", "decisionRecord", "inboxItem", "precedent", "ownerStatement", "auditLog"]) {
+      expect(w.rows(table).filter((r) => r.businessId === BIZ), table).toHaveLength(0);
+    }
+    expect(w.rows("roleGrant").filter((g) => g.businessId === BIZ)).toHaveLength(0);
+    expect(w.rows("paymentIntentLog").filter((p) => p.orderId === "o1")).toHaveLength(0);
+    for (const [table, n] of keep) expect(otherBefore(table), table).toBe(n);
+    expect(w.rows("auditLog").some((a) => a.businessId === "*" && a.reducer === "deleteBusiness" && a.summary.includes(BIZ))).toBe(true);
+
+    // the slug can be registered again from scratch
+    w.call(w.system, "registerBusiness", { id: BIZ, name: "Maya's Cookies again", enforce: true });
+    expect(w.db.business.id.find(BIZ).activeConfigId).toBe(0n);
+    expect(() => w.call(w.system, "deleteBusiness", { businessId: "nope" })).toThrow(/unknown business/);
+  });
+});

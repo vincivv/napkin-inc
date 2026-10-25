@@ -1,6 +1,7 @@
 // Draft BusinessSpec persistence: services/brain/.data/specs/<businessId>.json (gitignored), with a version
 // counter bumped on every write. Updates for one business are serialized in-process.
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { parseBusinessSpec, type BusinessSpec } from "@napkin/schema";
@@ -29,12 +30,25 @@ export interface StoredSpec {
   spec: BusinessSpec;
   alternatives: Alternatives;
   drafts: { photo?: Draft; voice?: Draft };
-  photo?: { file: string; mime: string };
+  /** the owner's photos, in the order they were read (regions point at them by index) */
+  photos?: StoredPhoto[];
+  /** before several photos: the one photo (read as photos[0]) */
+  photo?: StoredPhoto;
   transcripts: { id: string; text: string; source: "voice" | "typed"; createdAt: string }[];
   statements: PendingStatement[];
   /** ids of the items the owner named in any voice or typed note (they survive a replacement photo) */
   voiceItems?: string[];
 }
+
+export interface StoredPhoto {
+  file: string;
+  mime: string;
+}
+
+/** Photos of a record, old single-photo records included. */
+export const photosOf = (rec: Pick<StoredSpec, "photos" | "photo"> | undefined): StoredPhoto[] => rec?.photos ?? (rec?.photo ? [rec.photo] : []);
+
+export const MAX_PHOTOS = 6;
 
 export const BUSINESS_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -54,6 +68,8 @@ export class SpecStore {
     try {
       const s = JSON.parse(fs.readFileSync(this.file(businessId), "utf8")) as StoredSpec;
       s.spec = parseBusinessSpec(s.spec);
+      if (s.photo && !s.photos) s.photos = [s.photo];
+      delete s.photo;
       return s;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -77,10 +93,11 @@ export class SpecStore {
     return run;
   }
 
-  savePhoto(businessId: string, bytes: Buffer, mime: string): { file: string; mime: string } {
+  /** Saves one photo under a fresh name (several photos live side by side). */
+  savePhoto(businessId: string, bytes: Buffer, mime: string): StoredPhoto {
     const ext = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : mime === "image/gif" ? "gif" : "jpg";
     fs.mkdirSync(this.dir, { recursive: true });
-    const file = this.file(businessId, `photo.${ext}`);
+    const file = this.file(businessId, `photo-${crypto.randomBytes(6).toString("hex")}.${ext}`);
     fs.writeFileSync(file, bytes);
     return { file: path.basename(file), mime };
   }
@@ -95,13 +112,15 @@ export class SpecStore {
     this.locks.set(businessId, run);
     return run;
   }
-  deletePhoto(rec: StoredSpec): void {
-    if (rec.photo) fs.rmSync(path.join(this.dir, path.basename(rec.photo.file)), { force: true });
+  /** Deletes the record's photo files (all of them, or just `only`). */
+  deletePhoto(rec: Pick<StoredSpec, "photos" | "photo">, only?: StoredPhoto[]): void {
+    for (const p of only ?? photosOf(rec)) fs.rmSync(path.join(this.dir, path.basename(p.file)), { force: true });
   }
-  readPhoto(rec: StoredSpec): { bytes: Buffer; mime: string } | undefined {
-    if (!rec.photo) return undefined;
+  readPhoto(rec: Pick<StoredSpec, "photos" | "photo">, index = 0): { bytes: Buffer; mime: string } | undefined {
+    const p = photosOf(rec)[index];
+    if (!p) return undefined;
     try {
-      return { bytes: fs.readFileSync(path.join(this.dir, path.basename(rec.photo.file))), mime: rec.photo.mime };
+      return { bytes: fs.readFileSync(path.join(this.dir, path.basename(p.file))), mime: p.mime };
     } catch {
       return undefined;
     }

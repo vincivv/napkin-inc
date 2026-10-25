@@ -39,6 +39,9 @@ export class ReceiptStore {
     fs.writeFileSync(path.join(dir, ref), bytes);
     return ref;
   }
+  removeAll(businessId: string): void {
+    fs.rmSync(this.folder(businessId), { recursive: true, force: true });
+  }
   read(businessId: string, ref: string): { bytes: Buffer; mime: ReceiptMediaType } | undefined {
     if (!RECEIPT_REF_RE.test(ref)) return undefined;
     try {

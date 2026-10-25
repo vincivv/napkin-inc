@@ -74,6 +74,7 @@ export class FakePlatform implements PlatformPort {
   async claimOutbox(id: bigint) { const o = this.outbox.find((x) => x.id === id)!; o.status = "claimed"; o.attempts++; o.claimedAtMs = this.clock(); }
   async completeOutbox(id: bigint, ok: boolean, resultJson: string) { const o = this.outbox.find((x) => x.id === id)!; o.status = ok ? "done" : "failed"; o.resultJson = resultJson; }
   async createRoleGrant(a: { code: string; businessId: string; role: string }) { this.grants.push(a); }
+  async deleteBusiness(businessId: string) { this.businesses.delete(businessId); }
 }
 
 export class FakeGateway implements ProcessorGateway {

@@ -23,6 +23,8 @@ export interface AccountValue {
   signUp(email: string, password: string): Promise<void>;
   signOut(): Promise<void>;
   createBusiness(name: string): Promise<void>;
+  /** Delete the account's business for good; `confirm` is the business name as the owner typed it. */
+  deleteBusiness(confirm: string): Promise<void>;
   retry(): void;
 }
 
@@ -110,6 +112,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         setStatus("signedOut");
       },
       createBusiness: async (name) => setAccount((await call<{ account: Account }>("/accounts/business", { body: { name } })).account),
+      deleteBusiness: async (confirm) => setAccount((await call<{ account: Account }>("/accounts/business/delete", { body: { confirm } })).account),
       retry: () => {
         setStatus("loading");
         setAttempt((n) => n + 1);

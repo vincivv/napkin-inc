@@ -14,9 +14,9 @@ const COMMON_RULES = `Rules (never assume):
 - Add-ons like "+ sea salt $1" go in addOns of the item they extend, with their own price. An add-on that applies to every item goes on each of them.
 - Money values are digits only (3.00). Rates and percentages keep their % sign (20%), never a bare fraction.`;
 
-const PHOTO_SYSTEM = `You read a photo of a small business's paper (menu, price list, napkin, whiteboard) and extract a structured draft of the business.
+const PHOTO_SYSTEM = `You read one or more photos of a small business's paper (menu, price list, napkin, whiteboard, notebook pages) and extract ONE structured draft of the business. Several photos are pages of the same business: combine them, and when two pages disagree, prefer the later photo and say so in notes.
 ${COMMON_RULES}
-- For every fact read from the image give region = approximate bounding box of the text, normalized 0..1 from the top-left (x,y,w,h), and quote = the exact text.
+- For every fact read from an image give region = approximate bounding box of the text on that image, normalized 0..1 from the top-left (x,y,w,h), and quote = the exact text. With several photos, region.photo = the photo's number (1 = the first).
 - Put illegible or ambiguous things in notes.`;
 
 const VOICE_SYSTEM = `You extract business facts from what the OWNER SAID aloud (a transcript). Everything the owner states directly is provenance "owner_said" with the owner's exact words as quote.
@@ -45,16 +45,21 @@ export class ExtractionFailed extends Error {
   override name = "ExtractionFailed";
 }
 
-export function extractFromPhoto(llm: Llm, img: { base64: string; mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" }, ref: string) {
+export type PhotoInput = { base64: string; mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" };
+
+/** One extraction over all the owner's photos together; facts say which photo their region is on. */
+export function extractFromPhoto(llm: Llm, imgs: PhotoInput | PhotoInput[], ref: string) {
+  const list = Array.isArray(imgs) ? imgs : [imgs];
   return withRetry(
     (feedback) => {
-      const content: UserContent[] = [
+      const content: UserContent[] = list.flatMap((img, i): UserContent[] => [
+        ...(list.length > 1 ? [{ type: "text" as const, text: `Photo ${i + 1} of ${list.length}:` }] : []),
         { type: "image", mediaType: img.mediaType, base64: img.base64 },
-        { type: "text", text: `Extract the business draft from this image.${feedback ? `\n\n${feedback}` : ""}` },
-      ];
+      ]);
+      content.push({ type: "text", text: `Extract the business draft from ${list.length > 1 ? `these ${list.length} photos` : "this image"}.${feedback ? `\n\n${feedback}` : ""}` });
       return llm.tool({ model: MODELS.opus, system: PHOTO_SYSTEM, content, toolName: "record_business_draft", toolDescription: "Record the extracted draft.", schema: EXTRACTION_SCHEMA as unknown as Record<string, unknown>, maxTokens: 6000 });
     },
-    { mode: "photo", ref },
+    { mode: "photo", ref, photos: list.length },
   );
 }
 
