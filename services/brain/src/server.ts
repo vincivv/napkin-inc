@@ -19,6 +19,7 @@ import { registerPhoneRoutes } from "./phone";
 import { mountAgents } from "./agents";
 import { AccountStore, businessGate, ensureSeedAccount, GATED_PATHS, registerAccountRoutes } from "./accounts";
 import { SpecStore } from "./spec/store";
+import { mountExpenses, ReceiptStore } from "./expenses/routes";
 
 let env: Env;
 try {
@@ -146,6 +147,8 @@ mountCompiler(app, hub, env.dataDir); // M2: compiler (POST /compile, SSE)
 const phone = registerPhoneRoutes(app, { env, hub, m2, checkout: { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront } });
 executors.push(phone.smsExecutor); // drains the platform outbox rows of kind "sms" queued by place_order
 mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront }); // M3: AI staff
+// Owner expenses: receipt photo -> pre-filled values. The owner app posts the expense itself (createDocument as the owner).
+mountExpenses(app, { llm: m2.llm, receipts: new ReceiptStore(env.dataDir) });
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();

@@ -320,8 +320,8 @@ export function businessGate(store: AccountStore): MiddlewareHandler {
 /** GET routes that carry the business in the path. */
 const PATH_BUSINESS = /^\/(?:intake\/photo|spec)\/([a-z0-9-]{1,64})$|^\/compile\/([a-z0-9-]{1,64})\/latest$/;
 
-/** The setup routes the gate protects (Hono path patterns). */
-export const GATED_PATHS = ["/intake/*", "/spec/*", "/questions/*", "/owner/*", "/compile", "/compile/*"] as const;
+/** The owner routes the gate protects (Hono path patterns). /expenses/* carries businessId in the query or form. */
+export const GATED_PATHS = ["/intake/*", "/spec/*", "/questions/*", "/owner/*", "/compile", "/compile/*", "/expenses/*"] as const;
 
 /** Seeds an account for an existing business (e.g. the Maya demo) from env; idempotent. */
 export function ensureSeedAccount(store: AccountStore, seed: { email: string | undefined; password: string | undefined; businessId: string; businessName: string }): void {

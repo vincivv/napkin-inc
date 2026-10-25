@@ -22,6 +22,7 @@ const I = {
   orders: <path d="M4 5h12M4 10h12M4 15h8" />,
   docs: <path d="M6 2.5h6l3 3V17.5H6zM12 2.5v3h3M8.5 9.5h4M8.5 12.5h4" />,
   regs: <path d="M3 4h14v12H3zM3 8h14M8 8v8" />,
+  expenses: <path d="M5 2.5h10v15l-2-1.3-1.7 1.3-1.3-1.3-1.3 1.3L7 16.2l-2 1.3zM7.5 6.5h5M7.5 9.5h5M7.5 12.5h3" />,
   reports: <path d="M4 16V9M8.5 16V5M13 16v-4M17 16H3" />,
   decisions: <path d="M10 3v4M10 13v4M5 10H3M17 10h-2M6 6l1.5 1.5M12.5 12.5 14 14M6 14l1.5-1.5M12.5 7.5 14 6" />,
   inbox: <path d="M3 11.5 5 4h10l2 7.5V16H3zM3 11.5h4l1 2h4l1-2h4" />,
@@ -46,6 +47,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: "Books",
     items: [
       { href: "/documents", label: "Documents", icon: I.docs, badge: (d) => d.snapshot.documents.filter((x) => x.status === "draft").length },
+      { href: "/expenses", label: "Expenses", icon: I.expenses },
       { href: "/registers", label: "Registers", icon: I.regs },
       { href: "/reports", label: "Reports", icon: I.reports },
       { href: "/audit", label: "Audit log", icon: I.audit },

@@ -189,6 +189,31 @@
       "code": "5100",
       "name": "Processor fees",
       "type": "expense"
+    },
+    {
+      "code": "6000",
+      "name": "Rent",
+      "type": "expense"
+    },
+    {
+      "code": "6100",
+      "name": "Supplies",
+      "type": "expense"
+    },
+    {
+      "code": "6200",
+      "name": "Wages",
+      "type": "expense"
+    },
+    {
+      "code": "6300",
+      "name": "Utilities",
+      "type": "expense"
+    },
+    {
+      "code": "6900",
+      "name": "Other expenses",
+      "type": "expense"
     }
   ],
   "registers": [
@@ -944,6 +969,176 @@
           },
           "side": "credit",
           "amountExpr": "doc.amount"
+        }
+      ]
+    },
+    {
+      "id": "expense",
+      "name": "Expense",
+      "approval": {
+        "creatorRoles": [
+          "owner"
+        ],
+        "approverRoles": [
+          "owner"
+        ],
+        "cannotApproveOwn": false,
+        "postOn": "create",
+        "note": "recorded by the owner only (AI staff never), optionally pre-filled from a receipt photo the owner checks; line.account is the expense account code, doc.paidFrom is 1000 (paid now) or 2000 (owed to the supplier)"
+      },
+      "fields": [
+        {
+          "name": "vendor",
+          "type": "string"
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "paidFrom",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "receiptRef",
+          "type": "string"
+        }
+      ],
+      "lineFields": [
+        {
+          "name": "account",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "string"
+        }
+      ],
+      "derived": [
+        {
+          "name": "total",
+          "scope": "doc",
+          "expr": "sum(line.amount)"
+        }
+      ],
+      "checks": [
+        {
+          "id": "amount_positive",
+          "scope": "line",
+          "assert": "line.amount > 0",
+          "message": "each expense amount must be positive"
+        },
+        {
+          "id": "expense_account",
+          "scope": "line",
+          "assert": "line.account == 6000 || line.account == 6100 || line.account == 6200 || line.account == 6300 || line.account == 6900",
+          "message": "an expense can only be booked to an expense account (6000 Rent, 6100 Supplies, 6200 Wages, 6300 Utilities, 6900 Other expenses)"
+        },
+        {
+          "id": "total_positive",
+          "scope": "doc",
+          "assert": "doc.total > 0",
+          "message": "an expense needs at least one amount"
+        },
+        {
+          "id": "paid_from",
+          "scope": "doc",
+          "assert": "doc.paidFrom == 1000 || doc.paidFrom == 2000",
+          "message": "an expense is either paid now (1000) or owed to the supplier (2000)"
+        }
+      ],
+      "postingRules": [
+        {
+          "id": "expense.rent",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "6000"
+          },
+          "side": "debit",
+          "amountExpr": "line.amount",
+          "when": "line.account == 6000",
+          "memo": "rent"
+        },
+        {
+          "id": "expense.supplies",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "6100"
+          },
+          "side": "debit",
+          "amountExpr": "line.amount",
+          "when": "line.account == 6100",
+          "memo": "supplies"
+        },
+        {
+          "id": "expense.wages",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "6200"
+          },
+          "side": "debit",
+          "amountExpr": "line.amount",
+          "when": "line.account == 6200",
+          "memo": "wages"
+        },
+        {
+          "id": "expense.utilities",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "6300"
+          },
+          "side": "debit",
+          "amountExpr": "line.amount",
+          "when": "line.account == 6300",
+          "memo": "utilities"
+        },
+        {
+          "id": "expense.other",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "6900"
+          },
+          "side": "debit",
+          "amountExpr": "line.amount",
+          "when": "line.account == 6900",
+          "memo": "other expenses"
+        },
+        {
+          "id": "expense.cash",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "1000"
+          },
+          "side": "credit",
+          "amountExpr": "doc.total",
+          "when": "doc.paidFrom == 1000",
+          "memo": "paid now"
+        },
+        {
+          "id": "expense.payable",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "2000"
+          },
+          "side": "credit",
+          "amountExpr": "doc.total",
+          "when": "doc.paidFrom == 2000",
+          "memo": "owed to supplier"
         }
       ]
     }
