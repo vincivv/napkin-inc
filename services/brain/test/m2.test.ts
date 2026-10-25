@@ -99,6 +99,33 @@ describe("labels", () => {
   });
 });
 
+describe("an add-on on several items", () => {
+  it("different confirmed costs become one question with the values to pick; the answer sets every copy", () => {
+    const two: Extracted = {
+      offerings: [
+        { name: rf("Chicken burrito"), variants: [{ name: rf("Chicken burrito"), price: rf("15") }], addOns: [{ name: rf("Cheese"), price: rf("1.50") }] },
+        { name: rf("Beef burrito"), variants: [{ name: rf("Beef burrito"), price: rf("15") }], addOns: [{ name: rf("Cheese"), price: rf("1.50") }] },
+      ],
+    };
+    let s = refreshQuestions(assembleSpec(two, { mode: "photo", ref: "x.png" }).spec);
+    const owner = (v: unknown) => ({ value: v, provenance: "owner_said" as const, confidence: 1, source: { kind: "chat" as const, ref: "t" }, confirmed: true });
+    s = setFact(s, "offerings.chicken-burrito.addOns.cheese.cost", owner("2.00"));
+    s = setFact(s, "offerings.beef-burrito.addOns.cheese.cost", owner("0.05"));
+    s = refreshQuestions(s);
+    const q = s.openQuestions.find((x) => x.id.startsWith("addon."))!;
+    expect(q.fieldPath).toBe("offerings.chicken-burrito.addOns.cheese.cost");
+    expect(q.question).toContain("Cheese costs you");
+    expect(q.candidates!.sort()).toEqual(["$0.05", "$2.00"]);
+    expect(batchConfirmable(s).some((x) => x.id === q.id)).toBe(false);
+    expect(moneyBlockers(s).some((b) => b.path === q.fieldPath && b.why === "invalid")).toBe(true);
+
+    s = applyAnswer(s, q.id, { answer: "$0.05" }).spec;
+    expect(getFact(s, "offerings.chicken-burrito.addOns.cheese.cost")!.value).toBe("0.05");
+    expect(getFact(s, "offerings.beef-burrito.addOns.cheese.cost")!.value).toBe("0.05");
+    expect(s.openQuestions.some((x) => x.id.startsWith("addon."))).toBe(false);
+  });
+});
+
 describe("coerceValue", () => {
   it("parses money, percents and hours exactly", () => {
     expect(coerceValue("offerings.a.variants.b.price", "", "$3")).toBe("3.00");

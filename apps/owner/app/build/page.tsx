@@ -160,21 +160,24 @@ export default function BuildPage() {
           )}
           {error && (
             <div className="mt-3 rounded-md border border-neg/30 bg-neg-soft p-3 text-[12.5px] text-neg">
-              <div className="font-medium">Build stopped ({error.code})</div>
-              <div className="mt-1 whitespace-pre-wrap">{error.message}</div>
+              <div className="font-medium">
+                {error.questions.length > 0 ? `Almost there: ${error.questions.length === 1 ? "one thing needs" : `${error.questions.length} things need`} your answer before going live` : `Build stopped (${error.code})`}
+              </div>
+              {error.questions.length === 0 && <div className="mt-1 whitespace-pre-wrap">{error.message}</div>}
               {error.questions.length > 0 && (
                 <>
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-ink">
                     {error.questions.map((q) => (
-                      <li key={q.id}>
-                        {q.question} <span className="font-mono text-[11px] text-faint">{q.fieldPath}</span>
+                      <li key={q.id} title={q.fieldPath}>
+                        {q.question}
                         {q.candidates && q.candidates.length > 0 && <span className="text-muted"> ({q.candidates.join(" / ")})</span>}
                       </li>
                     ))}
                   </ul>
-                  <Link href="/interview" className="mt-2 inline-block font-medium text-accent-ink underline">
-                    Answer these in the interview
+                  <Link href="/interview" className="mt-3 inline-block">
+                    <Button variant="primary" size="sm">Answer now →</Button>
                   </Link>
+                  <span className="ml-2 text-[12px] text-muted">One tap each in the interview, then compile again.</span>
                 </>
               )}
             </div>

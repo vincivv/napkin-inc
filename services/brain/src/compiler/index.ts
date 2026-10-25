@@ -141,7 +141,11 @@ export function fillTemplate(spec: BusinessSpec, opts: Pick<CompileOptions, "bus
       const price = money(a.price.value);
       const cost = money(a.cost.value);
       if (prev) {
-        if (prev.price !== price || prev.cost !== cost) questions.push(ownerQuestion(`offerings[${o.id}].addOns[${a.id}]`, `Add-on "${a.name.value}" has price/cost ${price}/${cost} here but ${prev.price}/${prev.cost} on ${prev.from}. Which is right?`));
+        if (prev.price !== price || prev.cost !== cost) {
+          const on = (id: string) => String(spec.offerings.find((x) => x.id === id)?.name.value ?? id);
+          const said = (p: string, c: string, where: string) => `$${p} (costs you $${c}) on ${where}`;
+          questions.push(ownerQuestion(`offerings[${o.id}].addOns[${a.id}]`, `"${a.name.value}" is ${said(prev.price, prev.cost, on(prev.from))} but ${said(price, cost, on(o.id))}. It's one add-on for every item, so which is right?`));
+        }
         continue;
       }
       addOns.set(a.id, { price, cost, from: o.id });

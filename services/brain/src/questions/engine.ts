@@ -5,7 +5,7 @@ import { Rational } from "@napkin/ledger-core";
 import type { BusinessSpec, OpenQuestion } from "@napkin/schema";
 import { usableForMoney } from "@napkin/schema";
 import { moneyFacts } from "../compiler/facts";
-import { CoerceError, coerceValue, showValue } from "../spec/coerce";
+import { CoerceError, coerceValue, showValue, valueKey } from "../spec/coerce";
 import { getFact, isMissing, listFacts, missingFact, normalizePath, removeFact, setFact, slugify, type AnyFact } from "../spec/paths";
 import { impactScore, isMoneyRelevant, moneyImpact } from "./impact";
 
@@ -118,7 +118,57 @@ export function invalidFacts(spec: BusinessSpec): Map<string, string> {
     if (problem) out.set(m.path.replace(/\[([^\]]+)\]/g, ".$1"), problem);
   }
   if (out.size === 0) for (const [path, problem] of stockCostProblems(spec)) out.set(path, problem);
+  for (const [path, m] of addOnMismatches(spec)) if (!out.has(path)) out.set(path, m.problem);
   return out;
+}
+
+const ADDON_PATH = /^offerings\.([^.]+)\.addOns\.([^.]+)\.(price|cost)$/;
+
+/**
+ * An add-on offered on several items ("Cheese" on every burrito) is ONE product in the catalog, so its price
+ * and its cost must agree everywhere (the compiler refuses otherwise). When the owner's confirmed values
+ * differ, the first copy is flagged with the values to choose from; answering it sets every copy.
+ */
+export function addOnMismatches(spec: BusinessSpec): Map<string, { problem: string; question: string; candidates: string[] }> {
+  const groups = new Map<string, { path: string; fact: AnyFact; on: string }[]>();
+  for (const o of spec.offerings)
+    for (const a of o.addOns)
+      for (const field of ["price", "cost"] as const) {
+        const fact = a[field] as AnyFact;
+        if (!fact || isMissing(fact) || !usableForMoney(fact)) continue;
+        const key = `${a.id}.${field}`;
+        groups.set(key, [...(groups.get(key) ?? []), { path: `offerings.${o.id}.addOns.${a.id}.${field}`, fact, on: String(o.name.value) }]);
+      }
+  const out = new Map<string, { problem: string; question: string; candidates: string[] }>();
+  for (const [key, copies] of groups) {
+    if (copies.length < 2) continue;
+    const distinct = [...new Map(copies.map((c) => [valueKey(c.path, c.fact.value), c])).values()];
+    if (distinct.length < 2) continue;
+    const field = key.endsWith(".cost") ? "cost" : "price";
+    const m = ADDON_PATH.exec(copies[0]!.path)!;
+    const name = String(spec.offerings.find((o) => o.id === m[1])?.addOns.find((a) => a.id === m[2])?.name.value ?? m[2]);
+    const said = distinct.map((c) => `${showValue(c.path, c.fact.value)} on ${c.on}`).join(" but ");
+    const candidates = [...new Set(distinct.map((c) => showValue(c.path, c.fact.value)))];
+    const question =
+      field === "cost"
+        ? `${name} costs you ${said}. It's one add-on for every item, so which cost is right?`
+        : `${name} is priced ${said}. It's one add-on for every item, so which price is right?`;
+    out.set(copies[0]!.path, { problem: `differs between items (${candidates.join(" vs ")})`, question, candidates });
+  }
+  return out;
+}
+
+/** Set the owner's answer at `path`; an add-on's price or cost is the same product everywhere, so every copy gets it. */
+function placeOwnerValue(spec: BusinessSpec, path: string, after: AnyFact): BusinessSpec {
+  let next = setFact(spec, path, after);
+  const m = ADDON_PATH.exec(path);
+  if (!m) return next;
+  const [, oid, aid, field] = m;
+  for (const o of next.offerings) {
+    if (o.id === oid || !o.addOns.some((a) => a.id === aid)) continue;
+    next = setFact(next, `offerings.${o.id}.addOns.${aid}.${field}`, { ...after, source: { ...after.source, ref: `${after.source.ref}+${o.id}` } });
+  }
+  return next;
 }
 
 /**
@@ -200,8 +250,14 @@ export function refreshQuestions(input: BusinessSpec): BusinessSpec {
   for (const q of [...spec.openQuestions].sort((a, b) => Number(Boolean(a.candidates)) - Number(Boolean(b.candidates)))) prior.set(q.fieldPath, q);
   const out: OpenQuestion[] = [];
   const invalid = invalidFacts(spec);
+  const mismatched = addOnMismatches(spec);
   for (const { path, fact } of listFacts(spec)) {
     if ((usableForMoney(fact) && !invalid.has(path)) || !isApplicable(spec, path)) continue;
+    const mm = mismatched.get(path);
+    if (mm && invalid.get(path) === mm.problem) {
+      out.push({ id: `addon.${path}`, fieldPath: path, question: mm.question, impactScore: moneyImpact(path), moneyRelevant: true, status: "open", candidates: mm.candidates });
+      continue;
+    }
     const old = prior.get(path);
     if (old?.status === "dismissed" && !isMoneyRelevant(path)) {
       out.push(old);
@@ -268,11 +324,13 @@ export function applyAnswer(spec: BusinessSpec, questionId: string, input: Answe
     source: { kind: "chat", ref: questionId, ...(before.source.region ? { region: before.source.region } : {}), quote },
     confirmed: true,
   };
-  const problem = input.answer !== undefined && input.answer.trim() !== "" ? invalidFacts(setFact(spec, q.fieldPath, after)).get(q.fieldPath) : undefined;
+  const typed = input.answer !== undefined && input.answer.trim() !== "";
+  // a typed answer is the owner's word for that field everywhere it appears (an add-on on several items);
+  // a bare confirm only confirms the value shown, so a different copy elsewhere still gets asked about
+  const placed = typed ? placeOwnerValue(spec, q.fieldPath, after) : setFact(spec, q.fieldPath, after);
+  const problem = typed ? invalidFacts(placed).get(q.fieldPath) : undefined;
   if (problem) throw new AnswerError(`${showValue(q.fieldPath, value)} ${problem}`);
-  const next = refreshQuestions(
-    markAnswered(setFact(spec, q.fieldPath, after), q, input.answer ?? quote),
-  );
+  const next = refreshQuestions(markAnswered(placed, q, input.answer ?? quote));
   return { spec: next, path: q.fieldPath, before, after };
 }
 
@@ -291,9 +349,9 @@ export function editFact(spec: BusinessSpec, path: string, answer: string): { sp
     throw new AnswerError(e instanceof CoerceError ? e.message : String(e));
   }
   const after: AnyFact = { value, provenance: "owner_said", confidence: 1, source: { kind: "chat", ref: `edit.${path}`, quote: answer.trim() }, confirmed: true };
-  const problem = invalidFacts(setFact(spec, path, after)).get(path);
+  const edited = placeOwnerValue(spec, path, after);
+  const problem = invalidFacts(edited).get(path);
   if (problem) throw new AnswerError(`${showValue(path, value)} ${problem}`);
-  const edited = setFact(spec, path, after);
   const next = { ...edited, openQuestions: edited.openQuestions.map((q) => (q.fieldPath === path && (q.status === "open" || q.status === "asked") ? { ...q, status: "answered" as const, answer: answer.trim() } : q)) };
   return { spec: refreshQuestions(next), before, after };
 }
