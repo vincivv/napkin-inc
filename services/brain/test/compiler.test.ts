@@ -8,6 +8,8 @@ import type { ProverPort, SynthesisResult } from "../src/compiler/prover-port";
 import { acceptProposal, copyProblem, LlmCopyProposer, type CopyProposer } from "../src/compiler/storefront";
 import { LlmUnavailable, type Llm, type ToolRequest } from "../src/llm";
 import * as T from "../src/compiler/templates/item_seller";
+import { moneyFacts } from "../src/compiler/facts";
+import { isMoneyRelevant } from "../src/questions/impact";
 import { guess, mayaTestSpec, ok, TEST_ROLE_LIMITS } from "./fixtures/maya-spec.TEST";
 
 const fixture = parseConfiguration(maya);
@@ -20,6 +22,14 @@ const moneyOf = (c: Configuration) =>
     fields: cat.fields,
     entries: cat.entries.map((e) => ({ id: e.id, ...Object.fromEntries(Object.entries(e.data).filter(([k]) => !["name", "description"].includes(k))) })),
   }));
+
+describe("interview and compiler agree on money facts", () => {
+  it("every fact the compiler requires confirmed is money-relevant in the interview (so money-ready means compilable)", () => {
+    const dotted = moneyFacts(mayaTestSpec()).map((m) => m.path.replace(/\[([^\]]+)\]/g, ".$1"));
+    expect(dotted.length).toBeGreaterThan(10);
+    expect(dotted.filter((p) => !isMoneyRelevant(p))).toEqual([]);
+  });
+});
 
 describe("template", () => {
   it("is the fixture's business-independent half, unchanged", () => {

@@ -6,7 +6,8 @@
 //   1.0  prices, costs, tax rate, margin floor, max discount, refund window     (every sale or refund depends on them)
 //   0.8  refund method, coupons allowed
 //   0.5  stock levels, stock tracking                                          (overselling; medium)
-//   0.3  currency, payment methods, fulfillment                                (structural, rarely wrong)
+//   0.5  currency, payment methods        (structural, but the compiler requires them confirmed like money)
+//   0.3  fulfillment                                                           (structural, rarely wrong)
 //   0.1  hours, location, timezone, suppliers, variant names, anything unlisted (low)
 //   0.02 business name, one-liner, community, product names, descriptions       (~0: cosmetic)
 // A path is "money relevant" when its moneyImpact >= 0.5. The compiler needs every money-relevant fact to be
@@ -30,8 +31,8 @@ export const MONEY_IMPACT: Readonly<Record<string, number>> = {
   "offerings.*.initialStock": 0.5,
   "offerings.*.variants.*.stockUnits": 0.5,
   "offerings.*.stockTracked": 0.5,
-  "policies.currency": 0.3,
-  "policies.paymentMethods": 0.3,
+  "policies.currency": 0.5,
+  "policies.paymentMethods": 0.5,
   "operations.fulfillment": 0.3,
   "business.hours": 0.1,
   "business.location": 0.1,
