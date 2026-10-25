@@ -1,6 +1,6 @@
 "use client";
 
-// Account screens and the first-run setup: sign up / sign in, name the business, then the napkin ->
+// Account screens and the first-run setup: sign up / sign in, name the business, then the paper ->
 // interview -> go-live steps inside SetupShell. Once the business is live the normal Shell takes over.
 
 import Link from "next/link";
@@ -15,7 +15,7 @@ function Brand() {
   return (
     <Link href="/" className="inline-flex items-center gap-2">
       <span className="grid size-7 place-items-center rounded-md bg-ink text-[13px] font-bold text-canvas">N</span>
-      <span className="text-[14px] font-semibold">Napkin Inc.</span>
+      <span className="text-[14px] font-semibold">Paper to Biz</span>
     </Link>
   );
 }
@@ -94,7 +94,7 @@ export function SignUpScreen() {
   return (
     <AuthFrame
       title="Start your business"
-      subtitle="Create your account. Next you'll name your business and show us your napkin."
+      subtitle="Create your account. Next you'll name your business and show us your paper."
       footer={
         <>
           Already have an account?{" "}
@@ -181,7 +181,7 @@ export function NameBusinessScreen() {
 }
 
 const STEPS = [
-  { href: "/intake", n: 1, label: "Your napkin", hint: "Photo or voice" },
+  { href: "/intake", n: 1, label: "Your paper", hint: "Photo or voice" },
   { href: "/interview", n: 2, label: "Money questions", hint: "Confirm the facts" },
   { href: "/build", n: 3, label: "Go live", hint: "Proofs, store, staff" },
 ] as const;
@@ -240,7 +240,7 @@ export function SetupShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** Throw the setup draft away (photo, notes, answers) and begin again at the napkin step. */
+/** Throw the setup draft away (photo, notes, answers) and begin again at the paper step. */
 function StartOver({ businessId }: { businessId: string | undefined }) {
   const [busy, setBusy] = useState(false);
   if (!businessId) return null;

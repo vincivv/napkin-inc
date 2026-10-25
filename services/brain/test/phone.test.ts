@@ -447,7 +447,7 @@ describe("owner tools", () => {
     const before = getFact(h.store.get(BIZ)!.spec, "policies.maxDiscountPct")!.value;
     const r = await h.call("owner_instruction", { caller_id: OWNER_PHONE, conversation_id: "own-1", instruction: "No discounts this week" });
     expect(r.body).toMatchObject({ ok: true, queued: true, applied: false, statement_id: "st1" });
-    expect(r.body.say).toMatch(/confirm it in the Napkin app Inbox/);
+    expect(r.body.say).toMatch(/confirm it in the Paper to Biz app Inbox/);
     expect(h.m2Platform.queued).toHaveLength(1);
     expect(h.m2Platform.queued[0]).toMatchObject({ businessId: BIZ, channel: "phone", text: "No discounts this week" });
     expect(getFact(h.store.get(BIZ)!.spec, "policies.maxDiscountPct")!.value).toBe(before);

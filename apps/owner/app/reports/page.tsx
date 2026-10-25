@@ -146,7 +146,7 @@ export default function ReportsPage() {
               Rate in your settings: <span className="font-medium text-ink">{pctText(taxRate)}</span>
               {taxRate === "0" || Number(taxRate) === 0 ? " — no tax is being charged. If your state or city taxes what you sell, set the rate before you take more orders." : ". Periods use your shop's time zone."}
             </p>
-            <p>Napkin does not file or pay sales tax for you. Use these totals on your state&apos;s return, and check with your state or an accountant which items are taxable and how often you file.</p>
+            <p>Paper to Biz does not file or pay sales tax for you. Use these totals on your state&apos;s return, and check with your state or an accountant which items are taxable and how often you file.</p>
           </div>
         </>
       ),

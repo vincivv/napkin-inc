@@ -8,8 +8,8 @@ const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
-  title: { default: "Napkin · Back office", template: "%s · Napkin" },
-  description: "Live books, orders and agent decisions for a Napkin business.",
+  title: { default: "Paper to Biz · Back office", template: "%s · Paper to Biz" },
+  description: "Live books, orders and agent decisions for a Paper to Biz business.",
 };
 
 export const viewport: Viewport = {

@@ -55,13 +55,13 @@ export default function IntakePage() {
     void run("Reading the photo", () => brain.uploadPhoto(businessId, f));
   }
 
-  /** "No napkin handy?": the bundled demo napkin (fixtures/demo), uploaded like any photo. */
+  /** "No paper handy?": the bundled demo sketch (fixtures/demo), uploaded like any photo. */
   async function loadSample() {
     try {
       const blob = await (await fetch("/sample-napkin.png")).blob();
       onFile(new File([blob], "sample-napkin.png", { type: "image/png" }));
     } catch (e) {
-      setError(`Could not load the sample napkin: ${errText(e)}`);
+      setError(`Could not load the sample: ${errText(e)}`);
     }
   }
 
@@ -162,7 +162,7 @@ export default function IntakePage() {
             <div className="mb-3 flex flex-wrap gap-2">
               <Button variant="primary" onClick={() => fileRef.current?.click()} disabled={!!busy}>{photoSrc ? "Replace photo" : "Take or upload a photo"}</Button>
               {photoSrc && <Button variant="danger" onClick={removePhoto} disabled={!!busy}>{busy === "Removing the photo" ? "Removing…" : "Remove photo"}</Button>}
-              {!photoSrc && <Button onClick={() => void loadSample()} disabled={!!busy}>No napkin handy? Use a sample</Button>}
+              {!photoSrc && <Button onClick={() => void loadSample()} disabled={!!busy}>No paper handy? Use a sample</Button>}
               {spec?.drafts.photo && spec.drafts.voice && <Button onClick={() => run("Merging", () => brain.merge(businessId))} disabled={!!busy}>Re-merge photo and voice</Button>}
             </div>
             {photoSrc ? (
@@ -187,7 +187,7 @@ export default function IntakePage() {
                 })}
               </div>
             ) : (
-              <Empty compact title="No photo yet" hint="A menu, a price list, a whiteboard or a napkin. I will box each thing I read." />
+              <Empty compact title="No photo yet" hint="A menu, a price list, a whiteboard or a sketch on paper. I will box each thing I read." />
             )}
             {spec?.notes && <p className="mt-2 text-[12px] text-muted">Note from the reader: {spec.notes}</p>}
           </Card>

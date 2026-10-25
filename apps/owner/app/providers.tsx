@@ -3,7 +3,7 @@
 // Who sees what:
 //   signed out                -> landing page (or /signin, /signup)
 //   signed in, no business    -> name your business
-//   business not live yet     -> setup steps (napkin -> questions -> go live)
+//   business not live yet     -> setup steps (paper -> questions -> go live)
 //   business live             -> the back office, scoped to this account's one business
 
 import { usePathname, useRouter } from "next/navigation";
@@ -36,11 +36,11 @@ function Gate({ children }: { children: ReactNode }) {
     if (status === "signedOut" && !onAuthPage && pathname !== "/") router.replace("/");
   }, [status, onAuthPage, pathname, router]);
 
-  if (status === "loading") return <BootScreen label="Opening Napkin…" />;
+  if (status === "loading") return <BootScreen label="Opening Paper to Biz…" />;
   if (status === "unreachable")
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-canvas px-4 text-center">
-        <p className="text-[14px] text-muted">Can&apos;t reach Napkin right now.</p>
+        <p className="text-[14px] text-muted">Can&apos;t reach Paper to Biz right now.</p>
         <Button onClick={retry}>Try again</Button>
       </div>
     );

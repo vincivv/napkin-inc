@@ -48,7 +48,7 @@ export function PhoneLine({ businessId, compact = false }: { businessId: string 
         <span className="text-muted">Call {formatPhone(PHONE_LINE)}, say</span>
         <span className="text-[20px] font-semibold tabular-nums tracking-[0.12em]">{spaced}</span>
       </div>
-      <div className="mt-1 text-[12px] text-faint">One number for every Napkin shop: the code connects callers to yours. It's on your storefront and QR sheet.</div>
+      <div className="mt-1 text-[12px] text-faint">One number for every Paper to Biz shop: the code connects callers to yours. It's on your storefront and QR sheet.</div>
     </Card>
   );
 }

@@ -5,8 +5,8 @@ import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Napkin Inc. store",
-  description: "Storefronts for businesses built by Napkin Inc.",
+  title: "Paper to Biz store",
+  description: "Storefronts for businesses built with Paper to Biz.",
 };
 
 export const viewport: Viewport = {

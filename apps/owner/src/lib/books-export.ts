@@ -1,5 +1,5 @@
 // Sales tax by period and CSV exports for an accountant. Pure functions over subscribed rows (integer cents);
-// downloadCsv is the one browser-only helper. Napkin reports what the books say; it does not file or pay tax.
+// downloadCsv is the one browser-only helper. Paper to Biz reports what the books say; it does not file or pay tax.
 
 import { Rational, type TrialBalanceRow } from "@napkin/ledger-core";
 import type { DocumentRow, JournalLineRow } from "@/data/types";

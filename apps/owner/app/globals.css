@@ -137,7 +137,7 @@ body {
 .landing-hand {
   font-family: "Bradley Hand", "Segoe Print", "Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive;
 }
-/* Hero backdrop: sky blue fading through warm napkin paper into the canvas. */
+/* Hero backdrop: sky blue fading through warm paper into the canvas. */
 .landing-sky {
   --sky-a: #d6e6f2;
   --sky-b: #eef0ec;
@@ -156,25 +156,18 @@ body {
   --sky-b: #0d1216;
   --sky-c: #1d140c;
 }
-.landing-napkin {
-  background-color: #fbf8ef;
+.landing-paper {
+  /* A ruled sheet: blue lines every 30px under the handwriting, a red margin on the left. */
+  background-color: #fffdf8;
   background-image:
-    repeating-linear-gradient(45deg, rgb(0 0 0 / 0.025) 0 1px, transparent 1px 9px),
-    repeating-linear-gradient(-45deg, rgb(0 0 0 / 0.025) 0 1px, transparent 1px 9px);
+    linear-gradient(90deg, transparent 27px, rgb(220 80 80 / 0.45) 27px, rgb(220 80 80 / 0.45) 28px, transparent 28px),
+    repeating-linear-gradient(180deg, transparent 0 29px, rgb(70 120 200 / 0.22) 29px 30px);
+  /* 16px = the sheet's top padding, so each rule sits under a 30px line of text */
+  background-position: 0 0, 0 16px;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.6) inset,
     0 18px 40px -16px rgb(0 0 0 / 0.35),
     0 2px 6px rgb(0 0 0 / 0.08);
   animation: landing-float 6s ease-in-out infinite;
-}
-.landing-napkin-fold {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background:
-    linear-gradient(90deg, transparent 49.6%, rgb(0 0 0 / 0.05) 50%, transparent 50.4%),
-    linear-gradient(0deg, transparent 49.6%, rgb(0 0 0 / 0.05) 50%, transparent 50.4%);
-  pointer-events: none;
 }
 @keyframes landing-write {
   from {
@@ -214,7 +207,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .landing-write,
   .landing-rise,
-  .landing-napkin {
+  .landing-paper {
     animation: none;
   }
 }

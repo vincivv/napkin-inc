@@ -182,7 +182,7 @@ function Footer({ info, design }: { info: StoreInfo; design: StorefrontDesign })
       <div className={`border-t ${bold ? "border-paper/15" : "border-line"}`}>
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-6 text-xs opacity-70 md:flex-row md:items-start md:justify-between md:px-8">
           <p>
-            <span className="font-semibold">Stripe test mode: no real money moves.</span> Storefront by <span className="italic">Napkin Inc.</span>
+            <span className="font-semibold">Stripe test mode: no real money moves.</span> Storefront by <span className="italic">Paper to Biz</span>
           </p>
           {credits.length > 0 ? (
             <details className="md:max-w-xl md:text-right">

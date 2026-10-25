@@ -149,7 +149,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 const json = (body: unknown): RequestInit => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 export const brain = {
-  /** The napkin photo as an object URL (fetched with the session; an <img src> could not send it). */
+  /** The paper photo as an object URL (fetched with the session; an <img src> could not send it). */
   async photoObjectUrl(businessId: string, v: number): Promise<string> {
     const res = await fetch(`${BRAIN_URL}/intake/photo/${businessId}?v=${v}`, { headers: authHeaders() });
     if (!res.ok) throw new BrainError(res.status, `photo unavailable (${res.status})`);

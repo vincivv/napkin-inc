@@ -43,7 +43,7 @@ const PatchBody = z
   .refine((b) => b.status !== undefined || b.note !== undefined, "send status and/or note");
 
 const DISCLAIMER =
-  "This is a starting list, not legal advice. Rules differ by state, county and city. Napkin doesn't apply for or file anything; check each item with the agency listed.";
+  "This is a starting list, not legal advice. Rules differ by state, county and city. Paper to Biz doesn't apply for or file anything; check each item with the agency listed.";
 
 function counts(items: LegalItem[]) {
   return {
@@ -121,8 +121,8 @@ export function legalRoutes(d: LegalDeps): Hono {
     if (body.city !== undefined || body.state !== undefined) loc = await saveLocation(businessId, body);
     const profile = d.profile(businessId);
     const where = locationText(loc, profile);
-    if (!where) throw new HttpError(409, "Napkin doesn't know where your business is yet: send your city and state");
-    if (!knowsBusiness(profile)) throw new HttpError(409, "Napkin doesn't know what your business sells yet: finish your napkin first");
+    if (!where) throw new HttpError(409, "Paper to Biz doesn't know where your business is yet: send your city and state");
+    if (!knowsBusiness(profile)) throw new HttpError(409, "Paper to Biz doesn't know what your business sells yet: finish your paper step first");
     if (!d.llm) throw new HttpError(503, "ANTHROPIC_API_KEY is not set; tailored items are unavailable (the general items still apply)");
     let tailored: LegalItem[];
     try {

@@ -47,7 +47,7 @@ async function call<T>(path: string, init: { method?: string; body?: unknown } =
       ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
     });
   } catch {
-    throw new AccountRequestError(0, "Can't reach Napkin right now. Check your connection and try again.");
+    throw new AccountRequestError(0, "Can't reach Paper to Biz right now. Check your connection and try again.");
   }
   const body = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) throw new AccountRequestError(res.status, body.error ?? `request failed (${res.status})`);

@@ -220,7 +220,7 @@ export function Footer() {
     <footer className="mx-auto max-w-3xl px-5 pb-16 pt-10 text-center text-xs text-muted">
       <p className="font-semibold">Payments are Stripe test mode. No real money.</p>
       <p className="mt-1 opacity-80">
-        Storefronts by <span className="italic">Napkin Inc.</span>
+        Storefronts by <span className="italic">Paper to Biz</span>
       </p>
     </footer>
   );

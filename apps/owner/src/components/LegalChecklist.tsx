@@ -1,7 +1,7 @@
 "use client";
 
 // Getting-legal checklist: the registrations, permits and licenses a business like this usually needs,
-// with official links. A starting list, not legal advice; Napkin never applies or files anything.
+// with official links. A starting list, not legal advice; Paper to Biz never applies or files anything.
 // Self-contained (loads and saves through the brain), so it can sit on its own page or inside another.
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -32,7 +32,7 @@ export function LegalChecklist({ businessId, className }: { businessId: string; 
   }, [businessId]);
   useEffect(() => void load(), [load]);
 
-  /** With a location: save it, and tailor the list when Napkin can; without: regenerate for the saved one. */
+  /** With a location: save it, and tailor the list when Paper to Biz can; without: regenerate for the saved one. */
   const generate = async (location?: { city: string; state: string }) => {
     setGenerating(true);
     setError(undefined);
@@ -73,7 +73,7 @@ export function LegalChecklist({ businessId, className }: { businessId: string; 
       <div className="rounded-lg border border-info/25 bg-info-soft px-4 py-3 text-[13px] leading-relaxed text-ink">
         <div className="font-semibold text-info">A starting list, not legal advice</div>
         <p className="mt-0.5 text-muted">
-          Rules differ by state, county and city, and they change. Napkin doesn&apos;t apply for or file anything for you. Check each item with the agency listed, and ask them if
+          Rules differ by state, county and city, and they change. Paper to Biz doesn&apos;t apply for or file anything for you. Check each item with the agency listed, and ask them if
           you&apos;re not sure it applies.
         </p>
       </div>
@@ -117,12 +117,12 @@ export function LegalChecklist({ businessId, className }: { businessId: string; 
                   {generating ? "Checking what applies to you…" : view.generated ? "Refresh suggestions" : "Add items for my kind of business"}
                 </Button>
                 <span className="text-[12px] text-faint">
-                  {generating ? "This can take up to a minute." : view.generated ? "Your ticks and notes are kept." : "Napkin suggests permits for what you sell and where."}
+                  {generating ? "This can take up to a minute." : view.generated ? "Your ticks and notes are kept." : "Paper to Biz suggests permits for what you sell and where."}
                 </span>
               </>
             ) : (
               <span className="text-[12.5px] text-faint">
-                {!view.knowsBusiness ? "Once Napkin knows what you sell (your napkin step), it can add permits specific to your business." : "Suggestions for your kind of business are unavailable right now; the general items below still apply."}
+                {!view.knowsBusiness ? "Once Paper to Biz knows what you sell (your paper step), it can add permits specific to your business." : "Suggestions for your kind of business are unavailable right now; the general items below still apply."}
               </span>
             )}
           </div>
@@ -131,7 +131,7 @@ export function LegalChecklist({ businessId, className }: { businessId: string; 
       </Card>
 
       {tailored.length > 0 && (
-        <Section title="For your kind of business" hint="Suggested from what you told Napkin. Double-check each with the agency.">
+        <Section title="For your kind of business" hint="Suggested from what you told Paper to Biz. Double-check each with the agency.">
           {tailored.map((it) => (
             <Item key={it.id} item={it} onChange={(p) => void update(it, p)} />
           ))}

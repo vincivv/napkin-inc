@@ -17,7 +17,7 @@ export function BusinessIndex() {
     <div className="brand min-h-dvh" data-style="editorial">
       <header className="border-b border-line">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 md:px-8">
-          <span className="ds-display text-xl">Napkin Inc.</span>
+          <span className="ds-display text-xl">Paper to Biz</span>
           <a href={OWNER_URL} className="btn btn-primary !min-h-10 !px-4 text-sm">
             Start your business
           </a>
@@ -27,9 +27,9 @@ export function BusinessIndex() {
         <section className="py-14 md:py-20">
           <p className="eyebrow text-muted">Shop directory</p>
           <h1 className="ds-display mt-3 max-w-3xl text-5xl leading-[1.02] md:text-7xl">
-            Shops drawn on a napkin, <span className="ds-accent-word">running for real.</span>
+            Shops drawn on paper, <span className="ds-accent-word">running for real.</span>
           </h1>
-          <p className="mt-5 max-w-xl text-lg text-muted">Every shop here was set up from a photo of a napkin. Live stock, real card checkout in Stripe test mode, and books that balance.</p>
+          <p className="mt-5 max-w-xl text-lg text-muted">Every shop here was set up from a photo of a sheet of paper. Live stock, real card checkout in Stripe test mode, and books that balance.</p>
         </section>
         {!ready ? (
           <p className="text-muted">{conn.connectionError ? "Can't reach the platform right now." : "Loading shops…"}</p>

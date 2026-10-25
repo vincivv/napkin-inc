@@ -223,7 +223,7 @@ function ReviewCard({ review, busy, onConfirm }: { review: ReviewResponse; busy:
   });
   return (
     <Card title={`Check what I have · ${review.items.length}`}>
-      <p className="mb-2 text-[12.5px] text-muted">These came from your own words or your napkin. Untick anything that&apos;s wrong (I&apos;ll ask about it), then confirm the rest in one go.</p>
+      <p className="mb-2 text-[12.5px] text-muted">These came from your own words or your paper. Untick anything that&apos;s wrong (I&apos;ll ask about it), then confirm the rest in one go.</p>
       <ul className="max-h-[340px] divide-y divide-line overflow-y-auto rounded-md border border-line">
         {review.items.map((i) => (
           <li key={i.id}>
@@ -235,7 +235,7 @@ function ReviewCard({ review, busy, onConfirm }: { review: ReviewResponse; busy:
                   <b className="text-[13px] text-ink">{i.display}</b>
                   {i.moneyRelevant && <Badge tone="accent">money</Badge>}
                 </span>
-                {i.quote && <span className="block truncate text-[11.5px] italic text-faint">{i.provenance === "paper" ? "on the napkin" : "you said"}: “{i.quote}”</span>}
+                {i.quote && <span className="block truncate text-[11.5px] italic text-faint">{i.provenance === "paper" ? "on the paper" : "you said"}: “{i.quote}”</span>}
               </span>
             </label>
           </li>

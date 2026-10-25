@@ -3,7 +3,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
 /*
- * Public marketing page for Napkin Inc.
+ * Public marketing page for Paper to Biz (paperto.biz).
  * Every number on this page comes from README.md, docs/INVARIANTS.md or redteam/RESULTS.md.
  */
 
@@ -38,7 +38,7 @@ function Logo() {
         <path d="M3 3h14v9l-5 5H3z" fill="currentColor" />
         <path d="M12 17v-5h5" fill="none" stroke="var(--canvas)" strokeWidth={1.4} strokeLinejoin="round" />
       </svg>
-      Napkin
+      Paper to Biz
     </span>
   );
 }
@@ -53,14 +53,13 @@ function CheckIcon({ className }: { className?: string }) {
 
 /* ---------------------------------------------------------------- hero visual */
 
-function NapkinCard() {
+function PaperSheet() {
   const lines = ["Maya's Cookies", "cookie ....... $3", "box of 6 ..... $15", "+ sea salt  +$1"];
   return (
-    <div className="landing-napkin relative w-[220px] rotate-[-4deg] rounded-[6px] p-5">
-      <div aria-hidden className="landing-napkin-fold" />
-      <div className="landing-hand relative space-y-1.5 text-[18px] leading-snug text-[#2b2a6e]">
+    <div className="landing-paper relative w-[230px] rotate-[-3deg] rounded-[3px] pb-6 pl-10 pr-5 pt-4">
+      <div className="landing-hand relative text-[18px] leading-[30px] text-[#2b2a6e]">
         {lines.map((l, i) => (
-          <div key={l} className={cx("landing-write", i === 0 && "mb-2 text-[22px] underline decoration-[#2b2a6e]/40 decoration-wavy underline-offset-4")} style={delay(200 + i * 220)}>
+          <div key={l} className={cx("landing-write", i === 0 && "text-[22px] underline decoration-[#2b2a6e]/40 decoration-wavy underline-offset-4")} style={delay(200 + i * 220)}>
             {l}
           </div>
         ))}
@@ -105,7 +104,7 @@ function HeroVisual() {
         <span className="size-2.5 rounded-full bg-line-strong" />
       </div>
       <div className="relative grid grid-cols-1 items-center justify-items-center gap-8 px-6 py-10 @3xl:grid-cols-[1fr_auto_1fr] @3xl:gap-6 @3xl:py-14">
-        <NapkinCard />
+        <PaperSheet />
         <span aria-hidden className="landing-rise text-[22px] text-faint" style={delay(700)}>
           <span className="@3xl:hidden">↓</span>
           <span className="hidden @3xl:inline">→</span>
@@ -127,7 +126,7 @@ function HeroVisual() {
 /* ---------------------------------------------------------------- content */
 
 const STEPS = [
-  { title: "Snap the napkin", body: "Take a photo of your sketch, or just talk it through." },
+  { title: "Snap the paper", body: "A menu, a price list, a sketch. Take a photo, or just talk it through." },
   { title: "Answer a few questions", body: "Only the ones that touch money, most important first." },
   { title: "Open the doors", body: "Storefront, QR codes, checkout, a phone line and real books." },
 ];
@@ -173,10 +172,10 @@ export function Landing({ onStart, onSignIn, startLabel = "Start your business",
               className="landing-rise mx-auto mt-6 max-w-[14ch] text-[44px] font-semibold leading-[1] tracking-[-0.045em] text-ink @2xl:text-[68px] @5xl:text-[84px]"
               style={delay(80)}
             >
-              From a napkin to a running business.
+              From paper to a running business.
             </h1>
             <p className="landing-rise mx-auto mt-6 max-w-[34rem] text-[16.5px] leading-relaxed text-muted @2xl:text-[18px]" style={delay(160)}>
-              Snap your idea or talk it through. Napkin opens the shop, takes the payments and keeps the books, and it asks before it assumes.
+              Write your idea down, snap a photo, and get a shop that takes payments and keeps its own books. It asks before it assumes.
             </p>
             <div className="landing-rise mt-9 flex flex-col items-center justify-center gap-3 @md:flex-row" style={delay(240)}>
               <Button onClick={onStart} className="w-full @md:w-auto">
@@ -244,7 +243,7 @@ export function Landing({ onStart, onSignIn, startLabel = "Start your business",
       {/* final CTA */}
       <section aria-labelledby="cta-title" className="px-4 py-24 text-center @2xl:px-6 @2xl:py-32">
         <h2 id="cta-title" className="text-[32px] font-semibold leading-[1.05] tracking-[-0.035em] text-ink @2xl:text-[48px]">
-          Got an idea on a napkin?
+          Got it on paper?
         </h2>
         <div className="mt-8 flex justify-center">
           <Button onClick={onStart}>{startLabel}</Button>
@@ -254,7 +253,7 @@ export function Landing({ onStart, onSignIn, startLabel = "Start your business",
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 px-4 py-6 text-[13px] text-faint @2xl:flex-row @2xl:px-6">
           <Logo />
-          <span>Stripe test mode. No real money moves.</span>
+          <span>paperto.biz · Stripe test mode, no real money moves.</span>
         </div>
       </footer>
     </div>

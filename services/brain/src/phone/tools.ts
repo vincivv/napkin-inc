@@ -561,7 +561,7 @@ async function ownerReport(d: PhoneDeps, input: In<"owner_report">): Promise<Too
 
 async function ownerInstruction(d: PhoneDeps, input: In<"owner_instruction">): Promise<ToolResult> {
   if (!isOwner(d, input)) return OWNER_REQUIRED();
-  if (!d.m2) return refuse("I can't take instructions on the phone right now. Please use the Napkin app.", { reason: "unavailable" });
+  if (!d.m2) return refuse("I can't take instructions on the phone right now. Please use the Paper to Biz app.", { reason: "unavailable" });
   try {
     const r = await submitOwnerStatement(d.m2, input.business_id, input.instruction, "phone");
     return ok({
@@ -571,12 +571,12 @@ async function ownerInstruction(d: PhoneDeps, input: In<"owner_instruction">): P
       changes: r.diff.changes.map((c) => ({ field: c.label, from: c.beforeText, to: c.afterText })),
       not_understood: r.diff.unparsed,
       ...(r.diff.note ? { note: r.diff.note } : {}),
-      say: "Got it. I've queued that change; nothing changes until you confirm it in the Napkin app Inbox.",
+      say: "Got it. I've queued that change; nothing changes until you confirm it in the Paper to Biz app Inbox.",
     });
   } catch (e) {
     if (e instanceof HttpError) {
       log.warn("phone", `owner_instruction not queued: ${e.message}`);
-      return refuse("I couldn't queue that instruction right now, so nothing changed. Please use the Napkin app.", { reason: e.message });
+      return refuse("I couldn't queue that instruction right now, so nothing changed. Please use the Paper to Biz app.", { reason: e.message });
     }
     throw e;
   }
