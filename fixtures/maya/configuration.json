@@ -693,6 +693,16 @@
           "name": "retained",
           "scope": "doc",
           "expr": "doc.saleNet - doc.refundedAfter"
+        },
+        {
+          "name": "taxShare",
+          "scope": "doc",
+          "expr": "(doc.saleTotal - doc.saleNet) / max(doc.saleTotal, 0.01)"
+        },
+        {
+          "name": "taxBack",
+          "scope": "doc",
+          "expr": "round2(doc.refundedAfter * doc.taxShare) - round2(doc.refundedSoFar * doc.taxShare)"
         }
       ],
       "checks": [
@@ -730,8 +740,19 @@
             "code": "4200"
           },
           "side": "debit",
-          "amountExpr": "doc.amount",
+          "amountExpr": "doc.amount - doc.taxBack",
           "memo": "refund to customer"
+        },
+        {
+          "id": "refund.tax",
+          "scope": "doc",
+          "target": {
+            "kind": "account",
+            "code": "2100"
+          },
+          "side": "debit",
+          "amountExpr": "doc.taxBack",
+          "memo": "sales tax returned with the refund"
         },
         {
           "id": "refund.clearing",

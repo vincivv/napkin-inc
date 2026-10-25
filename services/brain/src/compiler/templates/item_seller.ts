@@ -339,6 +339,10 @@ export const DOCUMENTS: readonly DocumentType[] = [
     derived: [
       { name: "refundedAfter", scope: "doc", expr: "doc.refundedSoFar + doc.amount" },
       { name: "retained", scope: "doc", expr: "doc.saleNet - doc.refundedAfter" },
+      // the sale's tax share of this refund goes back out of Sales tax payable, not into Refunds
+      { name: "taxShare", scope: "doc", expr: "(doc.saleTotal - doc.saleNet) / max(doc.saleTotal, 0.01)" },
+      // rounded on the running total, so refunding a sale in pieces returns exactly the tax it charged
+      { name: "taxBack", scope: "doc", expr: "round2(doc.refundedAfter * doc.taxShare) - round2(doc.refundedSoFar * doc.taxShare)" },
     ],
     checks: [
       { id: "refund_positive", scope: "doc", assert: "doc.amount > 0", message: "refund amount must be positive" },
@@ -357,8 +361,16 @@ export const DOCUMENTS: readonly DocumentType[] = [
         scope: "doc",
         target: { kind: "account", code: "4200" },
         side: "debit",
-        amountExpr: "doc.amount",
+        amountExpr: "doc.amount - doc.taxBack",
         memo: "refund to customer",
+      },
+      {
+        id: "refund.tax",
+        scope: "doc",
+        target: { kind: "account", code: "2100" },
+        side: "debit",
+        amountExpr: "doc.taxBack",
+        memo: "sales tax returned with the refund",
       },
       {
         id: "refund.clearing",

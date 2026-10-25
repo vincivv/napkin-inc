@@ -22,7 +22,8 @@ export interface TaxPeriod {
   taxableSalesCents: bigint;
   /** credits to 2100 (tax charged on sales) */
   taxCollectedCents: bigint;
-  /** tax handed back with refunds (refunds book to 4200 in full, so 2100 alone overstates what is owed) */
+  /** tax handed back with refunds: their 2100 debits, or (refunds posted before 2026-10-25 booked it all to
+   *  4200) worked out from the refunded sale's tax share */
   taxRefundedCents: bigint;
   /** debits to 2100 that are not refunds: tax already paid to the state */
   taxPaidCents: bigint;

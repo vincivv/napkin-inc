@@ -85,11 +85,11 @@ export function grant(w: World, by: TestAuth, who: TestAuth, businessId: string,
 }
 
 /** Full bootstrap: claim system (once per world), register, submit + activate (system bootstrap), grant every role. */
-export function bootMaya(w: World, opts: { id?: string; enforce?: boolean; claim?: boolean } = {}): Biz {
+export function bootMaya(w: World, opts: { id?: string; enforce?: boolean; claim?: boolean; patch?: (cfg: any) => void } = {}): Biz {
   const id = opts.id ?? "maya-cookies";
   if (opts.claim ?? true) w.call(w.system, "claimSystem", {} as never);
   w.call(w.system, "registerBusiness", { id, name: "Maya's Cookies", enforce: opts.enforce ?? true });
-  w.call(w.system, "submitConfiguration", { businessId: id, json: mayaConfig(id), proofReportJson: "" });
+  w.call(w.system, "submitConfiguration", { businessId: id, json: mayaConfig(id, opts.patch), proofReportJson: "" });
   const cfgRow = w.rows("configVersion").find((c) => c.businessId === id)!;
   w.call(w.system, "activateConfiguration", { configId: cfgRow.id });
   const actors = {} as Record<Role, TestAuth>;
