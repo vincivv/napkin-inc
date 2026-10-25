@@ -15,4 +15,5 @@ platform/target/
 **/module_bindings/.cache
 redteam/out/
 .data/
+.data-*/
 .claude/worktrees/

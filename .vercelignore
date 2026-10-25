@@ -1,0 +1,13 @@
+# Never upload secrets or local state to Vercel
+.env
+.env.*
+!.env.example
+**/.data/
+**/.data-*/
+**/node_modules/
+**/.next/
+.claude/
+redteam/runs/
+redteam/out/
+platform/target/
+**/*.log
