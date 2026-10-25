@@ -450,7 +450,8 @@ describe("routes", () => {
       ],
     };
     const said: Extracted = { offerings: [{ name: rf("Tea light"), variants: [{ name: rf("Tea light"), price: rf("2") }], addOns: [] }] };
-    const queue = [soy, said, split];
+    const jars: Extracted = { offerings: [{ name: rf("Candle"), variants: [{ name: rf("Jar"), price: rf("12") }], addOns: [] }] };
+    const queue = [soy, said, jars, split];
     const { app } = harness(new FakeLlm(() => queue.shift()!));
     const photo = () => {
       const fd = new FormData();
@@ -466,6 +467,8 @@ describe("routes", () => {
     expect((await app.request("/intake/voice", { method: "POST", body: fd })).status).toBe(200);
     expect(await names()).toEqual(["Soy candle", "Tea light"]);
     expect((await photo()).status).toBe(200);
+    expect(await names()).toEqual(["Candle", "Tea light"]);
+    expect((await photo()).status).toBe(200); // a third reading: items from BOTH earlier photos go
     expect(await names()).toEqual(["Big jar candle", "Small jar candle", "Tea light"]);
     const spec = (await (await app.request("/spec/juniper")).json()) as { spec: { openQuestions: { fieldPath: string }[] } };
     expect(spec.spec.openQuestions.some((q) => q.fieldPath.includes("soy-candle"))).toBe(false);

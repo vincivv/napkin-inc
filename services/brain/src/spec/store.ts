@@ -32,6 +32,8 @@ export interface StoredSpec {
   photo?: { file: string; mime: string };
   transcripts: { id: string; text: string; source: "voice" | "typed"; createdAt: string }[];
   statements: PendingStatement[];
+  /** ids of the items the owner named in any voice or typed note (they survive a replacement photo) */
+  voiceItems?: string[];
 }
 
 export const BUSINESS_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;

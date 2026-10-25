@@ -17,13 +17,13 @@ function knownNames(spec: BusinessSpec | undefined): string[] {
 }
 
 /**
- * A new photo replaces the old one: items that only the OLD photo had (in neither the new photo nor the
- * owner's voice notes) are dropped with their alternatives, instead of lingering as a product that is no
- * longer on the paper. Items the owner named by voice always stay.
+ * A new photo replaces the old one. Items come only from photos and voice notes, so an item that is
+ * neither on the new photo nor named by the owner in a note came from an earlier photo: it is dropped
+ * with its alternatives instead of lingering as a product that is no longer on the paper.
  */
 function withoutReplacedItems(cur: StoredSpec, draft: Draft): Pick<StoredSpec, "spec" | "alternatives"> {
-  const keep = new Set([...draft.spec.offerings, ...(cur.drafts.voice?.spec.offerings ?? [])].map((o) => o.id));
-  const stale = (cur.drafts.photo?.spec.offerings ?? []).map((o) => o.id).filter((id) => !keep.has(id));
+  const keep = new Set([...draft.spec.offerings.map((o) => o.id), ...voiceItems(cur)]);
+  const stale = cur.spec.offerings.map((o) => o.id).filter((id) => !keep.has(id));
   if (stale.length === 0) return cur;
   const isStale = (path: string) => stale.some((id) => path === `offerings.${id}` || path.startsWith(`offerings.${id}.`));
   return {
@@ -31,6 +31,7 @@ function withoutReplacedItems(cur: StoredSpec, draft: Draft): Pick<StoredSpec, "
     alternatives: Object.fromEntries(Object.entries(cur.alternatives).filter(([path]) => !isStale(path))),
   };
 }
+const voiceItems = (cur: StoredSpec | undefined) => [...new Set([...(cur?.voiceItems ?? []), ...(cur?.drafts.voice?.spec.offerings.map((o) => o.id) ?? [])])];
 
 /** Fold a new draft into the stored record. The first draft becomes the spec; later ones are merged (deterministically). */
 function fold(cur: StoredSpec | undefined, kind: "photo" | "voice", draft: Draft): Omit<StoredSpec, "version" | "updatedAt" | "businessId"> {
@@ -49,6 +50,7 @@ function fold(cur: StoredSpec | undefined, kind: "photo" | "voice", draft: Draft
     ...(cur?.photo ? { photo: cur.photo } : {}),
     transcripts: cur?.transcripts ?? [],
     statements: cur?.statements ?? [],
+    voiceItems: kind === "voice" ? [...new Set([...voiceItems(cur), ...draft.spec.offerings.map((o) => o.id)])] : voiceItems(cur),
   };
 }
 
