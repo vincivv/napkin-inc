@@ -55,6 +55,16 @@ export default function IntakePage() {
     void run("Reading the photo", () => brain.uploadPhoto(businessId, f));
   }
 
+  /** "No napkin handy?": the bundled demo napkin (fixtures/demo), uploaded like any photo. */
+  async function loadSample() {
+    try {
+      const blob = await (await fetch("/sample-napkin.png")).blob();
+      onFile(new File([blob], "sample-napkin.png", { type: "image/png" }));
+    } catch (e) {
+      setError(`Could not load the sample napkin: ${errText(e)}`);
+    }
+  }
+
   async function startRec() {
     setError(undefined);
     try {
@@ -115,6 +125,7 @@ export default function IntakePage() {
             <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
             <div className="mb-3 flex flex-wrap gap-2">
               <Button variant="primary" onClick={() => fileRef.current?.click()} disabled={!!busy}>{photoSrc ? "Replace photo" : "Take or upload a photo"}</Button>
+              {!photoSrc && <Button onClick={() => void loadSample()} disabled={!!busy}>No napkin handy? Use a sample</Button>}
               {spec?.drafts.photo && spec.drafts.voice && <Button onClick={() => run("Merging", () => brain.merge(businessId))} disabled={!!busy}>Re-merge photo and voice</Button>}
             </div>
             {photoSrc ? (

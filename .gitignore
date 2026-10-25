@@ -16,4 +16,5 @@ platform/target/
 redteam/out/
 .data/
 .data-*/
+.demo/
 .claude/worktrees/

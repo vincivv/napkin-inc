@@ -46,6 +46,60 @@
         "NEXT_PUBLIC_BRAIN_URL": "http://localhost:4000",
         "NEXT_PUBLIC_STORE_URL": "http://localhost:3002"
       }
+    },
+    {
+      "name": "brain-e2e",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@napkin/brain",
+        "start"
+      ],
+      "port": 4100,
+      "env": {
+        "PORT": "4100",
+        "SPACETIMEDB_URI": "http://127.0.0.1:3000",
+        "SPACETIMEDB_DB": "napkin-e2e",
+        "BRAIN_DATA_DIR": "/Users/vinci/napkin-inc/services/brain/.data-e2e",
+        "STRIPE_SECRET_KEY": "",
+        "STRIPE_WEBHOOK_SECRET": "",
+        "BRAIN_URL": "http://localhost:4100",
+        "STORE_PUBLIC_URL": "http://localhost:3002",
+        "OWNER_APP_URL": "http://localhost:3001"
+      }
+    },
+    {
+      "name": "owner-e2e",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@napkin/owner",
+        "dev"
+      ],
+      "port": 3001,
+      "env": {
+        "NEXT_PUBLIC_SPACETIMEDB_URI": "ws://127.0.0.1:3000",
+        "NEXT_PUBLIC_SPACETIMEDB_DB": "napkin-e2e",
+        "NEXT_PUBLIC_BRAIN_URL": "http://localhost:4100",
+        "NEXT_PUBLIC_STORE_URL": "http://localhost:3002"
+      }
+    },
+    {
+      "name": "store-e2e",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@napkin/store",
+        "dev"
+      ],
+      "port": 3002,
+      "env": {
+        "NEXT_PUBLIC_SPACETIMEDB_URI": "ws://127.0.0.1:3000",
+        "NEXT_PUBLIC_SPACETIMEDB_DB": "napkin-e2e",
+        "NEXT_PUBLIC_BRAIN_URL": "http://localhost:4100",
+        "NEXT_PUBLIC_STORE_URL": "http://localhost:3002",
+        "NEXT_PUBLIC_OWNER_URL": "http://localhost:3001"
+      }
     }
   ]
 }
