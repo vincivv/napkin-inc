@@ -1,5 +1,6 @@
-// Client for the brain's M2 endpoints (intake, questions, owner statements, spec).
+// Client for the brain's M2 endpoints (intake, questions, owner statements, spec) and the storefront design.
 
+import type { StorefrontDesign } from "@napkin/schema/storefront-design";
 import { BRAIN_URL } from "@/data/env";
 import { authHeaders } from "@/data/account";
 
@@ -115,6 +116,23 @@ export const brain = {
   statement: (businessId: string, text: string, channel: "app" | "phone") => req<{ statementId: string; diff: PendingStatement["diff"] }>("/owner/statement", json({ businessId, text, channel })),
   statements: (b: string) => req<{ statements: PendingStatement[] }>(`/owner/statements?businessId=${encodeURIComponent(b)}`),
   decide: (businessId: string, id: string, confirm: boolean) => req<SpecResponse>(`/owner/statement/${id}/decide`, json({ businessId, confirm })),
+
+  // ---- storefront design (look only: never prices, stock or policies) ----
+  design: (b: string) => req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/design`),
+  regenerateDesign: (b: string, style?: StorefrontDesign["style"]) => req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/design/regenerate`, json(style ? { style } : {})),
+  patchDesign: (b: string, patch: DesignPatch) =>
+    req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/design`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) }),
+  uploadDesignImage(b: string, slot: string, file: File) {
+    const fd = new FormData();
+    fd.set("file", file);
+    return req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/images/${encodeURIComponent(slot)}`, { method: "POST", body: fd });
+  },
+  removeDesignImage: (b: string, slot: string) => req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/images/${encodeURIComponent(slot)}`, { method: "DELETE" }),
+};
+
+export type DesignPatch = Partial<Pick<StorefrontDesign, "style" | "corners" | "fonts" | "palette" | "announcement" | "collection">> & {
+  hero?: Partial<Pick<StorefrontDesign["hero"], "eyebrow" | "title" | "subtitle" | "cta" | "layout">>;
+  banner?: Partial<Pick<StorefrontDesign["banner"], "title">>;
 };
 
 export const provenanceLabel = { owner_said: "you said it", paper: "read from paper", inferred: "my guess" } as const;

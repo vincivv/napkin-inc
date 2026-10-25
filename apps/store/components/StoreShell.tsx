@@ -8,6 +8,7 @@ import { fallbackDesign, designStyle, photoCredits, useDesign, type StorefrontDe
 import { cartCount, type StoreInfo } from "@/lib/model";
 import { StoreDataProvider, useStore, useStoreHref, type StoreState } from "@/lib/store-data";
 import { CartBar, CartSheet } from "./Cart";
+import { ChatWidget } from "./ChatWidget";
 import { BagIcon, Skeleton, StatusScreen } from "./ui";
 
 export const DesignContext = createContext<StorefrontDesign | null>(null);
@@ -64,6 +65,7 @@ function Themed({ slug, children }: { slug: string; children: ReactNode }) {
         {design && info ? <Footer info={info} design={design} /> : null}
         <CartBar />
         <CartSheet />
+        {design ? <ChatWidget /> : null}
       </div>
     </DesignContext.Provider>
   );

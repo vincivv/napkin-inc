@@ -52,3 +52,20 @@ export async function simulatePayment(orderId: string): Promise<void> {
   const res = await post(`/dev/simulate-payment/${encodeURIComponent(orderId)}`);
   if (!res.ok) throw new Error(await errorMessage(res));
 }
+
+export type StaffRole = "shopkeeper" | "support";
+export type ChatToolCall = {
+  tool: string;
+  args: unknown;
+  decision: { allow: boolean; outcome: string; ruleIds: string[]; reason: string };
+  result: unknown;
+};
+export type ChatReply = { reply: string; toolCalls: ChatToolCall[] };
+
+/** POST /agents/:role/message: one customer turn with the shop's AI staff (every tool call goes through the guards). */
+export async function sendChat(role: StaffRole, req: { businessId: string; conversationId: string; text: string }): Promise<ChatReply> {
+  const res = await post(`/agents/${role}/message`, req);
+  if (!res.ok) throw new Error(res.status === 503 ? "The shop's assistant is offline right now." : await errorMessage(res));
+  const j = (await res.json()) as Partial<ChatReply>;
+  return { reply: typeof j.reply === "string" ? j.reply : "", toolCalls: Array.isArray(j.toolCalls) ? j.toolCalls : [] };
+}

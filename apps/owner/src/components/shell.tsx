@@ -30,6 +30,7 @@ const I = {
   intake: <path d="M4 6h3l1.5-2h3L13 6h3v10H4zM10 8.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z" />,
   interview: <path d="M4 4h12v9H9l-3 3v-3H4z" />,
   build: <path d="M11 3 4 11h5l-1 6 7-8h-5z" />,
+  store: <path d="M3.5 8 5 3.5h10L16.5 8M3.5 8v8.5h13V8M3.5 8c0 1.4 1 2.5 2.2 2.5S8 9.4 8 8c0 1.4 1 2.5 2 2.5s2-1.1 2-2.5c0 1.4 1 2.5 2.3 2.5s2.2-1.1 2.2-2.5M8 16.5v-4h4v4" />,
 };
 
 const NAV: { section: string; items: NavItem[] }[] = [
@@ -37,6 +38,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
   {
     section: "Operations",
     items: [
+      { href: "/storefront", label: "Storefront", icon: I.store },
       { href: "/orders", label: "Orders", icon: I.orders, badge: (d) => d.snapshot.orders.filter((o) => o.status === "paid").length },
       { href: "/inbox", label: "Inbox", icon: I.inbox, badge: (d) => d.snapshot.inbox.filter((i) => i.status === "open").length + d.snapshot.ownerStatements.filter((s) => s.status === "queued").length },
       { href: "/decisions", label: "Decisions", icon: I.decisions },

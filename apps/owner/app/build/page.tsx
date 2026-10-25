@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useData } from "@/data/context";
+import { STORE_URL } from "@/data/env";
 import { Badge, Button, Card, Empty, ErrorNote, Loading, OwnerButton, PageHeader, errText, tableCls, tdCls, thCls, type Tone } from "@/components/ui";
 import { readConfig } from "@/lib/config";
 import { BUILD_STEPS, STEP_LABEL, diffConfigs, latestCompile, streamCompile, type BuildStep, type CompileEvent, type DiffRow, type DiffSection } from "@/lib/compile";
@@ -113,6 +114,28 @@ export default function BuildPage() {
         }
       />
       <div className="space-y-4">
+        {active && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-pos/30 bg-pos-soft px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold text-pos">Your business is live</div>
+              <div className="text-[12.5px] text-muted">Configuration v{active.row.version} is active. Customers can order from your storefront now.</div>
+            </div>
+            <Link href="/">
+              <Button size="sm">Dashboard</Button>
+            </Link>
+            <Link href="/storefront">
+              <Button size="sm">Customize storefront</Button>
+            </Link>
+            <a href={`${STORE_URL}/${biz}/qr`} target="_blank" rel="noreferrer">
+              <Button size="sm">QR codes ↗</Button>
+            </a>
+            <a href={`${STORE_URL}/${biz}`} target="_blank" rel="noreferrer">
+              <Button size="sm" variant="primary">
+                Open storefront ↗
+              </Button>
+            </a>
+          </div>
+        )}
         <Card title="Build progress" actions={<span className="normal-case text-faint">{biz}</span>}>
           {startError && <ErrorNote error={startError} />}
           {events.length === 0 && !running && !startError ? (

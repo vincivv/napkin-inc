@@ -23,3 +23,4 @@ export function safeSet(storage: "local" | "session", key: string, value: string
     /* storage unavailable */
   }
 }
+export const STORE_URL = (process.env.NEXT_PUBLIC_STORE_URL || "http://localhost:3002").replace(/\/+$/, "");
