@@ -32,7 +32,7 @@ export const FIXED_REPLIES = {
 } as const;
 
 const DESCRIPTIONS: Record<string, string> = {
-  menu_lookup: "List the menu (catalog prices). Optionally one productId.",
+  menu_lookup: "List the menu: catalog prices and live stock (how many of each product can still be sold). Optionally one productId.",
   quote: "Exact price of a cart with optional discounts (rates as exact decimals, e.g. \"0.1\"). Read-only.",
   create_order: "Create the order and get the customer's pay link (payUrl). Needs the customer's first name. Prices always come from the catalog.",
   order_status: "Status and amounts of one order by orderId.",

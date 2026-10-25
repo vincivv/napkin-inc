@@ -14,6 +14,7 @@ import { FIXED_REPLIES, toolDefs } from "../src/agents/loop";
 import { agentRoutes } from "../src/agents/routes";
 import { AccountStore, businessGate } from "../src/accounts";
 import { RateLimiter } from "../src/auth";
+import { toolImpls } from "../src/agents/backend";
 import { ConversationStore, Staff } from "../src/agents/staff";
 import { evaluate, TOOLS, type GuardCall } from "../src/guards";
 import { cfg, FakeBackend, FakeGuardPort, ORDER_40, resp, ScriptedLlm, text, thinking, toolUse, type Mutation } from "./agents.fakes";
@@ -36,6 +37,23 @@ type Res = { type: string; tool_use_id: string; content: string; is_error?: bool
 const results = (llm: ScriptedLlm, i: number) => lastUser(llm, i).content as unknown as Res[];
 
 describe("agents: tools and prompt", () => {
+  it("menu_lookup shows live stock as how many of each product can still be sold, and says when stock is unknown", async () => {
+    const backend = new FakeBackend();
+    const menu = toolImpls({ role: "shopkeeper", businessId: "maya-cookies", config: cfg, backend }).menu_lookup!;
+    const unknown = (await menu({}, undefined as never)) as { stock: string; menu: { available?: string }[] };
+    expect(unknown.stock).toMatch(/unknown/);
+    expect(unknown.menu.every((m) => m.available === undefined)).toBe(true);
+    backend.stock_ = new Map([["choc_chip_cookie", 9n]]);
+    const live = (await menu({}, undefined as never)) as { menu: { productId: string; available: string; inStock: boolean }[] };
+    const by = Object.fromEntries(live.menu.map((m) => [m.productId, [m.available, m.inStock]]));
+    expect(by).toMatchObject({ cookie_single: ["9", true], cookie_box6: ["1", true] });
+    expect(Object.values(by).filter(([a]) => a === "not limited").length).toBeGreaterThan(0); // the add-on draws on no stock
+    backend.stock_ = new Map([["choc_chip_cookie", 5n]]);
+    const low = (await menu({}, undefined as never)) as { menu: { productId: string; available: string; inStock: boolean }[] };
+    expect(low.menu.find((m) => m.productId === "cookie_box6")).toMatchObject({ available: "0", inStock: false });
+  });
+
+
   it("offers only configured ∩ registered tools, with JSON schemas from the guard registry", () => {
     for (const a of cfg.agents) {
       const defs = toolDefs(a.tools.filter((t) => Object.hasOwn(TOOLS, t)));

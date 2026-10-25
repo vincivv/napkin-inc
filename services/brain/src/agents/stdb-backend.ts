@@ -8,7 +8,7 @@ import type { StaffBackend } from "./backend";
 import type { BookDoc, BookSet } from "./books";
 import type { StaffRole } from "./types";
 
-const LEDGER_SUBSCRIPTIONS = ["SELECT * FROM journal_line", "SELECT * FROM register_movement", "SELECT * FROM period", "SELECT * FROM processor_event", "SELECT * FROM precedent"];
+const LEDGER_SUBSCRIPTIONS = ["SELECT * FROM journal_line", "SELECT * FROM register_movement", "SELECT * FROM period", "SELECT * FROM processor_event", "SELECT * FROM precedent", "SELECT * FROM register_balance"];
 const iso = (t: { microsSinceUnixEpoch: bigint } | undefined | null) => (t ? new Date(Number(t.microsSinceUnixEpoch / 1000n)).toISOString() : undefined);
 const rec = (fs: readonly { name: string; value: string }[]) => Object.fromEntries(fs.map((f) => [f.name, f.value]));
 
@@ -76,6 +76,16 @@ export class StdbStaffBackend implements StaffBackend {
       throw e;
     });
     return this.subscribed;
+  }
+
+  async stock(businessId: string): Promise<Map<string, bigint>> {
+    await this.ready();
+    const m = new Map<string, bigint>();
+    for (const b of this.db.registerBalance.businessId.filter(businessId)) {
+      const item = /^item=(.+)$/.exec(b.dimsKey)?.[1];
+      if (b.registerId === "stock" && item) m.set(item, b.qty);
+    }
+    return m;
   }
 
   async books(businessId: string): Promise<BookSet> {

@@ -37,6 +37,8 @@ export interface StaffBackend {
   openInbox(role: StaffRole, businessId: string, i: { question: string; documentRef: string; contextJson: string }): Promise<void>;
   /** the live books of a business */
   books(businessId: string): Promise<BookSet>;
+  /** stock register quantities by stock item; absent or throwing means stock is unknown */
+  stock?(businessId: string): Promise<Map<string, bigint>>;
 }
 
 export interface ToolContext {
@@ -58,6 +60,18 @@ export function menu(cfg: Configuration, productId?: string) {
   return productCatalog(cfg)
     .entries.filter((e) => !productId || e.id === productId)
     .map((e) => ({ productId: e.id, name: String(e.data["name"] ?? e.id), kind: String(e.data["kind"] ?? ""), price: String(e.data["price"]), description: String(e.data["description"] ?? "") }));
+}
+
+/** How many of each product the stock on the books can still fill; null when the product draws on no stock. */
+export function availability(cfg: Configuration, stock: Map<string, bigint>): Map<string, bigint | null> {
+  const out = new Map<string, bigint | null>();
+  for (const e of productCatalog(cfg).entries) {
+    const item = String(e.data["stockItem"] ?? "");
+    const units = /^\d+$/.test(String(e.data["stockUnits"] ?? "")) ? BigInt(String(e.data["stockUnits"])) : 0n;
+    if (!item || units <= 0n) out.set(e.id, null);
+    else out.set(e.id, (stock.get(item) ?? 0n) > 0n ? stock.get(item)! / units : 0n);
+  }
+  return out;
 }
 
 const totalRate = (a: SaleArgs) => a.discounts.reduce((s, d) => s.add(Rational.parse(d.rate)), Rational.ZERO);
@@ -82,7 +96,19 @@ export function quote(cfg: Configuration, a: SaleArgs) {
 export function toolImpls(ctx: ToolContext): Record<string, ToolImpl> {
   const { backend, businessId, role, config } = ctx;
   return {
-    menu_lookup: async (a) => ({ menu: menu(config, (a as { productId?: string }).productId) }),
+    menu_lookup: async (a) => {
+      const items = menu(config, (a as { productId?: string }).productId);
+      const stock = await backend.stock?.(businessId).catch(() => undefined);
+      if (!stock) return { menu: items, stock: "unknown right now: do not promise availability" };
+      const can = availability(config, stock);
+      return {
+        menu: items.map((m) => {
+          const n = can.get(m.productId);
+          return { ...m, available: n === null || n === undefined ? "not limited" : n.toString(), inStock: n === null || n === undefined || n > 0n };
+        }),
+        stock: "live from the books",
+      };
+    },
     quote: async (a) => quote(config, a as SaleArgs),
     create_order: async (raw) => {
       const a = raw as SaleArgs;

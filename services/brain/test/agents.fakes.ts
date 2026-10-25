@@ -51,6 +51,11 @@ export class FakeBackend implements StaffBackend {
   async approveRefund(role: StaffRole, _b: string, documentId: string) { this.check(); this.mutations.push({ kind: "approve", role, documentId }); }
   async openInbox(role: StaffRole, _b: string, i: { question: string }) { this.check(); this.mutations.push({ kind: "inbox", role, question: i.question }); }
   async books() { return this.books_; }
+  stock_: Map<string, bigint> | undefined;
+  async stock() {
+    if (!this.stock_) throw new Error("no stock in this fake");
+    return this.stock_;
+  }
   private check() {
     const e = this.failNext;
     this.failNext = undefined;
