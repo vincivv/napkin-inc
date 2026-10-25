@@ -39,17 +39,21 @@ export const EXTRACTION_SCHEMA = {
     },
     offerings: {
       type: "array",
-      description: "Things the business sells. Each has at least one variant (a sellable size/format with its own price). Add-ons are optional extras (e.g. '+ sea salt $1').",
+      description: "Things the business sells, one entry per pile of stock. Each has at least one variant (a sellable size/format with its own price) that draws on that stock. Items with their own stock counts are separate entries. Add-ons are optional extras (e.g. '+ sea salt $1').",
       items: {
         type: "object",
         properties: {
           name: F,
           description: F,
           stockTracked: F,
-          initialStock: F,
+          initialStock: factSchema("How many units of this item the owner has on hand now (e.g. 'have 20'). Omit if not stated."),
           variants: {
             type: "array",
-            items: { type: "object", properties: { name: F, price: F, cost: F, stockUnits: F }, required: ["name"] },
+            items: {
+              type: "object",
+              properties: { name: F, price: F, cost: F, stockUnits: factSchema("How many units of the item's stock ONE sale of this variant uses (a box of 6 uses 6, a single uses 1). Not an inventory count. Omit if not stated.") },
+              required: ["name"],
+            },
           },
           addOns: { type: "array", items: { type: "object", properties: { name: F, price: F, cost: F }, required: ["name"] } },
         },

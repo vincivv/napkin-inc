@@ -16,12 +16,29 @@ function knownNames(spec: BusinessSpec | undefined): string[] {
   return spec.offerings.flatMap((o) => [String(o.name.value), ...o.variants.map((v) => `${o.name.value} / ${v.name.value}`), ...o.addOns.map((a) => `add-on: ${a.name.value}`)]).filter((s) => s.trim() !== "" && !s.startsWith(" /"));
 }
 
+/**
+ * A new photo replaces the old one: items that only the OLD photo had (in neither the new photo nor the
+ * owner's voice notes) are dropped with their alternatives, instead of lingering as a product that is no
+ * longer on the paper. Items the owner named by voice always stay.
+ */
+function withoutReplacedItems(cur: StoredSpec, draft: Draft): Pick<StoredSpec, "spec" | "alternatives"> {
+  const keep = new Set([...draft.spec.offerings, ...(cur.drafts.voice?.spec.offerings ?? [])].map((o) => o.id));
+  const stale = (cur.drafts.photo?.spec.offerings ?? []).map((o) => o.id).filter((id) => !keep.has(id));
+  if (stale.length === 0) return cur;
+  const isStale = (path: string) => stale.some((id) => path === `offerings.${id}` || path.startsWith(`offerings.${id}.`));
+  return {
+    spec: { ...cur.spec, offerings: cur.spec.offerings.filter((o) => !stale.includes(o.id)) },
+    alternatives: Object.fromEntries(Object.entries(cur.alternatives).filter(([path]) => !isStale(path))),
+  };
+}
+
 /** Fold a new draft into the stored record. The first draft becomes the spec; later ones are merged (deterministically). */
 function fold(cur: StoredSpec | undefined, kind: "photo" | "voice", draft: Draft): Omit<StoredSpec, "version" | "updatedAt" | "businessId"> {
   let spec = draft.spec;
-  let alternatives = cur?.alternatives ?? {};
-  if (cur) {
-    const m = mergeSpecs(cur.spec, draft.spec);
+  const base = cur && kind === "photo" ? withoutReplacedItems(cur, draft) : cur;
+  let alternatives = base?.alternatives ?? {};
+  if (base) {
+    const m = mergeSpecs(base.spec, draft.spec);
     spec = m.spec;
     alternatives = mergeAlternatives(alternatives, m.alternatives);
   }

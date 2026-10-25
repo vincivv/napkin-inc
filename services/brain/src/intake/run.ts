@@ -9,8 +9,10 @@ const COMMON_RULES = `Rules (never assume):
 - Only record what the source shows or says. If something is not there, OMIT the field. Do not invent costs, stock, hours, tax, discounts or policies.
 - provenance "paper"/"owner_said" ONLY when you can give the exact supporting quote. A guess is provenance "inferred" with confidence <= 0.4 and the evidence in quote.
 - Every item for sale has at least one variant (a size/format with its own price). An item with one price gets one variant named like the item.
-- Add-ons like "+ sea salt $1" go in addOns of the item they extend, with their own price.
-- Money values are digits only (3.00). Rates are fractions (20% -> 0.20).`;
+- One item = one pile of stock. Its variants sell that SAME stock in different amounts (a single cookie uses 1, a box of 6 uses 6: that is stockUnits). Things counted separately ("have 20 small, 10 big") or physically different products are SEPARATE items, each with its own initialStock and one variant.
+- initialStock is how many the owner has now; stockUnits is how many of them ONE sale of a variant uses. Never put an inventory count in stockUnits.
+- Add-ons like "+ sea salt $1" go in addOns of the item they extend, with their own price. An add-on that applies to every item goes on each of them.
+- Money values are digits only (3.00). Rates and percentages keep their % sign (20%), never a bare fraction.`;
 
 const PHOTO_SYSTEM = `You read a photo of a small business's paper (menu, price list, napkin, whiteboard) and extract a structured draft of the business.
 ${COMMON_RULES}

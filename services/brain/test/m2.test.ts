@@ -441,6 +441,36 @@ describe("routes", () => {
     expect((await app.request("/intake/photo/maya-cookies")).status).toBe(200);
   });
 
+  it("a replacement photo drops items only the old photo had; items the owner named by voice stay", async () => {
+    const soy: Extracted = { offerings: [{ name: rf("Soy candle"), variants: [{ name: rf("Small jar"), price: rf("12") }, { name: rf("Big jar"), price: rf("24") }], addOns: [] }] };
+    const split: Extracted = {
+      offerings: [
+        { name: rf("Small jar candle"), variants: [{ name: rf("Small jar"), price: rf("12") }], addOns: [] },
+        { name: rf("Big jar candle"), variants: [{ name: rf("Big jar"), price: rf("24") }], addOns: [] },
+      ],
+    };
+    const said: Extracted = { offerings: [{ name: rf("Tea light"), variants: [{ name: rf("Tea light"), price: rf("2") }], addOns: [] }] };
+    const queue = [soy, said, split];
+    const { app } = harness(new FakeLlm(() => queue.shift()!));
+    const photo = () => {
+      const fd = new FormData();
+      fd.set("businessId", "juniper");
+      fd.set("image", png());
+      return app.request("/intake/photo", { method: "POST", body: fd });
+    };
+    const names = async () => ((await (await app.request("/spec/juniper")).json()) as { spec: { offerings: { name: { value: string } }[] } }).spec.offerings.map((o) => o.name.value).sort();
+    expect((await photo()).status).toBe(200);
+    const fd = new FormData();
+    fd.set("businessId", "juniper");
+    fd.set("transcript", "I also sell tea lights for two dollars");
+    expect((await app.request("/intake/voice", { method: "POST", body: fd })).status).toBe(200);
+    expect(await names()).toEqual(["Soy candle", "Tea light"]);
+    expect((await photo()).status).toBe(200);
+    expect(await names()).toEqual(["Big jar candle", "Small jar candle", "Tea light"]);
+    const spec = (await (await app.request("/spec/juniper")).json()) as { spec: { openQuestions: { fieldPath: string }[] } };
+    expect(spec.spec.openQuestions.some((q) => q.fieldPath.includes("soy-candle"))).toBe(false);
+  });
+
   it("retries once on invalid model output, then fails cleanly", async () => {
     let n = 0;
     const flaky = new FakeLlm(() => (n++ === 0 ? { offerings: "nope" } : napkin));
