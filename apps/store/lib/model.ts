@@ -66,6 +66,12 @@ export function parseConfig(json: string): Record<string, unknown> | null {
   }
 }
 
+/** A display fact, or "" while it is still a placeholder ("TBD", "placeholder"): never show a guess to customers. */
+const fact = (v: unknown) => {
+  const s = str(v).trim();
+  return /\bTBD\b|placeholder/i.test(s) ? "" : s;
+};
+
 const HEX = /^#[0-9a-fA-F]{3,8}$/;
 const color = (v: unknown, fallback: string) => {
   const s = str(v);
@@ -85,8 +91,8 @@ export function storeInfoFrom(config: Record<string, unknown> | null, businessId
     headline: str(sf.headline) || name,
     tagline: str(sf.tagline),
     oneLiner: str(biz.oneLiner),
-    pickupLocation: str(biz.pickupLocation),
-    hours: str(biz.hours),
+    pickupLocation: fact(biz.pickupLocation),
+    hours: fact(biz.hours),
     fulfillment: str(pol.fulfillment),
     currency: str(pol.currency) || "USD",
     couponsAllowed: pol.couponsAllowed === true,

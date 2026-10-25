@@ -120,7 +120,7 @@ function OrderSkeleton() {
     <div className="mx-auto max-w-md animate-pulse px-5 pt-12" aria-label="Loading order">
       <div className="mx-auto h-24 w-24 rounded-full bg-ink/8" />
       <div className="mx-auto mt-6 h-8 w-2/3 rounded-xl bg-ink/8" />
-      <div className="mt-8 h-56 rounded-3xl bg-ink/6" />
+      <div className="mt-8 h-56 rounded-tile bg-ink/6" />
     </div>
   );
 }
@@ -190,7 +190,7 @@ function OrderBody({
 
       <div className="text-center">
         <StatusBadge status={order.status} emoji={info.theme.emoji} />
-        <h1 className="mt-5 font-display text-4xl font-black leading-tight text-brand">{head.title}</h1>
+        <h1 className="mt-5 ds-display text-4xl font-black leading-tight text-brand">{head.title}</h1>
         <p className="mx-auto mt-2 max-w-sm text-ink/75">{head.body}</p>
       </div>
 
@@ -212,7 +212,7 @@ function OrderBody({
       ) : null}
 
       {simulate && order.status === "pending_payment" ? (
-        <div className="mt-6 rounded-2xl border-2 border-dashed border-ink/30 bg-card p-4">
+        <div className="mt-6 rounded-card border-2 border-dashed border-ink/30 bg-card p-4">
           <p className="text-xs font-bold uppercase tracking-wider text-ink/70">Dev simulator</p>
           <p className="mt-1 text-sm text-ink/75">
             No Stripe key is configured yet, so no card form is shown. This button tells the platform a test payment succeeded. No money moves.
@@ -243,7 +243,7 @@ function OrderBody({
         </div>
       ) : null}
 
-      <div className="card-shadow mt-7 overflow-hidden rounded-3xl border border-line bg-card">
+      <div className="card-shadow mt-7 overflow-hidden rounded-tile border border-line bg-card">
         <div className="flex items-center justify-between border-b border-dashed border-line px-5 py-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted">Order</p>
@@ -252,7 +252,7 @@ function OrderBody({
           {name ? (
             <div className="text-right">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted">Name</p>
-              <p className="font-display text-xl font-semibold">{name}</p>
+              <p className="ds-display text-xl font-semibold">{name}</p>
             </div>
           ) : null}
         </div>
@@ -281,8 +281,8 @@ function OrderBody({
       </div>
 
       {info.pickupLocation || info.hours ? (
-        <div className="mt-5 rounded-3xl border border-line bg-card p-5 text-[0.95rem]">
-          <p className="font-display text-lg font-semibold text-brand">Pickup</p>
+        <div className="mt-5 rounded-tile border border-line bg-card p-5 text-[0.95rem]">
+          <p className="ds-display text-lg font-semibold text-brand">Pickup</p>
           {info.pickupLocation ? <p className="mt-1">{info.pickupLocation}</p> : null}
           {info.hours ? <p className="text-muted">{info.hours}</p> : null}
         </div>
@@ -301,7 +301,7 @@ function Row({ label, value, strong = false }: { label: string; value: string; s
   return (
     <div className="flex items-baseline justify-between">
       <span className={strong ? "font-semibold" : "text-sm text-muted"}>{label}</span>
-      <span className={`tabular-nums ${strong ? "font-display text-2xl font-bold" : "text-sm"}`}>{value}</span>
+      <span className={`tabular-nums ${strong ? "ds-display text-2xl font-bold" : "text-sm"}`}>{value}</span>
     </div>
   );
 }

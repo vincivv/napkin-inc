@@ -2,14 +2,22 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, type ReactNode } from "react";
+import { createContext, Suspense, useContext, useEffect, type ReactNode } from "react";
 import { CartProvider, useCart } from "@/lib/cart";
-import { cartCount } from "@/lib/model";
+import { fallbackDesign, designStyle, photoCredits, useDesign, type StorefrontDesign } from "@/lib/design";
+import { cartCount, type StoreInfo } from "@/lib/model";
 import { StoreDataProvider, useStore, useStoreHref, type StoreState } from "@/lib/store-data";
-import { DEFAULT_THEME } from "@/lib/model";
-import { themeStyle } from "@/lib/theme";
 import { CartBar, CartSheet } from "./Cart";
-import { Footer, Skeleton, StatusScreen } from "./ui";
+import { BagIcon, Skeleton, StatusScreen } from "./ui";
+
+export const DesignContext = createContext<StorefrontDesign | null>(null);
+
+/** The store's design. Only available inside a ready store (StoreGate children). */
+export function useStoreDesign(): StorefrontDesign {
+  const d = useContext(DesignContext);
+  if (!d) throw new Error("useStoreDesign must be used inside a ready store");
+  return d;
+}
 
 export function StoreShell({ slug, children }: { slug: string; children: ReactNode }) {
   return (
@@ -25,28 +33,39 @@ function ShellWithParams({ slug, children }: { slug: string; children: ReactNode
   return (
     <StoreDataProvider slug={slug} preview={preview}>
       <CartProvider slug={slug} preview={preview}>
-        <Themed>{children}</Themed>
+        <Themed slug={slug}>{children}</Themed>
       </CartProvider>
     </StoreDataProvider>
   );
 }
 
-function Themed({ children }: { children: ReactNode }) {
+function Themed({ slug, children }: { slug: string; children: ReactNode }) {
   const { state, preview } = useStore();
-  const theme = state.status === "ready" ? state.info.theme : DEFAULT_THEME;
-  const title = state.status === "ready" ? state.info.name : null;
+  const { design: loaded, settled } = useDesign(slug);
+  const info = state.status === "ready" ? state.info : null;
+  const design = loaded ?? (info && settled ? fallbackDesign(info) : null);
   useEffect(() => {
-    if (title) document.title = title;
-  }, [title]);
+    if (info) document.title = info.name;
+  }, [info]);
+  if (state.status === "ready" && !design) {
+    return (
+      <div className="brand min-h-dvh">
+        <Skeleton />
+      </div>
+    );
+  }
   return (
-    <div className="brand grain min-h-dvh" style={themeStyle(theme)}>
-      {preview ? <PreviewBanner /> : null}
-      <Header />
-      <main>{children}</main>
-      <Footer />
-      <CartBar />
-      <CartSheet />
-    </div>
+    <DesignContext.Provider value={design}>
+      <div className="brand min-h-dvh" data-style={design?.style ?? "editorial"} style={design ? designStyle(design) : undefined}>
+        {preview ? <PreviewBanner /> : null}
+        {design && info ? <Announcement design={design} /> : null}
+        <Header />
+        <main>{children}</main>
+        {design && info ? <Footer info={info} design={design} /> : null}
+        <CartBar />
+        <CartSheet />
+      </div>
+    </DesignContext.Provider>
   );
 }
 
@@ -58,64 +77,164 @@ function PreviewBanner() {
   );
 }
 
+function Announcement({ design }: { design: StorefrontDesign }) {
+  if (!design.announcement) return null;
+  return (
+    <div className="no-print bg-brand px-4 py-2 text-center text-[0.8rem] font-medium text-on-brand">
+      <span className="ds-label">{design.announcement}</span>
+    </div>
+  );
+}
+
 function Header() {
   const { state } = useStore();
+  const design = useContext(DesignContext);
   const href = useStoreHref();
   const { cart, setOpen, bumpKey } = useCart();
   const pathname = usePathname();
   const count = cartCount(cart);
   const onQr = pathname.endsWith("/qr");
-  if (state.status !== "ready") return null;
+  if (state.status !== "ready" || !design) return null;
+  const bold = design.style === "bold";
+  const nav = [
+    { label: "Shop", to: href("#shop") },
+    { label: state.info.fulfillment === "pickup" ? "Pickup" : "Visit", to: href("#visit") },
+    { label: "Pay a phone order", to: "/pay" },
+  ];
   return (
-    <header className="no-print sticky top-0 z-30 border-b border-line bg-paper/85 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
-        <Link href={href()} className="flex items-center gap-2 font-display text-lg font-bold text-brand">
-          <span aria-hidden className="text-2xl">
-            {state.info.theme.emoji}
-          </span>
-          <span className="truncate">{state.info.name}</span>
+    <header className={`no-print sticky top-0 z-30 border-b border-line ${bold ? "bg-ink text-paper" : "bg-paper/90 backdrop-blur-md"}`}>
+      <div className="mx-auto grid h-16 max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 md:px-8">
+        <nav className="hidden items-center gap-7 text-sm font-medium md:flex" aria-label="Store">
+          {nav.map((n) => (
+            <Link key={n.label} href={n.to} className={`ds-label transition-opacity hover:opacity-60`}>
+              {n.label}
+            </Link>
+          ))}
+        </nav>
+        <span className="md:hidden" />
+        <Link
+          href={href()}
+          className={`ds-display truncate text-center text-xl leading-none sm:text-2xl ${bold ? "tracking-tight" : "tracking-[0.18em] !font-semibold uppercase !text-[1.05rem] sm:!text-[1.15rem]"}`}
+        >
+          {state.info.name}
         </Link>
-        {!onQr ? (
-          <button
-            key={bumpKey}
-            type="button"
-            onClick={() => setOpen(true)}
-            className={`relative flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-sm font-semibold text-brand ${bumpKey ? "bump" : ""}`}
-            aria-label={`Open cart, ${count} item${count === 1 ? "" : "s"}`}
-          >
-            <BagIcon />
-            <span className="tabular-nums">{count}</span>
-          </button>
-        ) : null}
+        <div className="flex items-center justify-end gap-1">
+          {!onQr ? (
+            <button
+              key={bumpKey}
+              type="button"
+              onClick={() => setOpen(true)}
+              className={`relative grid h-11 w-11 place-items-center rounded-full transition-opacity hover:opacity-70 ${bumpKey ? "bump" : ""}`}
+              aria-label={`Open bag, ${count} item${count === 1 ? "" : "s"}`}
+            >
+              <BagIcon />
+              {count > 0 ? (
+                <span
+                  className={`absolute right-0.5 top-0.5 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[0.68rem] font-bold tabular-nums ${
+                    bold ? "bg-paper text-ink" : "bg-brand text-on-brand"
+                  }`}
+                >
+                  {count}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
+        </div>
       </div>
     </header>
   );
 }
 
-function BagIcon() {
+function Footer({ info, design }: { info: StoreInfo; design: StorefrontDesign }) {
+  const href = useStoreHref();
+  const credits = photoCredits(design);
+  const bold = design.style === "bold";
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M5 8h14l-1.2 11.1a2 2 0 0 1-2 1.9H8.2a2 2 0 0 1-2-1.9L5 8Z" />
-      <path d="M9 8V6a3 3 0 0 1 6 0v2" />
-    </svg>
+    <footer className={`no-print mt-24 ${bold ? "bg-ink text-paper" : "border-t border-line bg-surface"}`}>
+      <div className="mx-auto grid max-w-7xl gap-10 px-4 pb-10 pt-14 md:grid-cols-[1.4fr_1fr_1fr_1fr] md:px-8">
+        <div>
+          <p className="ds-display text-3xl">{info.name}</p>
+          {info.oneLiner || info.tagline ? <p className="mt-3 max-w-xs text-sm opacity-75">{info.oneLiner || info.tagline}</p> : null}
+        </div>
+        <FooterCol title="Shop">
+          <Link href={href("#shop")}>All products</Link>
+          <Link href={href("/qr")}>QR codes</Link>
+        </FooterCol>
+        <FooterCol title="Help">
+          <Link href="/pay">Pay for a phone order</Link>
+          <span className="opacity-75">Card payments by Stripe</span>
+        </FooterCol>
+        <FooterCol title={info.fulfillment === "pickup" ? "Pickup" : "Visit"}>
+          {info.pickupLocation ? <span>{info.pickupLocation}</span> : <span className="opacity-75">Location shared after you order</span>}
+          {info.hours ? <span className="opacity-75">{info.hours}</span> : null}
+        </FooterCol>
+      </div>
+      <div className={`border-t ${bold ? "border-paper/15" : "border-line"}`}>
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-6 text-xs opacity-70 md:flex-row md:items-start md:justify-between md:px-8">
+          <p>
+            <span className="font-semibold">Stripe test mode: no real money moves.</span> Storefront by <span className="italic">Napkin Inc.</span>
+          </p>
+          {credits.length > 0 ? (
+            <details className="md:max-w-xl md:text-right">
+              <summary className="cursor-pointer select-none">Photo credits ({credits.length})</summary>
+              <ul className="mt-2 space-y-1">
+                {credits.map((c) => (
+                  <li key={c.url}>
+                    {c.creditUrl ? (
+                      <a href={c.creditUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                        {c.credit}
+                      </a>
+                    ) : (
+                      c.credit
+                    )}
+                    {c.license ? (
+                      <>
+                        {" · "}
+                        {c.licenseUrl ? (
+                          <a href={c.licenseUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                            {c.license}
+                          </a>
+                        ) : (
+                          c.license
+                        )}
+                      </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+function FooterCol({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="eyebrow opacity-60">{title}</p>
+      <div className="mt-4 flex flex-col gap-2.5 text-sm [&_a:hover]:underline [&_a]:underline-offset-4">{children}</div>
+    </div>
   );
 }
 
 /** Renders loading / offline / not-found / not-open states, or the page once the store is ready. */
 export function StoreGate({ children }: { children: (s: Extract<StoreState, { status: "ready" }>) => ReactNode }) {
   const { state, slug } = useStore();
+  const design = useContext(DesignContext);
   switch (state.status) {
     case "loading":
       return <Skeleton />;
     case "offline":
       return (
-        <StatusScreen emoji="📡" title="Can't reach the shop">
+        <StatusScreen title="Can't reach the shop">
           <p>We couldn&apos;t connect to the live shop. Check your connection; this page retries on its own.</p>
         </StatusScreen>
       );
     case "not_found":
       return (
-        <StatusScreen emoji="🧭" title="No shop here">
+        <StatusScreen title="No shop here">
           <p>
             There&apos;s no shop called <span className="font-mono">{slug}</span>.{" "}
             <Link href="/" className="underline">
@@ -126,11 +245,11 @@ export function StoreGate({ children }: { children: (s: Extract<StoreState, { st
       );
     case "not_open":
       return (
-        <StatusScreen emoji="🌱" title={`${state.name} is getting ready`}>
+        <StatusScreen title={`${state.name} is getting ready`}>
           <p>The shop isn&apos;t open yet. This page updates by itself the moment it opens.</p>
         </StatusScreen>
       );
     case "ready":
-      return <>{children(state)}</>;
+      return design ? <>{children(state)}</> : <Skeleton />;
   }
 }

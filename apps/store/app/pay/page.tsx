@@ -39,7 +39,7 @@ export default function PayPhoneOrder() {
         <p className="text-center text-4xl" aria-hidden>
           📞
         </p>
-        <h1 className="mt-3 text-center font-display text-4xl font-black">Pay a phone order</h1>
+        <h1 className="mt-3 text-center ds-display text-4xl font-black">Pay a phone order</h1>
         <p className="mt-2 text-center text-muted">Enter the order number you were given on the call.</p>
         <form onSubmit={submit} className="mt-10 space-y-3">
           <label htmlFor="order" className="block text-sm font-semibold">
@@ -57,7 +57,7 @@ export default function PayPhoneOrder() {
             autoComplete="off"
             spellCheck={false}
             inputMode="text"
-            className="h-14 w-full rounded-2xl border border-line bg-card px-5 font-mono text-xl tracking-wider outline-none focus:border-brand"
+            className="h-14 w-full rounded-card border border-line bg-card px-5 font-mono text-xl tracking-wider outline-none focus:border-brand"
           />
           {error ? <p className="text-sm font-semibold text-brand-deep">{error}</p> : null}
           <button type="submit" className="h-14 w-full rounded-full bg-brand font-semibold text-on-brand transition active:scale-[0.99]">
