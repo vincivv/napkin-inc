@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useData } from "@/data/context";
 import type { InboxItemRow } from "@/data/types";
 import { ErrorNote, OwnerButton, RelTime, cx, errText } from "@/components/ui";
 import { docLabel, refHref, useDocMap } from "@/lib/hooks";
-import { parseQuestion, roleLabel, roleShort } from "@/lib/inbox";
+import { isBooksReview, parseQuestion, roleLabel, roleShort } from "@/lib/inbox";
 import { RichText } from "./RichText";
 
 function RelatedLink({ docRef }: { docRef: string }) {
@@ -64,12 +64,21 @@ export function QuestionCard({ item, earlier = [] }: { item: InboxItemRow; earli
   const [precedent, setPrecedent] = useState(false);
   const [rule, setRule] = useState("");
   const [alsoEarlier, setAlsoEarlier] = useState(true);
+  // The reply box stays folded until the owner picks a quick answer or chooses to write one.
+  const [composing, setComposing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
   const box = useRef<HTMLTextAreaElement>(null);
   const parsedQ = parseQuestion(item.question);
   const isList = parsedQ.points.length > 0;
   const who = roleShort(item.fromRole);
+  const review = isBooksReview(item.fromRole, item.question, item.contextJson);
+  const n = earlier.length;
+  const earlierWords = review ? `${n} earlier ${n === 1 ? "review" : "reviews"}` : `${n} earlier ${n === 1 ? "copy" : "copies"}`;
+
+  useEffect(() => {
+    if (composing) box.current?.focus();
+  }, [composing]);
 
   const send = async () => {
     const a = answer.trim();
@@ -95,7 +104,7 @@ export function QuestionCard({ item, earlier = [] }: { item: InboxItemRow; earli
         <span className="text-faint">
           <RelTime ts={item.createdAt} />
         </span>
-        {earlier.length > 0 && <span className="rounded-full bg-surface-2 px-2 py-px text-[12px] text-muted">asked {earlier.length + 1} times</span>}
+        {n > 0 && <span className="rounded-full bg-surface-2 px-2 py-px text-[12px] text-muted">{review ? `latest of ${n + 1} reviews` : `asked ${n + 1} times`}</span>}
       </div>
 
       <QuestionBody question={item.question} />
@@ -108,7 +117,7 @@ export function QuestionCard({ item, earlier = [] }: { item: InboxItemRow; earli
 
       {earlier.length > 0 && (
         <details className="mt-3 text-[13px]">
-          <summary className="cursor-pointer select-none text-muted hover:text-ink">Show the {earlier.length} earlier {earlier.length === 1 ? "copy" : "copies"} of this question</summary>
+          <summary className="cursor-pointer select-none text-muted hover:text-ink">Show the {earlierWords}</summary>
           <div className="mt-2 space-y-3 border-l-2 border-line pl-3">
             {earlier.map((e) => (
               <div key={String(e.id)}>
@@ -127,56 +136,70 @@ export function QuestionCard({ item, earlier = [] }: { item: InboxItemRow; earli
         <div className="mt-0.5 text-[13.5px] text-muted">{parsedQ.todo ? parsedQ.todo.charAt(0).toUpperCase() + parsedQ.todo.slice(1) : (isList ? `Reply to confirm these are fine, or tell ${who} what's wrong.` : `Reply with your decision and ${who} will act on it.`)}</div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          {QUICK.map((q) => (
+          {isList && QUICK.map((q) => (
             <button
               key={q.label}
               type="button"
               disabled={!isOwner || busy}
               onClick={() => {
                 setAnswer(q.text);
-                box.current?.focus();
+                setComposing(true);
               }}
               className={cx("rounded-full border border-line bg-surface px-3 py-1 text-[13px] text-ink transition-colors hover:border-line-strong disabled:cursor-not-allowed disabled:opacity-45", answer === q.text && "border-ink")}
             >
               {q.label}
             </button>
           ))}
+          {!composing && (
+            <button
+              type="button"
+              disabled={!isOwner || busy}
+              onClick={() => setComposing(true)}
+              className={cx("rounded-full px-3 py-1 text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-45", isList ? "text-muted hover:text-ink" : "border border-line bg-surface text-ink hover:border-line-strong")}
+            >
+              {isList ? "Write my own answer" : "Write your answer"}
+            </button>
+          )}
         </div>
 
-        <textarea
-          ref={box}
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          rows={3}
-          placeholder={`Write your answer to ${who}…`}
-          disabled={!isOwner}
-          className="mt-3 w-full rounded-md border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-faint disabled:opacity-50"
-        />
+        {composing && (
+          <>
+            <textarea
+              ref={box}
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              rows={3}
+              placeholder={`Write your answer to ${who}…`}
+              disabled={!isOwner}
+              className="mt-3 w-full rounded-md border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-faint disabled:opacity-50"
+            />
 
-        <label className="mt-2 flex items-center gap-2 text-[13px] text-muted">
-          <input type="checkbox" checked={precedent} onChange={(e) => setPrecedent(e.target.checked)} disabled={!isOwner} />
-          Remember this answer for next time
-        </label>
-        {precedent && (
-          <input
-            value={rule}
-            onChange={(e) => setRule(e.target.value)}
-            placeholder="The rule in one sentence (leave empty to use your answer)"
-            className="mt-2 h-9 w-full rounded-md border border-line bg-surface px-3 text-[13.5px] placeholder:text-faint"
-          />
-        )}
-        {earlier.length > 0 && (
-          <label className="mt-2 flex items-center gap-2 text-[13px] text-muted">
-            <input type="checkbox" checked={alsoEarlier} onChange={(e) => setAlsoEarlier(e.target.checked)} disabled={!isOwner} />
-            Also close the {earlier.length} earlier {earlier.length === 1 ? "copy" : "copies"} with this answer
-          </label>
-        )}
+            <label className="mt-2 flex items-center gap-2 text-[13px] text-muted">
+              <input type="checkbox" checked={precedent} onChange={(e) => setPrecedent(e.target.checked)} disabled={!isOwner} />
+              Remember this answer for next time
+            </label>
+            {precedent && (
+              <input
+                value={rule}
+                onChange={(e) => setRule(e.target.value)}
+                placeholder="The rule in one sentence (leave empty to use your answer)"
+                className="mt-2 h-9 w-full rounded-md border border-line bg-surface px-3 text-[13.5px] placeholder:text-faint"
+              />
+            )}
+            {earlier.length > 0 && (
+              <label className="mt-2 flex items-center gap-2 text-[13px] text-muted">
+                <input type="checkbox" checked={alsoEarlier} onChange={(e) => setAlsoEarlier(e.target.checked)} disabled={!isOwner} />
+                Also close the {earlierWords} with this answer
+              </label>
+            )}
 
-        <div className="mt-3 flex items-center gap-2">
-          <OwnerButton variant="primary" disabled={busy || !answer.trim()} onClick={send}>
-            {busy ? "Sending…" : "Send answer"}
-          </OwnerButton>
-        </div>
+            <div className="mt-3 flex items-center gap-2">
+              <OwnerButton variant="primary" disabled={busy || !answer.trim()} onClick={send}>
+                {busy ? "Sending…" : "Send answer"}
+              </OwnerButton>
+            </div>
+          </>
+        )}
         <ErrorNote error={err} />
       </div>
     </article>

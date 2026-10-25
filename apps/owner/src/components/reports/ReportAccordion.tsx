@@ -71,14 +71,23 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
+/** Each report is its own card; an open one stands apart (stronger outline, space around it, a closing row) so it is clear where it ends. */
 export function ReportAccordion({ sections, open, onToggle }: { sections: ReportSection[]; open: Set<string>; onToggle: (id: string) => void }) {
   return (
-    <div className="rounded-lg border border-line bg-surface shadow-card">
+    <div className="space-y-2">
       {sections.map((s, i) => {
         const isOpen = open.has(s.id);
-        const last = i === sections.length - 1;
         return (
-          <section key={s.id} id={s.id} className={cx("scroll-mt-4", !last && "border-b border-line")}>
+          <section
+            key={s.id}
+            id={s.id}
+            className={cx(
+              "scroll-mt-4 overflow-hidden rounded-lg border bg-surface shadow-card",
+              isOpen ? "border-line-strong" : "border-line",
+              isOpen && i > 0 && "mt-5",
+              isOpen && i < sections.length - 1 && "mb-5",
+            )}
+          >
             <h2>
               <button
                 type="button"
@@ -87,8 +96,7 @@ export function ReportAccordion({ sections, open, onToggle }: { sections: Report
                 onClick={() => onToggle(s.id)}
                 className={cx(
                   "flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-line",
-                  i === 0 && "rounded-t-lg",
-                  last && !isOpen && "rounded-b-lg",
+                  isOpen && "bg-surface-2",
                 )}
               >
                 <span className="min-w-0 flex-1">
@@ -102,8 +110,16 @@ export function ReportAccordion({ sections, open, onToggle }: { sections: Report
             </h2>
             {isOpen && (
               <div id={`${s.id}-panel`} role="region" aria-label={s.title} className="border-t border-line">
-                {s.actions && <div className="flex flex-wrap items-center justify-end gap-2 border-b border-line bg-surface-2 px-4 py-2 text-[12px]">{s.actions}</div>}
+                {s.actions && <div className="flex flex-wrap items-center justify-end gap-2 border-b border-line px-4 py-2 text-[12px]">{s.actions}</div>}
                 {s.children}
+                <button
+                  type="button"
+                  onClick={() => onToggle(s.id)}
+                  className="flex w-full items-center justify-center gap-1.5 border-t border-line px-4 py-2 text-[12px] text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                >
+                  <Chevron open />
+                  Close {s.title}
+                </button>
               </div>
             )}
           </section>

@@ -7,13 +7,13 @@ import { Card, Empty, Loading, PageHeader } from "@/components/ui";
 import { AnsweredRow, QuestionCard } from "@/components/inbox/QuestionCard";
 import { StatementCard } from "@/components/inbox/StatementCard";
 import { newestFirst } from "@/lib/hooks";
-import { roleLabel, similarityKey } from "@/lib/inbox";
+import { groupKey, roleLabel } from "@/lib/inbox";
 
-/** Open questions grouped so the same question asked again shows once (newest first, with its earlier copies). */
+/** Open questions grouped so the same question, or another books review, shows once (newest first, with its earlier copies). */
 function groupSimilar(open: InboxItemRow[]): { item: InboxItemRow; earlier: InboxItemRow[] }[] {
   const groups = new Map<string, { item: InboxItemRow; earlier: InboxItemRow[] }>();
   for (const i of open) {
-    const k = similarityKey(i.fromRole, i.question);
+    const k = groupKey(i.fromRole, i.question, i.contextJson);
     const g = groups.get(k);
     if (g) g.earlier.push(i);
     else groups.set(k, { item: i, earlier: [] });

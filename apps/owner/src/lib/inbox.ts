@@ -123,6 +123,25 @@ export function similarityKey(fromRole: string, question: string): string {
   return `${fromRole}|${basis.toLowerCase().replace(/\[docs?[^\]]*\]/g, "").replace(/[^a-z]+/g, " ").trim()}`;
 }
 
+/**
+ * A bookkeeper review of the whole books: the automatic check (tagged in contextJson) or any bookkeeper list of two
+ * or more issues. Reviews overlap heavily, so the inbox shows the open ones as a single card.
+ */
+export function isBooksReview(fromRole: string, question: string, contextJson: string): boolean {
+  if (fromRole !== "bookkeeper") return false;
+  try {
+    if ((JSON.parse(contextJson) as { source?: unknown } | null)?.source === "bookkeeper_review") return true;
+  } catch {
+    // not JSON: fall back to the question's shape
+  }
+  return parseQuestion(question).points.length >= 2;
+}
+
+/** Key for grouping open questions: every open books review shares one key; other questions use similarityKey. */
+export function groupKey(fromRole: string, question: string, contextJson: string): string {
+  return isBooksReview(fromRole, question, contextJson) ? `${fromRole}|books-review` : similarityKey(fromRole, question);
+}
+
 const ROLE_NAMES: Record<string, string> = {
   bookkeeper: "Your bookkeeper",
   shopkeeper: "Your shop assistant",

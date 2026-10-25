@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FALLBACK_HEADLINE, humanize, parseQuestion, similarityKey, splitDocRefs } from "./inbox";
+import { FALLBACK_HEADLINE, groupKey, humanize, isBooksReview, parseQuestion, similarityKey, splitDocRefs } from "./inbox";
 
 const weekly =
   "Weekly review found oddities. (1) Sales [doc 6] and [doc 9] each deducted 20 stock units for 1 burrito (stockUnits=20). (2) Cash account 1000 is at -$920.00 after [doc 13] and rent $900 [doc 15]. Please confirm or advise.";
@@ -68,3 +68,21 @@ describe("automatic review format", () => {
   });
 });
 
+
+describe("books reviews", () => {
+  const auto = "My automatic check of the books found one thing that needs your attention.\n1. Cash is at -$920.00: [doc 15] paid $900.00 out of it.";
+  const autoCtx = JSON.stringify({ tool: "escalate", source: "bookkeeper_review" });
+
+  it("spots the automatic check by its tag and any bookkeeper list of two or more issues", () => {
+    expect(isBooksReview("bookkeeper", auto, autoCtx)).toBe(true);
+    expect(isBooksReview("bookkeeper", weekly, "{}")).toBe(true);
+    expect(isBooksReview("bookkeeper", "Should I refund order 12?", "{}")).toBe(false);
+    expect(isBooksReview("shopkeeper", weekly, "{}")).toBe(false);
+    expect(isBooksReview("bookkeeper", "Should I refund order 12?", "not json")).toBe(false);
+  });
+
+  it("gives differently worded reviews one group, and leaves other questions apart", () => {
+    expect(groupKey("bookkeeper", auto, autoCtx)).toBe(groupKey("bookkeeper", weekly, "{}"));
+    expect(groupKey("bookkeeper", "Should I refund order 12?", "{}")).not.toBe(groupKey("bookkeeper", weekly, "{}"));
+  });
+});
