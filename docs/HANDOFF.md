@@ -1,6 +1,7 @@
 # Handoff: Napkin Inc. (Cal Hacks 13.0), full context
 
-Written Sat 2026-10-24, about 6 PM PT, at commit `4cf45ad`. The previous Claude session built the whole
+Written Sat 2026-10-24, about 6 PM PT, at commit `4cf45ad`; sections 6, 7, 9 and 10 updated Sat night after
+the storefront-design and demo-hardening work (history in section 8). The previous Claude session built the whole
 project. The owner (GitHub `vincivv`) is switching Claude accounts, so this file has to carry everything
 that session knew.
 
@@ -25,9 +26,9 @@ that session knew.
 | `docs/PLAN.md` | Original architecture and decisions D1–D7 | Accurate |
 | `docs/AGENT_BRIEF.md` | Rules for build agents | Accurate |
 | `docs/INVARIANTS.md` | The nine invariants | Accurate |
-| `docs/DEMO.md` | Local M1/M2 click-through | Older than the accounts work |
+| `docs/DEMO.md` | The 3–4 minute hosted judge demo, prep checklist and fallbacks | Accurate |
 | `docs/MORNING.md` | Overnight log and decisions saved for the owner | Older than the accounts work |
-| `docs/REAL_VS_SIMULATED.md` | What's real vs simulated | **Stale:** says Stripe and Cartesia aren't live; both are live now |
+| `docs/REAL_VS_SIMULATED.md` | What's real vs simulated | Accurate (rewritten Sat night) |
 | `redteam/RESULTS.md` | Final red-team numbers | Accurate |
 
 ---
@@ -442,7 +443,7 @@ platform, prover and redteam suites; `pnpm test` runs everything. `pnpm typechec
 | Owner app | https://napkin-owner.vercel.app. Vercel team `power-of-love` (`team_Etn72hUqGT17AAqVNuULBgIb`), project `prj_Ix1DAhcegnD5Cu3dq1bRkseJG0VJ` |
 | Store | https://napkin-store.vercel.app, project `prj_A1WVgYTDOQqYuPv7rJIOJhxefo2R`. Maya's shop: `/maya-cookies`; phone payments: `/pay` |
 | Database | SpacetimeDB maincloud, database **`napkin-inc-mayas`**. It holds `maya-cookies`, `maya-cookies-baseline`, and businesses created during tests |
-| Brain | **On the owner's Mac**, behind a Cloudflare quick tunnel: `https://conservative-independent-nat-traditional.trycloudflare.com` |
+| Brain | **On the owner's Mac**, behind a Cloudflare quick tunnel. The URL changes whenever the tunnel is replaced; the current one is in `.demo/deployed-url` |
 | Phone | +1 906-498-9806 (id `ap_KugXKLtEEEvLtNcN58QoEz`), agent `agent_pPr1iGCEp3DS5YX4G9GTYB`, model `claude-haiku-5.5`, voice Skylar `db6b0ed5-d5d3-463d-ae85-518a07d3c2b4` |
 | Stripe | Test sandbox "Erketoys". `STRIPE_WEBHOOK_SECRET` (from `stripe listen`) is already in `.env` |
 | SMS | Simulator only. Twilio was skipped because the trial balance was $0 |
@@ -469,26 +470,33 @@ folders. It was verified that `.env` is not served from either Vercel deployment
 
 ## 7. Running it
 
-### Hosted demo: processes on the owner's Mac (from the repo root)
-
-These ran as background shells of the previous Claude session, so they may have died when it ended.
-Check health first:
+### Hosted demo: one command on the owner's Mac (from the repo root)
 
 ```bash
-curl -s https://conservative-independent-nat-traditional.trycloudflare.com/health
+scripts/demo-up.sh
 ```
 
-You want `"ok":true`, `bootstrap.ok`, both businesses registered, and `stripe.mode` `test`. If anything is
-down, start the processes again:
+It runs and watches everything the hosted demo needs:
+- the brain on :4000 against maincloud (`scripts/brain-cloud.sh`);
+- a Cloudflare quick tunnel;
+- `stripe listen`, forwarding webhooks to the brain (key read from `.env`).
+
+Every 30 s it checks them. If the brain or `stripe listen` exits, it restarts it. If the public `/health`
+fails 3 times in a row (a quick tunnel dies on any network drop), it opens a new tunnel and does the URL
+change by itself: restart the brain with the new `BRAIN_PUBLIC_URL`, redeploy both Vercel apps
+(`scripts/deploy-web.sh both`), and point the Cartesia phone agent at the new URL. Recovery takes about
+2 minutes. The deployed URL is kept in `.demo/deployed-url`, so restarting the script with the same tunnel
+skips the redeploy. Logs: `.demo/{brain,tunnel,stripe,deploy,cartesia}.log`. Ctrl-C stops everything.
+
+Also keep the Mac awake: `caffeinate -dimsu -t 36000` (lid open, on AC power).
+
+Health check:
 
 ```bash
-caffeinate -dimsu -t 36000          # keep the Mac awake (lid open, on AC power)
-~/.local/bin/cloudflared tunnel --no-autoupdate --url http://localhost:4000      # prints the https URL
-BRAIN_PUBLIC_URL=<tunnel url> scripts/brain-cloud.sh                             # brain :4000 against maincloud
-K=$(grep -E '^STRIPE_SECRET_KEY=' .env | cut -d= -f2- | tr -d "\"'"); ~/.local/bin/stripe listen --api-key "$K" \
-  --events checkout.session.completed,checkout.session.async_payment_succeeded,charge.succeeded,charge.updated,charge.refunded,refund.created,refund.updated \
-  --forward-to localhost:4000/webhooks/stripe
+curl -s "$(cat .demo/deployed-url)/health"
 ```
+
+You want `"ok":true`, `bootstrap.ok`, both businesses registered, and `stripe.mode` `test`.
 
 `scripts/brain-cloud.sh` sets these and then runs `pnpm --filter @napkin/brain start`, which loads `.env`
 through `tsx --env-file-if-exists`:
@@ -499,18 +507,21 @@ through `tsx --env-file-if-exists`:
 
 CORS allows the two Vercel origins and localhost 3001/3002.
 
-**If the tunnel URL changes** (any cloudflared restart), do all three:
-1. Restart the brain with the new `BRAIN_PUBLIC_URL`.
-2. Redeploy both apps: `BRAIN_PUBLIC_URL=<new> scripts/deploy-web.sh both`. This uses the logged-in Vercel
-   CLI; the script sets the org and project ids.
-3. Point the phone agent at the new URL:
-   ```bash
-   pnpm --filter @napkin/brain exec tsx --env-file-if-exists=../../.env scripts/cartesia-setup.ts <new url> \
-     --model claude-haiku-5.5 --voice db6b0ed5-d5d3-463d-ae85-518a07d3c2b4 --phone-number-id ap_KugXKLtEEEvLtNcN58QoEz
-   ```
-   Add `--dry-run` first to print the requests without sending them.
+**Doing a URL change by hand** (only if the script can't): restart the brain with the new
+`BRAIN_PUBLIC_URL`, run `BRAIN_PUBLIC_URL=<new> scripts/deploy-web.sh both`, then:
 
-A **named Cloudflare tunnel** (stable URL) would remove this chore before judging; it's worth considering.
+```bash
+cd services/brain && npx tsx --env-file-if-exists=../../.env scripts/cartesia-setup.ts <new url> \
+  --model claude-haiku-5.5 --voice db6b0ed5-d5d3-463d-ae85-518a07d3c2b4 --phone-number-id ap_KugXKLtEEEvLtNcN58QoEz
+```
+
+Add `--dry-run` first to print the requests without sending them.
+
+A **named Cloudflare tunnel** (stable URL) would remove the redeploys entirely; it needs a Cloudflare
+account and domain, which the owner would have to set up.
+
+**Finding the brain process:** use `lsof -nP -iTCP:4000 -sTCP:LISTEN`. A plain `lsof -ti tcp:4000` also
+matches client sockets (for example the Claude app's network helper) and killing those breaks other things.
 
 ### Local development
 
@@ -522,18 +533,12 @@ pnpm --filter @napkin/owner dev             # :3001
 pnpm --filter @napkin/store dev             # :3002
 ```
 
-- **The hosted brain already uses port 4000.** For a second, local brain use a different port, as the
-  previous agent did:
-  ```bash
-  PORT=4100 CORS_ORIGINS=http://localhost:3001 pnpm --filter @napkin/brain start
-  ```
-  Then start the owner app against it:
-  ```bash
-  NEXT_PUBLIC_BRAIN_URL=http://localhost:4100 NEXT_PUBLIC_SPACETIMEDB_URI=ws://localhost:3000 NEXT_PUBLIC_SPACETIMEDB_DB=napkin pnpm exec next dev -p 3001
-  ```
-  Run that from `apps/owner`.
+- **The hosted brain already uses port 4000.** For end-to-end tests, `.claude/launch.json` has
+  `brain-e2e` (:4100), `owner-e2e` (:3001) and `store-e2e` (:3002). They use the scratch database
+  `napkin-e2e` on the local SpacetimeDB and `services/brain/.data-e2e`, with no Stripe key (DEV SIMULATOR
+  payments). Publish the module to it first: `spacetime publish napkin-e2e --server local --yes`
+  from `platform/`. Never point experiments at the shared local `napkin` database.
 - **Only one `next dev` per app directory** can run at a time.
-- **`.claude/launch.json`** has `brain`, `owner` and `store` configurations for the preview browser.
 
 **Tools on the Mac:**
 - Node 24 and pnpm 10;
@@ -575,61 +580,67 @@ Homebrew is blocked until `sudo xcodebuild -license accept`.
      fixes. Commit `d74e223`, deployed.
 6. Handoff docs: commit `4cf45ad` and this rewrite.
 
+**Saturday night**, the next session (commits `a8f61ca` to `bf9b453`):
+1. **The owner's request:** the dashboard is fine, but the customer storefront looked bad. Stores should be
+   generated in the style of https://www.warbyparker.com/ and https://www.asos.com/.
+   - **Built:** a `StorefrontDesign` per business, separate from the Configuration. Claude Opus proposes
+     style, palette, fonts, wording and image queries; code checks contrast and copy. Photos come from
+     Openverse (CC licenses, credited in the footer): stock-photo providers first, then a general search,
+     with a Sonnet vision pick that rejects snapshots and seasonal scenes. The store renders it like a
+     modern retail site. A live business without a design gets one on its first visit; the owner can edit,
+     upload images and regenerate on the owner app's Storefront page.
+2. **AI staff:** store chat ("Ask the shop") with the checks shown under each reply. The Bookkeeper and
+   `/ask` are owner-only; the customer roles are rate-limited per caller and globally.
+3. **Go-live links** on the Build page (dashboard, storefront, QR); the store index lists only live shops.
+4. **Interview:** a review list ("Confirm N facts") for everything read from paper, one-tap answers for
+   yes/no-style questions, clearer stock-units wording, and money-ready now matches what compile needs.
+5. **Intake fixes found by a full local end-to-end run:** percentages as bare fractions, inventory counts
+   read as stock units, items left over after "Replace photo", currency and payment methods not read.
+6. **Demo hardening:** `scripts/demo-up.sh` (section 7), the sample napkin (`fixtures/demo/`, also the
+   "Use a sample" button on intake), the new `docs/DEMO.md` and `docs/REAL_VS_SIMULATED.md`.
+
 ## 9. What I was doing last
 
-The previous session had just finished the accounts feature and deployed it.
+The previous session finished the storefront designs, the demo hardening and the docs.
 
-**Verified locally**, against a test brain on :4100 and the local database:
-- Sign-up as `sam-test@napkin.test`, then "Sam's Tacos", a typed description (28 facts), the interview,
-  compile, live, and a dashboard showing only Sam's data (opening stock 60 × $1.20 = $72).
-- The owner role was granted automatically.
-- Maya's account got a 403 on Sam's spec, and a second business was refused with a 409.
+**Verified locally**, on `napkin-e2e` with the `*-e2e` launch configurations:
+- The sample napkin read as 30 facts; "Confirm 30" plus a few taps made it money-ready.
+- Compile proved balance, discount and flow, and the business went live.
+- The generated Juniper Candles store showed a green design with a candle hero photo.
+- Order JC-Y67B7 ($15) was paid through the simulator; the dashboard showed balanced books, stock 20 → 19
+  and a 66.7% gross margin.
+- Asking the chat for 50% off was refused at the menu price and escalated to the owner.
 
-**Verified live, without logging in:**
-- The landing and sign-up pages render.
-- The brain returns 401 with no session.
-- CORS allows the owner app's origin.
-- The store still serves Maya's shop.
-- The brain logged `seeded the account for maya-cookies`.
+**Verified live:** the hosted brain answers `/health` through the watchdog's tunnel, the owner app was
+redeployed with the latest code, and Maya's store shows its generated design (all stock photos).
 
-**Not yet verified:** a real sign-up and a new business on the **live** site, and Maya signing in on the live
-site. That's the first thing in section 10.
+**Not yet verified by a human on the live site:** a real sign-up and new business, and Maya signing in.
+The owner does live sign-ins; the agent must not create accounts on public sites.
 
 ## 10. What's left, in priority order
 
-1. **Live end-to-end test.** The owner does it, or you guide them; or test on localhost yourself.
-   - Sign up on https://napkin-owner.vercel.app, upload a napkin photo (or `fixtures/maya/napkin.SYNTHETIC.png`),
-     answer the questions, go live, open the storefront, and pay with `4242…`.
-   - Separately, sign in as Maya and check her dashboard shows her real orders.
-   - Fix whatever breaks.
-2. **Demo script for the judges.** Rewrite `docs/DEMO.md` for the hosted demo. A 3–4 minute path where the
-   judge is the input:
-   1. The judge draws or says a business, or picks up a prepared napkin.
-   2. The judge watches it go live. Consider a short prepared napkin, so the interview is a handful of
-      questions instead of about 30.
-   3. The judge scans the QR code with their own phone and pays with a test card. The owner dashboard
-      updates live.
-   4. The judge calls +1 906-498-9806 and orders cookies by voice, then pays at `/pay`.
-   5. The judge tries to sweet-talk an AI staffer into a 50% discount or an over-limit refund. The guards
-      refuse, and a DecisionRecord appears.
-   6. Close on the red-team table: 3 to 0 and 18 to 0, $0 lost.
+Done since the first handoff: the judge demo script (`docs/DEMO.md`), `docs/REAL_VS_SIMULATED.md`, the store
+index showing only live shops, sign-in on the Bookkeeper and `/ask`, rate limits on customer chat, go-live
+links on Build, and the storefront redesign.
 
-   Also prepare a fallback if the tunnel or Wi-Fi fails.
-3. **Devpost write-up.** Cover the problem, what it does, how it's built (Anthropic: Opus intake, compiler
-   theme, Sonnet staff, Haiku phone; Cartesia: voice agent and speech-to-text; Stripe test mode; SpacetimeDB;
-   Vercel; Z3), the challenges, what's next, and a 1–2 minute video if possible. **Ask the owner before
-   making the repo public.** Update `docs/REAL_VS_SIMULATED.md`, which is stale, because judges may read it.
-4. **Gaps worth closing for the demo** (judgment calls):
-   - The store home page (`/`) lists every business, including test ones. Hide unlisted ones or link only
-     to live ones.
-   - `/agents/:role/message` and `/ask` have no sign-in and aren't account-scoped.
-   - After going live, the Build page should link to the dashboard and the storefront (and QR).
+1. **Live end-to-end test by the owner.** Sign up on https://napkin-owner.vercel.app, use the sample napkin,
+   go live, open the storefront, and pay with `4242…`. Sign in as Maya and check her dashboard. Fix
+   whatever breaks.
+2. **Devpost write-up.** Cover the problem, what it does, how it's built (Anthropic: Opus intake, design and
+   compiler theme, Sonnet staff and photo picks, Haiku phone; Cartesia: voice agent and speech-to-text;
+   Stripe test mode; SpacetimeDB; Vercel; Z3; Openverse), the challenges, what's next, and a 1–2 minute
+   video if possible. **Ask the owner before making the repo public.**
+3. **Gaps worth closing** (judgment calls):
    - The phone line serves `maya-cookies` only. New businesses don't get one; say so on stage, or route by
      business.
    - `OWNER_PHONE` is empty, so phone owner mode is off. Ask the owner for their number (+1… form) and
      check that `OWNER_PIN` is set.
-   - The quick tunnel is fragile; a named tunnel would help. Keep the Mac awake and online during judging.
-5. **Polish, if there's time:**
+   - A replacement photo can create conflicts on non-item facts (for example the refund method) between
+     the two readings; the owner resolves them in the interview, but it adds questions.
+   - When no photo passes the vision pick for an item, the store shows a label tile instead.
+   - The quick tunnel is fragile; the watchdog recovers in about 2 minutes, a named tunnel would avoid it.
+4. **Polish, if there's time:**
+   - An "Ask your books" box on the dashboard using the owner-only `/ask`.
    - Keep the approved storefront theme on recompile.
    - Ask for per-role refund limits in the interview.
    - The impact scores shown in the interview UI.
