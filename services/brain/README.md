@@ -97,6 +97,28 @@ Steps: facts -> template -> synthesis -> proofs -> configuration -> storefront -
   Only a brand-new business with no owner and no active config is activated by the brain (bootstrap).
   `GET /compile/:businessId/latest` replays the last run. One run per business at a time (409).
 
+## Storefront design (`src/storefront`)
+The look of the customer store (`StorefrontDesign`, `packages/schema/src/storefront-design.ts`): style, palette, fonts,
+a few lines of copy, photos. Look only: no money, no policy, no configuration version.
+
+- **Deterministic**: `defaultDesign` (editorial, warm neutral palette from the config theme, Fraunces + Inter, no photos)
+  and the field-by-field validation (hex, WCAG contrast rules, font enums, `copyProblem` limits plus a deny-list of claims
+  the business never made: organic, vegan, since, family-owned, award-winning, limited...). A bad proposed field keeps
+  the default and adds a `notes` line; a bad owner edit is refused (400 + reasons). Licensing data comes from Openverse.
+- **AI (optional, needs `ANTHROPIC_API_KEY`)**: Claude Opus proposes style/palette/fonts/copy and photo search queries
+  from the business name, one-liner, community and product names (never prices, costs or stock). Claude Sonnet picks the
+  best of up to 6 Openverse candidates (thumbnails sent inline), rejecting text, signage, logos, labels and faces.
+- **Photos**: Openverse (anonymous; cc0, pdm, by, by-sa), filtered (width >= 640, https, no mature/text/people/adult
+  words), queries relaxed when nothing matches, every saved URL checked live (HEAD 200 image/*, no redirect), 4 slots
+  at a time, 25 s overall; responses cached in `.data/openverse-cache/`. Any failure = no photo, never an error.
+- Saved designs: `.data/designs.json`; owner uploads: `.data/media/` (jpeg/png/webp by magic bytes, <= 6 MB, random names).
+- Routes: `GET /storefront/:slug/design` (public, `max-age=15`; default from the active config when none is saved),
+  `POST /storefront/:businessId/design/regenerate {style?}`, `PATCH /storefront/:businessId/design`,
+  `POST|DELETE /storefront/:businessId/images/:slot` (multipart `file`; slot `hero`, `banner`, `product:<id>`) — all
+  account-gated with `businessGate` — and `GET /media/:file` (public, immutable cache). Regenerate keeps owner uploads.
+- After a successful compile, a business with no saved design gets one generated in the background (the compile
+  stream never waits for it). `scripts/design-run.ts` is a manual real run that saves nothing.
+
 ## M2: guards (`src/guards`)
 Every agent tool call: `guard.check({actor:{role,identity}, businessId, tool, args, provenance:{source, text?}})
 -> {allow, outcome, ruleIds, reason, maxAllowed?, wouldChangeIf, checkedArgs, ...}`. `wrapTool(fn, guard)` runs the
@@ -181,7 +203,7 @@ tools or changes policy).
 ## M3: Agents (`src/agents`) — the AI staff
 Three staff on **Claude Sonnet 5.5** (`claude-sonnet-5-5`): **Shopkeeper** (sells via chat: `menu_lookup`, `quote`,
 `create_order`, `escalate`), **Support** (`order_status`, `request_refund`, `escalate`) and **Bookkeeper**
-(`ledger_read`, `reconcile`, `approve_refund`, `escalate`; in chat and `/ask`, whose callers are unauthenticated, only `ledger_read`, `reconcile`, `escalate`: safer, so no chat path approves refunds). The offered tools are always the agent's configured list
+(`ledger_read`, `reconcile`, `approve_refund`, `escalate`; in chat and `/ask` only `ledger_read`, `reconcile`, `escalate`: safer, so no chat path approves refunds). The offered tools are always the agent's configured list
 (`configuration.agents[].tools`) ∩ the guard registry `TOOLS` ∩ the implemented tools.
 
 Every tool call: **LLM -> guard (`wrapTool`) -> platform reducer as the agent's own identity -> DecisionRecord**.
@@ -215,7 +237,9 @@ Routes (mounted in `server.ts` with one line): `POST /agents/:role/message {busi
 `{reply, toolCalls:[{tool, args, decision, result}], stopReason}` (conversations in memory, 500 max, one turn at a time
 per conversation); `POST /ask {businessId, question}` -> the Bookkeeper with read tools + escalate only ->
 `{answer, refs, unverifiedRefs, toolCalls}`; `refs` are `[doc <id>]` citations that appeared in tool output,
-anything else is listed as `unverifiedRefs`. 503 without `ANTHROPIC_API_KEY`.
+anything else is listed as `unverifiedRefs`. 503 without `ANTHROPIC_API_KEY`. Access: the Bookkeeper and `/ask` go
+through the account gate (401 signed out, 403 for another business). Shopkeeper and Support are the storefront's
+public chat, rate-limited to 40 turns per caller per 15 minutes and 600 per hour overall (429 with `Retry-After`).
 
 Red team (`harness.ts`): `createAgentHarness({staff})` implements `redteam/src/run.ts` `AgentHarness`
 (`send(target, turns, mode) -> Transcript`). `napkin` = `maya-cookies` with the guard; `baseline` =

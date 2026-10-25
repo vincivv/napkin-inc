@@ -292,8 +292,8 @@ export function registerAccountRoutes(app: Hono, d: AccountDeps): void {
 }
 
 /**
- * Gate for the setup routes (intake, questions, owner statements, compile): the signed-in account must
- * own the business named in the request. Reads businessId from the path, the query or the body (Hono
+ * Gate for the setup routes (intake, questions, owner statements, compile, storefront design edits): the
+ * signed-in account must own the business named in the request. Reads businessId from the path, the query or the body (Hono
  * caches the parsed body, so the route handler can read it again).
  */
 export function businessGate(store: AccountStore): MiddlewareHandler {
@@ -301,7 +301,8 @@ export function businessGate(store: AccountStore): MiddlewareHandler {
     if (c.req.method === "OPTIONS") return next();
     const a = currentAccount(c, store);
     if (!a) return c.json({ error: "please sign in" }, 401);
-    let businessId: unknown = c.req.query("businessId") ?? PATH_BUSINESS.exec(c.req.path)?.slice(1).find(Boolean);
+    // the path wins: the handler acts on its path param, so a ?businessId= of your own must not unlock another's path
+    let businessId: unknown = PATH_BUSINESS.exec(c.req.path)?.slice(1).find(Boolean) ?? c.req.query("businessId");
     if (businessId === undefined && c.req.method === "POST") {
       const type = c.req.header("content-type") ?? "";
       try {
@@ -317,8 +318,8 @@ export function businessGate(store: AccountStore): MiddlewareHandler {
   };
 }
 
-/** GET routes that carry the business in the path. */
-const PATH_BUSINESS = /^\/(?:intake\/photo|spec)\/([a-z0-9-]{1,64})$|^\/compile\/([a-z0-9-]{1,64})\/latest$/;
+/** Routes that carry the business in the path (the storefront design routes mount the gate per route). */
+const PATH_BUSINESS = /^\/(?:intake\/photo|spec)\/([a-z0-9-]{1,64})$|^\/compile\/([a-z0-9-]{1,64})\/latest$|^\/storefront\/([a-z0-9-]{1,64})\/(?:design(?:\/regenerate)?|images\/[^/]+)$/;
 
 /** The setup routes the gate protects (Hono path patterns). */
 export const GATED_PATHS = ["/intake/*", "/spec/*", "/questions/*", "/owner/*", "/compile", "/compile/*"] as const;

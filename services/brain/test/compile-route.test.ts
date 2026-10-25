@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import maya from "../../../fixtures/maya/configuration.json";
 import type { CompilePlatformPort, ConfigVersionView, SpecSource } from "../src/compiler/platform";
 import { StubProver } from "../src/compiler/prover-port";
-import { carriedRoleLimits, registerCompileRoutes } from "../src/compiler/routes";
+import { carriedRoleLimits, registerCompileRoutes, runCompile } from "../src/compiler/routes";
 import { parseConfiguration, type BusinessSpec } from "@napkin/schema";
 import { guess, mayaTestSpec } from "./fixtures/maya-spec.TEST";
 
@@ -83,6 +83,31 @@ describe("POST /compile (SSE)", () => {
     expect(ev.at(-1)!.data).toMatchObject({ version: 1, status: "active", activated: true });
     expect(platform.calls).toEqual(["register:new-shop", "submit:new-shop", "activate:1"]);
     expect(parseConfiguration(JSON.parse(platform.versions[0]!.json)).roles.find((r) => r.id === "support")!.limits).toEqual({ maxRefundCents: 0 });
+  });
+
+  it("after-compile hook (storefront design) runs once after the result event and cannot break the compile", async () => {
+    const seen: { businessId: string; activated: boolean; name: string; eventsBefore: string[] }[] = [];
+    const events: string[] = [];
+    const deps = (spec: BusinessSpec) => ({
+      platform: new FakeCompilePlatform(),
+      specs: specs({ "new-shop": spec }),
+      prover: new StubProver(),
+      afterCompile: (r: { businessId: string; activated: boolean; config: { business: { name: string } } }) => {
+        seen.push({ businessId: r.businessId, activated: r.activated, name: r.config.business.name, eventsBefore: events.filter((e) => e !== "step") });
+        throw new Error("hook exploded");
+      },
+    });
+    await runCompile("new-shop", deps(mayaTestSpec()), (e) => void events.push(e.event));
+    expect(events.at(-1)).toBe("result");
+    expect(seen).toEqual([{ businessId: "new-shop", activated: true, name: "Maya's Cookies", eventsBefore: ["result"] }]);
+    // a refused compile never calls it
+    seen.length = 0;
+    events.length = 0;
+    const bad = mayaTestSpec();
+    bad.offerings[0]!.variants[0]!.cost = guess("0.80");
+    await runCompile("new-shop", deps(bad), (e) => void events.push(e.event));
+    expect(events.at(-1)).toBe("error");
+    expect(seen).toEqual([]);
   });
 
   it("unconfirmed money facts: error event with questions, nothing submitted", async () => {

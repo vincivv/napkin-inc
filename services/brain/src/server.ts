@@ -19,6 +19,10 @@ import { registerPhoneRoutes } from "./phone";
 import { mountAgents } from "./agents";
 import { AccountStore, businessGate, ensureSeedAccount, GATED_PATHS, registerAccountRoutes } from "./accounts";
 import { SpecStore } from "./spec/store";
+import { activeConfigReader, designInputFromConfig, mountStorefront } from "./storefront";
+import { StdbCompilePlatform } from "./compiler/platform";
+import { llmFromEnv } from "./llm";
+import { RateLimiter } from "./auth";
 
 let env: Env;
 try {
@@ -141,11 +145,20 @@ const gate = businessGate(accounts);
 for (const p of GATED_PATHS) app.use(p, gate);
 
 const m2 = registerM2Routes(app, hub, env.dataDir); // M2: intake + question engine
-mountCompiler(app, hub, env.dataDir); // M2: compiler (POST /compile, SSE)
+// Storefront designs: public GET for the store, owner edits/uploads behind the same account gate.
+const designs = mountStorefront(app, { dataDir: env.dataDir, mediaBaseUrl: env.brainUrl, gate, activeConfig: activeConfigReader(new StdbCompilePlatform(hub)), llm: llmFromEnv() });
+// M2: compiler (POST /compile, SSE). After a successful compile, a business with no saved design gets one
+// generated in the background (Claude + Openverse); the compile stream never waits for it.
+mountCompiler(app, hub, env.dataDir, { afterCompile: ({ config }) => designs.ensureInBackground(designInputFromConfig(config)) });
 // M3-K: phone line webhook tools. Orders go through the same createCheckout path as the storefront.
 const phone = registerPhoneRoutes(app, { env, hub, m2, checkout: { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront } });
 executors.push(phone.smsExecutor); // drains the platform outbox rows of kind "sms" queued by place_order
-mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront }); // M3: AI staff
+// M3: AI staff. Bookkeeper and /ask are owner-only; the storefront chat (Shopkeeper, Support) is public but
+// rate-limited: 40 turns per caller per 15 minutes, 600 per hour overall.
+mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront }, {
+  ownerGate: gate,
+  customerLimits: { perClient: new RateLimiter(40, 15 * 60_000), global: new RateLimiter(600, 60 * 60_000), clientKey },
+});
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();

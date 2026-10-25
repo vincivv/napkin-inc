@@ -264,7 +264,7 @@ topping.
 | Owner statements | `POST /owner/statement`, `GET /owner/statements`, `POST /owner/statement/:id/decide`: "something changed" diffs, plus phone instructions waiting for confirmation |
 | Compiler | `POST /compile` (streams progress), `GET /compile/:businessId/latest` |
 | Payments | `POST /checkout`, `GET /p/:orderId` (pay link, 303 to Stripe), `POST /webhooks/stripe` (signature verified), `POST /dev/simulate-payment/:orderId` (simulator only) |
-| AI staff | `POST /agents/:role/message`, `POST /ask`. **No sign-in and not account-scoped**; a known gap. |
+| AI staff | `POST /agents/:role/message`, `POST /ask`. Bookkeeper and `/ask` need the owning account; Shopkeeper and Support are public (store chat) and rate-limited. |
 | Phone | `POST /phone/tools/:name`: Cartesia webhook tools, bearer `PHONE_TOOL_SECRET` |
 
 **The account gate** (`businessGate` in `accounts/index.ts`) protects

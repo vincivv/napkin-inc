@@ -1,63 +1,83 @@
 # What's real vs simulated
 
-Updated at the end of each milestone. Current: **M1 + M2 + most of M3** (red-team runs in progress).
+Updated Sat 2026-10-24, evening, for the hosted demo (Devpost submission). If something here disagrees with
+the code, the code wins; tell us.
 
 ## Real
-- **Platform ("the 1C"):** a SpacetimeDB 2.13 TypeScript module running locally.
-  - Generic catalogs, documents (draft → posted → reversed) and registers.
-  - Double-entry journal, period close, roles with segregation of duties, audit log, live subscriptions.
-  - All posting math goes through `@napkin/ledger-core`: exact rationals, no floats.
-- **Invariants enforced inside platform transactions:**
-  - balanced postings (1)
-  - stock ≥ 0 (3)
-  - discount cap and margin floor (4)
-  - creator ≠ approver (5)
-  - prices and policies change only through owner-activated configurations (6)
-  - processor-event de-duplication, intent log and outbox (7)
-  - immutable posted documents and closed periods (8)
-- **Tests:** property-based tests for the invariants (fast-check) in ledger-core and platform.
-- **Storefront:** live catalog and stock, cart, checkout through the brain, live order status, QR sheet.
-- **Owner app:** live dashboard, orders, documents, registers, reports (trial balance, P&L, stock, receivables, payables, cash flow, margin by item), decisions, inbox, audit log, proof report page, owner PIN sign-in flow.
-- **Brain:**
-  - one SpacetimeDB identity per actor (system, storefront, shopkeeper, support, bookkeeper)
-  - idempotent bootstrap
-  - checkout, Stripe webhook handler with signature verification, outbox refund worker
-  - owner PIN auth
-- **Red-team assets:** 57 attacks in 12 categories, 11 chaos cases, 2 planted-error books with an answer key, and the results generator.
 
-- **M2:** compiler, Z3 proofs that gate activation, guards with DecisionRecords, owner Build/Activate page.
-- **M3 AI staff:** Shopkeeper, Support and Bookkeeper run on Claude Sonnet 5.5 with real API calls. Every tool call goes through the guards, then the platform, then a DecisionRecord.
-- **M3 phone line:** the 7 webhook tools, owner verification, and the SMS outbox are real code, tested against the platform.
+**The hosted demo**
+- Owner app: https://napkin-owner.vercel.app. Store: https://napkin-store.vercel.app. Both on Vercel.
+- System of record: SpacetimeDB maincloud, database `napkin-inc-mayas`.
+- The brain (orchestrator) runs on the builder's laptop behind a Cloudflare tunnel. If the laptop sleeps,
+  the demo is down; nothing is faked to hide that.
 
-## Simulated or placeholder (be explicit on stage)
-- **Phone:**
-  - The Cartesia agent hasn't been created yet (dry run only), and no phone number is attached.
-  - Texts go through the **SMS SIMULATOR** until Twilio keys are set; the caller is told no text was sent.
-  - The Twilio adapter is tested only against a fake.
-- **Payments: DEV SIMULATOR** until a Stripe test key is set.
-  - The simulated payment runs through the same handler code as real Stripe webhooks.
-  - The fee uses the list-price formula (2.9% + 30¢).
-  - No Stripe API call has been made yet.
-  - With a key, it is Stripe **test mode** only: no real money, ever.
-- **Payouts:** simulated (Stripe test mode has no real bank).
-- **Maya's numbers are placeholders**, flagged in the configuration's `_unconfirmed` block and in the owner app:
-  - ingredient costs ($0.80 per cookie, $4.80 per box, $0.20 for sea salt)
-  - starting stock (48)
-  - tax rate (0)
-  - pickup location and hours
-- **M1 configuration is hand-written.** The proof report says "Not proven yet". The Z3 prover lands in M3.
+**Accounts and onboarding**
+- Sign up with email and password (scrypt-hashed, sessions as hashed bearer tokens), one business per
+  account. Each account gets its own SpacetimeDB identity and is granted the owner role for its own
+  business only. Another account's business answers 403.
 
-## Not built yet
-- **M2:** compiler and guards layer (in progress), owner inbox flows driven by agents. Photo/voice intake and the question engine are **real** (Claude Opus 5.5 vision + Cartesia STT; verified with real keys).
-- **M3:** red-team runs against the real system are in progress. No real `RESULTS.md` exists yet. Posting-rule synthesis from the spec's examples isn't wired into the compiler: it's reported as "skipped", and the examples are checked against the template instead.
+**Napkin to business**
+- Photo intake: Claude Opus 5.5 reads the napkin and returns facts, each with its quote and image region.
+  Voice intake: Cartesia speech-to-text (`ink-whisper`).
+- The interview: a deterministic question engine. Money questions keep their exact wording; nothing about
+  money is guessed. Facts carry provenance (read from paper, owner said, inferred).
+- The compiler: template, posting-rule synthesis from the owner's worked examples (Z3), a 16-posting dry
+  run, and Z3 proofs (balance, discount stacking, flow) that gate activation. Then the configuration is
+  submitted to the platform and the AI staff and storefront identities are created.
 
-## Known gaps (tracked)
-- **Sea-salt add-on cost:** its $0.20 cost is credited to Inventory (1300), but sea salt isn't a stock item. This needs an owner answer: is sea salt tracked stock, or a supply expense?
-- **Fixed overnight (platform hardening):**
-  - Processor documents (payment, fee, payout) are created only through de-duplicated processor events.
-  - A paid sale can't be reversed until it is refunded.
-  - Processor documents can't be reversed.
-  - Rates are in [0, 1] with at most 4 decimals, matching the prover.
-  - The current and future months can't be closed.
-  - Refund events are matched to outbox items exactly.
-- **Open (owner/accounting decisions):** see docs/MORNING.md and platform/README.md.
+**The books (the "1C")**
+- A SpacetimeDB TypeScript module: catalogs, documents (draft, posted, reversed), double-entry journal,
+  registers (stock and others), periods, roles with segregation of duties, an audit log, live subscriptions.
+- Money is integer cents with exact rational math (`@napkin/ledger-core`); no floats anywhere money moves.
+- Invariants enforced **inside platform transactions**, so a compromised brain still can't break them:
+  balanced postings (1), stock ≥ 0 (3), discount cap and margin floor (4), creator ≠ approver (5), prices
+  and policies change only through owner-activated configurations (6), immutable posted documents and
+  closed periods (8). Exactly-once payments (7): processor events are de-duplicated in the same
+  transaction as the posting; refunds and texts go through an outbox with idempotency keys.
+
+**Payments**
+- Stripe **test mode**, real API calls: Checkout Sessions, signed webhooks (`stripe listen` forwards them to
+  the brain), fees read from the balance transaction, refunds through the outbox. The brain refuses to
+  start with a live key. Test card: 4242 4242 4242 4242. No real money moves, ever.
+
+**AI staff**
+- Shopkeeper, Support and Bookkeeper run on Claude Sonnet 5.5. Every tool call goes through the guards,
+  then the platform, then a DecisionRecord. Escalations land in the owner's inbox; the owner's answers
+  become precedents the staff follow.
+- Customers can chat with the Shopkeeper and Support on the storefront ("Ask the shop"); each reply shows
+  what the guards allowed, refused or sent to the owner.
+
+**Phone line**
+- +1 906-498-9806 (Maya's Cookies only). A Cartesia voice agent (Claude Haiku 5.5, voice "Skylar") calling
+  7 webhook tools on the brain: menu, order, order status, escalate, and owner verification / report /
+  instruction. Owner instructions only queue; they apply after the owner confirms in the app.
+
+**Storefronts**
+- Each business gets a generated storefront design: Claude Opus 5.5 proposes the style (editorial or bold),
+  palette, fonts, wording and photo searches; code checks every field (contrast, fonts, no prices, numbers
+  or invented claims). Photos are openly licensed (Openverse: CC0, public domain, CC BY, CC BY-SA) with
+  credits in the footer, or uploaded by the owner. The design never touches money: prices and stock come
+  from the books.
+
+**Red team** (`redteam/RESULTS.md`, measured, not estimated)
+- 45 runnable attacks × 2 modes against the real platform. Real Claude Sonnet 5.5 staff: 3 breaches with
+  guards off, **0** with guards on. A scripted "compromised model": 18 breaches with guards off, **0** with
+  guards on. $0 lost in every run. Chaos: 8/8 pass.
+
+## Simulated or placeholder (say so on stage)
+- **SMS:** a simulator. Twilio was skipped (trial balance $0), so callers are told the order number out
+  loud and pay at https://napkin-store.vercel.app/pay.
+- **Payouts:** Stripe test mode has no real bank, so payouts are processor events, not bank transfers.
+- **Maya's numbers are placeholders**, flagged in her configuration's `_unconfirmed` block and in the
+  owner app: ingredient costs ($0.80 per cookie, $4.80 per box, $0.20 for sea salt), starting stock, tax
+  rate 0, and pickup location and hours (hidden from customers while they say "TBD").
+- **Maya's Cookies' configuration is the hand-written M1 fixture.** Businesses created through the app get
+  compiled, Z3-proven configurations.
+- **Red-team runs** used a local scratch database and the Stripe simulator, not the hosted demo.
+
+## Not built / known gaps
+- The phone line serves Maya's Cookies only; new businesses don't get a number.
+- Phone owner mode is off until an owner phone number is configured.
+- The sea-salt add-on's $0.20 cost is credited to Inventory although sea salt isn't a stock item (an
+  open accounting decision for the owner).
+- Other open owner decisions are listed in `docs/HANDOFF.md` section 11 and `docs/MORNING.md`.

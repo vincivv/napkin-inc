@@ -30,6 +30,8 @@ export interface CompileRouteDeps {
   proposer?: CopyProposer;
   /** gives a brand-new business its storefront and AI-staff identities, so it can take orders right away */
   grantActors?: (businessId: string) => Promise<void>;
+  /** called after a successful compile's result event (the storefront design hook); must not throw or block */
+  afterCompile?: (r: { businessId: string; config: Configuration; activated: boolean }) => void;
 }
 
 export type CompileEvent =
@@ -101,6 +103,11 @@ export async function runCompile(businessId: string, deps: CompileRouteDeps, sen
     }
     await step({ step: "submit", status: "done", message });
     await send({ event: "result", data: { businessId, configId: row.id.toString(), version, status: activated ? "active" : "pending", activated, message } });
+    try {
+      deps.afterCompile?.({ businessId, config: r.config, activated });
+    } catch (e) {
+      log.error("compile", `${businessId}: after-compile hook failed: ${(e as Error).message}`);
+    }
   } catch (e) {
     const err = e as Error;
     const code = e instanceof CompileRefused ? e.code : e instanceof ReducerRefused ? "platform_refused" : "internal";
@@ -143,6 +150,6 @@ export function defaultCompileDeps(platform: CompilePlatformPort, specs: SpecSou
 }
 
 /** One-line mount for server.ts. Specs come from the intake/question engine's SpecStore. */
-export function mountCompiler(app: Hono, hub: StdbHub, dataDir: string): void {
-  registerCompileRoutes(app, { ...defaultCompileDeps(new StdbCompilePlatform(hub), new SpecStoreSource(new SpecStore(dataDir))), grantActors: (id) => grantActors(hub, id) });
+export function mountCompiler(app: Hono, hub: StdbHub, dataDir: string, extra: Pick<CompileRouteDeps, "afterCompile"> = {}): void {
+  registerCompileRoutes(app, { ...defaultCompileDeps(new StdbCompilePlatform(hub), new SpecStoreSource(new SpecStore(dataDir))), grantActors: (id) => grantActors(hub, id), ...extra });
 }

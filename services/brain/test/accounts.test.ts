@@ -148,6 +148,8 @@ describe("business gate on the setup routes", () => {
     expect((await h.call("GET", "/questions/next?businessId=tacos", undefined, sam.token)).status).toBe(200);
     expect((await h.call("GET", "/questions/next?businessId=tacos", undefined, eve.token)).status).toBe(403);
     expect((await h.call("GET", "/spec/tacos", undefined, eve.token)).status).toBe(403);
+    // the path wins over a query naming the caller's own business
+    expect((await h.call("GET", "/spec/tacos?businessId=evil", undefined, eve.token)).status).toBe(403);
     expect((await h.call("GET", "/intake/photo/tacos", undefined, sam.token)).status).toBe(200);
     expect((await h.call("GET", "/intake/photo/tacos", undefined, eve.token)).status).toBe(403);
     expect((await h.call("POST", "/compile", {}, sam.token)).status).toBe(400);
