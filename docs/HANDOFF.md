@@ -1,239 +1,686 @@
-# Handoff: Napkin Inc. (Cal Hacks 13.0)
+# Handoff: Napkin Inc. (Cal Hacks 13.0), full context
 
-Written Sat 2026-10-24, about 6 PM PT, at commit `d74e223` plus this file. It is for the next Claude agent
-(or person) who picks the project up. Read this first, then `docs/AGENT_BRIEF.md` (rules) and
-`docs/PLAN.md` (architecture). `docs/MORNING.md` holds the overnight log and the decisions saved for the
-owner. It is accurate up to the red-team work, but older than this file.
+Written Sat 2026-10-24, about 6 PM PT, at commit `4cf45ad`. The previous Claude session built the whole
+project. The owner (GitHub `vincivv`) is switching Claude accounts, so this file has to carry everything
+that session knew.
+
+**Sections:**
+1. The goal
+2. Rules
+3. The product, as a user sees it
+4. Architecture
+5. Each piece in depth
+6. What is deployed
+7. Running it
+8. History
+9. What I was doing last
+10. What's left
+11. Open decisions
+12. Gotchas
+
+**Other docs:**
+
+| File | What it has | Status |
+|---|---|---|
+| `docs/PLAN.md` | Original architecture and decisions D1–D7 | Accurate |
+| `docs/AGENT_BRIEF.md` | Rules for build agents | Accurate |
+| `docs/INVARIANTS.md` | The nine invariants | Accurate |
+| `docs/DEMO.md` | Local M1/M2 click-through | Older than the accounts work |
+| `docs/MORNING.md` | Overnight log and decisions saved for the owner | Older than the accounts work |
+| `docs/REAL_VS_SIMULATED.md` | What's real vs simulated | **Stale:** says Stripe and Cartesia aren't live; both are live now |
+| `redteam/RESULTS.md` | Final red-team numbers | Accurate |
 
 ---
 
 ## 1. The goal
 
-- **Event:** Cal Hacks 13.0, Palace of Fine Arts, SF. The owner is building solo.
-  - **Submission deadline (Devpost): Sun Oct 25, 9:00 AM PT.**
-  - **Judging: 10:30 AM–12:30 PM** with a live demo.
-- **What the owner wants:** a jaw-dropping demo that judges use themselves, not a slideshow. Sponsor tech is
-  plumbing, never the pitch. Judging criteria: Application, Functionality/Quality, Creativity, Technical
-  Complexity.
-- **The product:** Napkin Inc. A photo of a napkin sketch (or a voice description) becomes a running business:
-  - a storefront with QR codes and a Stripe **test-mode** checkout;
-  - an AI phone line;
-  - three AI staff (Shopkeeper, Support, Bookkeeper);
-  - a 1C-style back office whose books are proven to balance (Z3).
-- **Core principle, used in every design decision:** *the AI does the talking and judgment; deterministic code
-  owns the money and the rules.* If the LLM were swapped for a hostile one, no money guarantee may break. The
-  red team measured exactly that.
+**Event:** Cal Hacks 13.0, Oct 23–25 2026, Palace of Fine Arts, SF. The owner is building solo.
 
-## 2. Hard rules (from the owner; do not relax them)
-
-1. **Secrets live in `.env` only** (repo root, gitignored). Never print, log or commit them. `.env.example`
-   lists the names.
-2. **Stripe TEST MODE only.** The brain refuses `sk_live`/`rk_live` keys. No real money, ever.
-3. **Never invent business facts** (prices, costs, stock). Unconfirmed facts are flagged and asked about.
-4. **Do not touch the shared local `napkin` SpacetimeDB database from experiments.** Use a scratch DB such
-   as `napkin-<letter>`.
-5. **The repo is private** (`github.com/vincivv/napkin-inc`). It must go public before the Devpost
-   submission, but **ask the owner first** (decision D7).
-6. **Standing permission:** the owner said to create whatever is needed (repo, connectors, deploys) and to use
-   subagents. Pick the model by task difficulty:
-   - Opus for correctness-critical work;
-   - Sonnet for plumbing and UI;
-   - Haiku for data chores.
-
-   Run **at most 3 subagents at once**; 6 tripped rate limits.
-7. **Commit messages end with** `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Branch-per-agent
-   for parallel work; merge to `main` yourself after checking.
-8. The owner reads prose, not jargon. Lead with what they can do and see.
-
-## 3. What exists and works
-
-### Repo layout (pnpm monorepo, Node 24, TypeScript, vitest)
-
-| Path | What it is |
+| When | What |
 |---|---|
-| `platform/` | SpacetimeDB 2.13 TypeScript module: tables and reducers (orders, ledger, stock, roles, outbox, decisions). The system of record. |
-| `packages/ledger-core` | Exact `Rational` math, the posting DSL and engine, and invariant predicates. Frozen contract. |
-| `packages/schema` | zod contracts: `Configuration`, `BusinessSpec`, `Fact`, `DecisionRecord`, `ProofReport`. Frozen contract. |
-| `packages/stdb-bindings` | Generated client bindings (`pnpm --filter @napkin/platform generate`). |
-| `services/brain` | Hono HTTP server on :4000. It handles intake (photo and voice), the question engine, the compiler, guards, AI staff, the phone tools, Stripe, accounts and bootstrap. |
-| `services/prover` | Z3 proofs (balance, discount stacking, flow) and posting-rule synthesis. |
-| `apps/owner` | Next.js 16 owner app on :3001: landing, sign-up, setup steps, back office. |
-| `apps/store` | Next.js 16 storefront on :3002: `/<slug>` shop, `/pay`, order pages. |
-| `redteam/` | Attack, chaos and planted-error runner. `redteam/RESULTS.md` has the final real numbers. |
-| `fixtures/maya/` | Maya's Cookies: the hand-written configuration and a synthetic napkin photo and voice transcript. |
-| `scripts/brain-cloud.sh`, `scripts/deploy-web.sh` | Run the hosted brain, and deploy both web apps. |
+| **Sun Oct 25, 9:00 AM PT** | **Devpost submission deadline** |
+| 10:30 AM–12:30 PM | Judging, with a live demo |
 
-### Milestones
+**What the owner wants:**
+- **A jaw-dropping demo that judges use themselves.** The judge is the input, something real happens within
+  seconds, and a second beat escalates it.
+- **Sponsor tech is plumbing, never the pitch.** The owner researched past winners (Cal Hacks, TreeHacks,
+  HackMIT): grand prizes went to product-first ideas, and sponsor-wrapper projects didn't win. Light, honest
+  sponsor touches are enough to qualify for tracks.
+- **Judging criteria:** Application, Functionality/Quality, Creativity, Technical Complexity.
 
-- **M1, done:** Maya's Cookies end to end. Storefront checkout and a Stripe test payment post a balanced
-  sale; the owner dashboard updates live.
-- **M2, done:** napkin to configuration.
-  - Intake reads the photo with Claude Opus 5.5, and Cartesia transcribes the voice. Every fact carries its
-    provenance: paper, owner_said, or inferred.
-  - The interview asks money questions first, in exact wording.
-  - The compiler then fills the template, Z3 proves the books, a dry run checks the postings, and the
-    configuration is activated.
-- **M3, done:**
-  - **AI staff** run on Claude Sonnet 5.5, with every tool call guarded and logged as a DecisionRecord.
-  - **Phone line:** a Cartesia agent with 7 webhook tools.
-  - **Red team:** 45 attacks in two modes. With the guards there were 0 breaches and $0 lost, against a real
-    model and against a scripted compromised model. Without the guards, the same runs had 3 and 18 breaches.
-- **Multi-tenant accounts, done today (commit `d74e223`):**
-  - The landing page has a **Start your business** button that leads to sign-up (email and password).
-  - Next the owner names the business (**one business per account**) and goes through three setup steps:
-    Your napkin → Money questions → Go live.
-  - The owner then lands on **their own dashboard**. The owner role is granted automatically, and the old
-    business switcher and "create new business" option are gone.
-  - **Brain side** (`services/brain/src/accounts/index.ts`):
-    - scrypt password hashes and bearer sessions (7 days);
-    - a gate on `/intake/*`, `/spec/*`, `/questions/*`, `/owner/*`, `/compile*`, so an account can only touch
-      its own business;
-    - rate-limited login.
-  - **Owner app:** `apps/owner/app/providers.tsx` (the gate), `src/data/account.tsx`,
-    `src/components/onboarding.tsx` and `src/components/landing/Landing.tsx`.
-  - **Verified locally:** "Sam's Tacos" went from a typed description through the interview and compile to a
-    live dashboard with only its own data.
-- **Interview fixes, also in `d74e223`:**
-  - Stock units must be whole numbers.
-  - Confirmed facts that the compiler would refuse get re-asked.
-  - Variant costs must agree per unit of shared stock (for example, 3 tacos at $1.20 must cost $3.60).
-  - Stale stored specs get their questions regenerated on read.
+**The pitch:** "From a napkin sketch to a running business." A small-business owner photographs a napkin
+menu, or just talks it through. Minutes later they have:
+- a storefront with QR codes and real (test-mode) card checkout;
+- an AI phone line that takes orders;
+- three AI staff: Shopkeeper, Support, Bookkeeper;
+- a 1C-style double-entry back office whose books are **proven** to balance with Z3.
 
-  Before these fixes the build could stall with nothing left to answer.
+**The core principle**, which drives every design decision and is the story for the judges:
 
-**Tests:** the brain has 188 passing (`pnpm --filter @napkin/brain test`). Typecheck is clean for the brain and
-the owner app. Run `pnpm test` and `pnpm typecheck` for everything.
+> **The AI does the talking and judgment; deterministic code owns the money and the rules.**
 
-## 4. What is deployed (the hosted demo)
+If the LLM were swapped for a hostile one, no money guarantee may break. The red team measured exactly that:
+
+| Run | Breaches without guards | Breaches with guards | Money lost |
+|---|---|---|---|
+| Real Claude Sonnet 5.5 staff | 3 | **0** | $0 |
+| Scripted "compromised model" | 18 | **0** | $0 |
+
+The demo persona is **Maya's Cookies**: a single cookie for $3, a box of 6 for $15, and a +$1 sea-salt
+topping.
+
+## 2. Rules from the owner (never relax them)
+
+1. **Secrets stay in `.env` only** (repo root, gitignored).
+   - Never print, echo, log or commit them; read them with `grep … | cut` inside commands.
+   - `.env.example` lists the names: `ANTHROPIC_API_KEY`, `ANTHROPIC_WORKSPACE_ID`, `CARTESIA_API_KEY`,
+     `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SPACETIMEDB_URI`, `SPACETIMEDB_DB`, `PHONE_TOOL_SECRET`,
+     `PHONE_BUSINESS_ID`, `TWILIO_*`, `OWNER_PHONE`, `OWNER_PIN`, `STORE_PUBLIC_URL`, `OWNER_APP_URL`,
+     `BRAIN_URL`, `MAYA_ACCOUNT_EMAIL`, `MAYA_ACCOUNT_PASSWORD`.
+2. **Stripe TEST MODE only.** The brain refuses to start with an `sk_live`/`rk_live` key. No real money.
+3. **Never invent business facts** (prices, costs, stock, locations). Facts carry provenance, and unconfirmed
+   facts are asked about, never guessed.
+4. **Never touch the shared local `napkin` SpacetimeDB database from experiments.** Use a scratch database
+   such as `napkin-x`. The hosted database `napkin-inc-mayas` on maincloud is the live demo; be careful
+   with it.
+5. **The repo is private** (`github.com/vincivv/napkin-inc`). It must go public before Devpost (decision
+   D7), but **ask the owner first.**
+6. **Standing permission (verbatim):** "create whatever u need, github repo, connectors etc. U have access to
+   my google chrome through connector, if u need anything else, u have my full permission. Also, spin up
+   multiple agents to do the job faster." Choose each agent's model by difficulty. Run **at most 3 subagents
+   at once**; 6 tripped rate limits.
+7. **Commit messages end with** `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Parallel agents
+   work in their own worktree and branch; the lead session merges to `main` after checking.
+8. **Safety:** the previous session would not type passwords or create accounts on public (non-localhost)
+   sites, so the owner does live sign-in tests. Test credentials on `localhost` are fine.
+9. **How the owner likes to be talked to:** casual and fast-typing, often with typos. They want plain
+   language, the outcome first, and concrete steps. They are not a deep backend person; say what they can
+   click or see.
+
+## 3. The product, as a user sees it
+
+### A new business owner, on the owner app (https://napkin-owner.vercel.app)
+
+1. **Landing page:**
+   - a hero with a napkin-to-storefront visual;
+   - how it works, and what you get;
+   - the money-rules section with the red-team bars (3 to 0 and 18 to 0, from 45 attacks);
+   - the invariants;
+   - a **Start your business** button, plus Sign in.
+2. **Sign up** with email and password, at least 8 characters.
+3. **Name your business.** The name becomes the slug, e.g. "Sam's Tacos" becomes `sams-tacos`. **There is
+   one business per account**, and the brain refuses a second one with a 409.
+4. **Setup steps**, shown as a three-step header:
+   1. **Your napkin** (`/intake`): upload a photo or type or record a description. Claude Opus 5.5 extracts
+      facts, each with its quote and image region.
+   2. **Money questions** (`/interview`): one question at a time, the money ones first, in exact template
+      wording. There is a money-ready checklist, and "Something changed? Tell me" proposes a diff.
+   3. **Go live** (`/build`): compile, then watch progress stream:
+      - facts check;
+      - template;
+      - posting-rule synthesis;
+      - dry run and Z3 proofs;
+      - configuration;
+      - storefront theme (proposed by Opus);
+      - AI staff;
+      - submit to the books and activate.
+5. **Live:** the app switches to the back office for *their* business only. The owner role is granted
+   automatically (`OwnerAutoGrant`). Pages:
+
+   | Page | Shows |
+   |---|---|
+   | Dashboard | Books-balance banner, sales, orders, Stripe clearing, bank, fees, gross margin, stock, receivables, recent decisions |
+   | Orders | All orders, filterable by status |
+   | Documents | Every document (sale, payment, refund…) |
+   | Registers | Stock and other registers |
+   | Reports | Trial balance, P&L, stock, receivables, payables, cash flow, margin by item |
+   | Inbox | Agent escalations for the owner to answer |
+   | Decisions | Every DecisionRecord |
+   | Audit log | Everything that changed |
+   | Proof report | The Z3 results |
+   | Intake / Interview / Build | Still there for changes after launch |
+
+   The sidebar footer shows the account email and **Sign out**. There is no business switcher.
+
+### A customer, on the store (https://napkin-store.vercel.app)
+
+- **`/<slug>`:** the shop, with live stock ("42 left"), a cart and add-ons.
+- **Checkout:** a real Stripe test checkout (card `4242 4242 4242 4242`).
+- **`/<slug>/order/<id>`:** flips to "Thank you… paid" live.
+- **`/<slug>/qr`:** a QR sheet.
+- **`/<slug>/item/<entryId>`:** an item page.
+- **`/pay`:** a customer types a phone order's number to pay. The page fixes common typos (O→0, I/L→1) and
+  redirects to the brain's `/p/<orderId>`, which goes on to Stripe.
+- **`/`:** lists every business. This is a known gap: it includes test businesses.
+
+### A caller, on the phone line (+1 906-498-9806, Maya's Cookies only)
+
+- The Cartesia voice agent (Claude Haiku 5.5, voice "Skylar") can do these things, through 7 webhook tools
+  on the brain:
+  - read the menu (`menu_lookup`);
+  - place an order (`place_order`);
+  - check an order's status (`order_status`);
+  - escalate (`escalate`).
+- **Paying:** there's no Twilio, so SMS is a simulator. The agent spells the order number aloud and tells the
+  caller to pay at `napkin-store.vercel.app/pay`.
+- **Owner mode:** the owner can verify (`verify_owner`: caller ID plus PIN, locked after 3 failures), get a
+  report (`owner_report`), and give instructions (`owner_instruction`). Instructions only **queue**; they
+  apply after the owner confirms in the app (invariant 6). Owner mode is **off** right now because
+  `OWNER_PHONE` is empty in `.env`.
+
+## 4. Architecture
+
+```
+ owner app (Next 16, Vercel) ──HTTP+Bearer──► brain (Hono, Node 24, on the Mac :4000) ◄── Stripe webhooks (stripe listen)
+        │                                         │   ▲                                     ◄── Cartesia tool webhooks
+        │ live subscriptions (WebSocket)          │   │ reducer calls, as per-role identities
+        ▼                                         ▼   │
+ SpacetimeDB "platform" module (maincloud DB napkin-inc-mayas) ◄── store app (Next 16, Vercel) subscribes + calls brain
+        ▲
+  Z3 prover (services/prover, called by the compiler)
+```
+
+| Package | Role |
+|---|---|
+| **`platform/`** | SpacetimeDB 2.13 TypeScript module, the system of record (the "1C"). Reducers re-check invariants inside each transaction; throwing rolls it back. **It is the last line of defense:** even a compromised brain can't break invariants 1, 3, 4, 5, 6 or 8. |
+| **`packages/ledger-core`** | Exact `Rational` math (bigint, no floats); the posting DSL (`parse`/`evaluate`/`print`); the `post()` engine; invariant predicates. **The prover proves the same AST that the platform executes.** Frozen contract. |
+| **`packages/schema`** | zod contracts: `Configuration`, `BusinessSpec`, `Fact` (value, provenance paper/owner_said/inferred, confidence, source, confirmed), `DecisionRecord`, `ProofReport`, `usableForMoney()`. Frozen contract. |
+| **`packages/stdb-bindings`** | Generated client bindings, regenerated with `pnpm --filter @napkin/platform generate`. |
+| **`services/brain`** | The orchestrator, a Hono HTTP server. Every piece is described in section 5. |
+| **`services/prover`** | Z3 (z3-solver): balance, discount-stacking and flow proofs, plus posting-rule synthesis from worked examples. Proofs are bounded: 1–3 lines, quantity ≤ 10,000, rates in 0.01% steps. |
+| **`apps/owner`** | Next.js 16 owner app (port 3001). |
+| **`apps/store`** | Next.js 16 storefront (port 3002). |
+| **`redteam/`** | Attack, chaos and planted-error runner. |
+| **`fixtures/maya/`** | The hand-written M1 configuration, plus a synthetic napkin image and voice transcript. |
+
+**Money:**
+- Integer cents everywhere in the ledger; rates in basis points.
+- The margin-floor check is `net_cents*10000 >= cost_cents*(10000+floor_bps)`.
+- Rounding is `round2(x) = floor(100x + 1/2)/100`.
+
+**Authority:**
+- Every actor is a SpacetimeDB identity with a role in `role_grant`/`actor`: system, storefront,
+  shopkeeper, support, bookkeeper, owner.
+- Agents simply don't hold the owner's permissions, so injected text has no path to change a price or
+  policy.
+
+**Platform tables:** `business`, `config_version`, `actor`, `role_grant`, `catalog_item`, `document`,
+`journal_line`, `register_movement`, `register_balance`, `period`, `customer_order`, `payment_intent_log`,
+`processor_event`, `outbox`, `decision_record`, `inbox_item`, `precedent`, `owner_statement`, `audit_log`.
+
+**Platform reducers:** `claimSystem`, `createRoleGrant`, `redeemRoleGrant`, `registerBusiness`,
+`submitConfiguration`, `activateConfiguration`, `rejectConfiguration`, `createOrder`, `updateOrderStatus`,
+`createDocument`, `postDocument`, `reverseDocument`, `closePeriod`, `requestRefund`, `logPaymentIntent`,
+`attachCheckoutSession`, `recordProcessorEvent`, `claimOutbox`, `completeOutbox`, `enqueueOutbox`,
+`recordDecision`, `openInbox`, `answerInbox`, `queueOwnerStatement`, `decideOwnerStatement`,
+`markOwnerStatementApplied`.
+
+**Chart of accounts (item_seller template):**
+
+| Code | Account |
+|---|---|
+| 1000 | Bank |
+| 1010 | Stripe clearing |
+| 1200 | Receivables |
+| 1300 | Inventory |
+| 2000 | Payables |
+| 2100 | Sales tax payable |
+| 4000 | Sales revenue |
+| 4100 | Discounts given |
+| 4200 | Refunds |
+| 5000 | Cost of goods sold |
+| 5100 | Processor fees |
+
+**Postings:**
+- **Sale** (posted when paid): Dr 1200 / Dr 4100 discount / Cr 4000 / Cr 2100 tax, plus Dr 5000 / Cr 1300 at
+  cost, with stock going out.
+- **Payment:** Dr 1010 net / Dr 5100 fee / Cr 1200.
+- **Refund:** Dr 4200 / Cr 1010.
+- **Payout:** Dr 1000 / Cr 1010.
+
+**The nine invariants** (`docs/INVARIANTS.md`):
+1. Balanced entries.
+2. Ledger cash equals what the processor reports.
+3. Stock ≥ 0.
+4. Margin floor.
+5. Segregation of duties.
+6. Policies change only through the owner channel.
+7. Exactly-once payments.
+8. Posted documents are immutable.
+9. Agents act only through guarded platform APIs, with DecisionRecords.
+
+## 5. Each piece in depth
+
+### Brain HTTP routes (`services/brain/src`)
+
+| Area | Routes |
+|---|---|
+| Health | `GET /health`: STDB connection, Stripe mode, bootstrap state per business, outbox, phone status |
+| Accounts | `POST /accounts/signup`, `/accounts/login`, `/accounts/logout`; `GET /accounts/me` (account plus `businessLive`); `POST /accounts/business {name}` (409 if the account already has one); `POST /accounts/owner-grant` (one-time code; the owner app's per-account STDB identity redeems it for the owner role; 409 if no business, or the business isn't live) |
+| Owner PIN | `POST /auth/owner`: the old PIN login, now **restricted to the phone business** (`PHONE_BUSINESS_ID`) |
+| Intake | `POST /intake/photo`, `POST /intake/voice`, `POST /intake/merge`, `GET /intake/photo/:businessId` |
+| Spec and questions | `GET /spec/:businessId`, `GET /questions/next`, `POST /questions/:id/answer`, `POST /questions/:id/dismiss` |
+| Owner statements | `POST /owner/statement`, `GET /owner/statements`, `POST /owner/statement/:id/decide`: "something changed" diffs, plus phone instructions waiting for confirmation |
+| Compiler | `POST /compile` (streams progress), `GET /compile/:businessId/latest` |
+| Payments | `POST /checkout`, `GET /p/:orderId` (pay link, 303 to Stripe), `POST /webhooks/stripe` (signature verified), `POST /dev/simulate-payment/:orderId` (simulator only) |
+| AI staff | `POST /agents/:role/message`, `POST /ask`. **No sign-in and not account-scoped**; a known gap. |
+| Phone | `POST /phone/tools/:name`: Cartesia webhook tools, bearer `PHONE_TOOL_SECRET` |
+
+**The account gate** (`businessGate` in `accounts/index.ts`) protects
+`/intake/*, /spec/*, /questions/*, /owner/*, /compile, /compile/*`:
+- It finds the businessId in the query, then the path, then the body (multipart or JSON).
+- The answer is **401** with no session, **403** for another account's business, and **400** when there's
+  no businessId.
+
+**Accounts store details:**
+- **Storage:** `dataDir/accounts.json`.
+- **Passwords:** scrypt, N=16384.
+- **Sessions:** bearer tokens stored as sha256 hashes, with a 7-day TTL.
+- **Rate limits:** login and sign-up allow 20 per 15 minutes per client and 300 globally. The client key
+  prefers `cf-connecting-ip` when the request comes through the tunnel.
+- **Slugs:** a slug is unique against both the platform and the spec store; a suffix is added on collision.
+- **Maya's seed:** `ensureSeedAccount` creates Maya's account from `MAYA_ACCOUNT_EMAIL`/`PASSWORD` on start,
+  if the account doesn't exist and `maya-cookies` is unclaimed.
+
+### Intake (`intake/`)
+
+- `extract.ts` sends the photo or text to Claude Opus 5.5 with a tool schema.
+  - **Opus 5.5 rejects forced tool calls**, so the call uses auto tool choice plus an instruction, validated
+    with zod.
+  - Each fact keeps its quote and image region.
+- **Voice:** `/intake/voice` uses Cartesia speech-to-text.
+- `merge.ts` merges photo and voice facts. A conflict becomes a question with candidates.
+- **Timing:** reading a photo takes about 8 s.
+
+### Question engine (`questions/engine.ts`)
+
+The engine is deterministic: impact scoring decides what to ask next. The LLM may only rephrase non-money
+questions; money questions keep their exact template wording.
+
+- **`refreshQuestions(spec)`** regenerates the open questions from the facts:
+  1. `withRequiredPlaceholders` first adds "missing" placeholders for stock fields the photo never
+     mentioned.
+  2. Then it opens one question per fact that isn't `usableForMoney`.
+  3. It also opens one per entry in **`invalidFacts(spec)`**: confirmed facts the compiler would refuse.
+     That covers the compiler's validators (`moneyFacts` in `compiler/facts.ts`) and the per-unit stock-cost
+     consistency check (`stockCostProblems`).
+- **`applyAnswer`** coerces the answer per field kind (`spec/coerce.ts`).
+  - It **rejects** an answer that would leave the field invalid.
+  - It refuses to "confirm" an invalid value.
+- **`moneyBlockers`** returns why each money fact blocks: missing, guess, unconfirmed or invalid.
+- **Stale specs:** `routes.ts` `withFreshQuestions` regenerates and saves the questions of a stored spec
+  whenever it's read, so specs saved under older rules heal themselves.
+- **Field kinds:**
+
+  | Kind | Fields | Rule |
+  |---|---|---|
+  | `money` | prices, costs | |
+  | `pct` | `taxRate` | a fraction: "0.0725" |
+  | `points` | `marginFloorPct`, `maxDiscountPct` | percent points: "20" = 20%; a bare 0–1 is refused with "add a %"; over 100 is refused |
+  | `hours` | | |
+  | `qty` | `stockUnits` | a whole number ≥ 1 |
+  | `int` | `initialStock` | |
+  | others | | bool, fulfillment, currency, methods, list, text |
+
+### Compiler (`compiler/`)
+
+1. **Facts check:** `checkMoneyFacts` lists every offending field.
+2. **`fillTemplate`:** catalogs, stock items and policies from the `item_seller` template.
+   - It raises owner questions on conflicts.
+   - There is one stock item per tracked offering, so **all variants must agree on cost per unit of stock**.
+3. **Posting-rule synthesis** from the owner's worked examples, if there are any. Otherwise it uses the
+   template's rules.
+4. **Dry run** (16 sample postings) and **Z3 proofs** (balance, discount, flow).
+5. **Configuration vN.**
+6. **Storefront:** Opus proposes the theme, emoji, font, headline and tagline, validated against limits.
+7. **AI staff:** tools and limits per role.
+8. **Submit** to the platform, and activate on the first version (bootstrap activation).
+9. **`grantActors()`** (`bootstrap.ts`) creates the storefront, shopkeeper, support and bookkeeper
+   identities for the new business. Without them a new business can't take orders.
+
+Compile plus activation takes about 6 s. Refund limits per role default to 0, so every agent refund goes to
+the owner.
+
+### Guards (`guards/`)
+
+Every agent tool call goes through `wrapTool`, then a guard check, then the platform, then a
+`DecisionRecord`. Rule ids:
+- `inv4.margin_floor`, `inv4.ledger_accepts`
+- `inv5.sod`, `inv5.sod_ok`
+- `inv6.owner_only`, `inv6.owner_app`, `inv6.catalog_prices`, `inv6.phone_needs_app_confirmation`
+- `refund.not_over`, `refund.ledger_accepts`
+- `approval.role`
+- `catalog.unknown_product`, `order.unknown`, `document.*`
+
+**Refund limits apply per order, and pending drafts count against them.** The red team found the
+split-refund hole that made this necessary, and it's fixed.
+
+### AI staff (`agents/`)
+
+All three run on Claude Sonnet 5.5.
+
+| Role | Tools |
+|---|---|
+| Shopkeeper | `menu_lookup`, `quote`, `create_order`, `escalate` |
+| Support | `order_status`, `request_refund`, `escalate` |
+| Bookkeeper | `ledger_read`, `approve_refund`, `reconcile`, `escalate` |
+
+- **Escalations** open inbox items. The owner's answers become `precedent` rows, which are fed back to the
+  agents.
+- **Coupons:** there's no coupon list, so all codes are refused.
+
+### Payments (`payments/`)
+
+- **Checkout:** the brain logs a payment intent, then creates a Stripe Checkout session.
+- **Webhook:** `recordProcessorEvent` de-duplicates by event id **in the same transaction** as posting
+  (invariant 7).
+- **Side effects:** Stripe refunds and SMS go through the platform `outbox` with idempotency keys.
+- **Simulator:** used only if no Stripe key is set. Today the real test key is set.
+
+### Phone (`phone/`)
+
+- **`cartesia-agent.ts`** holds the agent's prompt and config. It tells the agent to spell the order number
+  and follow the `say` field the tools return.
+- **`tools.ts`** has the 7 tools. `smsSay` produces the "pay at …/pay, order number X" line when no text was
+  sent.
+- **`sms.ts`:** Twilio adapter or simulator.
+- **`scripts/cartesia-setup.ts`** creates or updates the agent and tools (see section 7).
+- **Number provisioning:** the Cartesia dashboard didn't show a way to claim a number, so it was claimed
+  through the API: `POST https://api.cartesia.ai/agents/phone-numbers/provision`.
+
+### Red team (`redteam/`)
+
+- **Assets:** 57 attacks in 12 categories (45 runnable), 11 chaos cases, and 2 planted-error books with an
+  answer key.
+- **Modes:** baseline (the same module published with `ENFORCE=false`, guards off) vs napkin.
+- **Results:** in `redteam/RESULTS.md`:
+
+  | Table | Baseline | Napkin |
+  |---|---|---|
+  | Real model | 3 breaches | **0** |
+  | Compromised model | 18 breaches | **0** |
+  | Chaos | 8/8 pass | 8/8 pass |
+  | Bookkeeper on planted books | set A 56% precision / 83% recall | set A 75% / 100%; set B 100% / 100% |
+
+  Money lost was $0 in every run.
+- **Not run:** 12 attacks, which need the phone channel, a sale older than 24 hours, or a name over 64
+  characters.
+
+### Owner app internals (`apps/owner`)
+
+- **`app/providers.tsx`** is the gate. `AccountProvider` drives these states:
+
+  | State | Renders |
+  |---|---|
+  | loading | `BootScreen` |
+  | unreachable | Retry screen |
+  | signed out | `/signup` → `SignUpScreen`, `/signin` → `SignInScreen`, anything else → `Landing` |
+  | signed in, no business | `NameBusinessScreen` |
+  | business not live | `DataProvider`, then `SetupShell` |
+  | business live (`activeConfigId` ≠ 0) | `Shell`, plus `OwnerAutoGrant`, which retries every 5 s on failure |
+- **`src/data/account.tsx`:** the session token lives in localStorage `napkin-owner:session`, and
+  `authHeaders()` attaches it.
+- **`src/data/env.ts`:** `tokenKey(uri, db, accountId)` gives each account its own SpacetimeDB identity
+  token.
+- **`src/data/context.tsx`:** `DataProvider({businessId, accountId})` is live-only. Preview mode and the
+  business switcher were removed.
+- **`src/lib/brain.ts`:** API calls. Photos load with `photoObjectUrl` (an authenticated fetch that returns a
+  blob URL).
+- **`src/components/onboarding.tsx`:** the sign-up, sign-in and naming screens, `SetupShell` and
+  `OwnerAutoGrant`.
+- **`src/components/landing/Landing.tsx`**, plus the `/* ---- landing ---- */` section of `globals.css`.
+- **`app/signin/page.tsx` and `app/signup/page.tsx`** return null; the gate renders those screens.
+
+**Tests:** the brain has 188 passing (`pnpm --filter @napkin/brain test`). There are also ledger-core,
+platform, prover and redteam suites; `pnpm test` runs everything. `pnpm typecheck` is clean.
+
+## 6. What is deployed (the hosted demo)
 
 | Piece | Where |
 |---|---|
-| Owner app | https://napkin-owner.vercel.app (Vercel team `power-of-love`, project `prj_Ix1DAhcegnD5Cu3dq1bRkseJG0VJ`) |
-| Storefront | https://napkin-store.vercel.app (project `prj_A1WVgYTDOQqYuPv7rJIOJhxefo2R`); Maya's shop is at `/maya-cookies`, and phone orders are paid at `/pay` |
-| Database | SpacetimeDB **maincloud**, database `napkin-inc-mayas` |
-| Brain | **runs on the owner's Mac**, exposed by a Cloudflare quick tunnel: `https://conservative-independent-nat-traditional.trycloudflare.com` (as of this writing) |
-| Phone | Cartesia number **+1 906-498-9806** (id `ap_KugXKLtEEEvLtNcN58QoEz`), agent `agent_pPr1iGCEp3DS5YX4G9GTYB`, model `claude-haiku-5.5`, voice Skylar `db6b0ed5-d5d3-463d-ae85-518a07d3c2b4` |
-| Stripe | test sandbox "Erketoys". Test card `4242 4242 4242 4242`. |
-| SMS | simulator only. Twilio was skipped because the trial balance was $0, so the phone agent reads the order number aloud and the caller pays at `napkin-store.vercel.app/pay`. |
+| Owner app | https://napkin-owner.vercel.app. Vercel team `power-of-love` (`team_Etn72hUqGT17AAqVNuULBgIb`), project `prj_Ix1DAhcegnD5Cu3dq1bRkseJG0VJ` |
+| Store | https://napkin-store.vercel.app, project `prj_A1WVgYTDOQqYuPv7rJIOJhxefo2R`. Maya's shop: `/maya-cookies`; phone payments: `/pay` |
+| Database | SpacetimeDB maincloud, database **`napkin-inc-mayas`**. It holds `maya-cookies`, `maya-cookies-baseline`, and businesses created during tests |
+| Brain | **On the owner's Mac**, behind a Cloudflare quick tunnel: `https://conservative-independent-nat-traditional.trycloudflare.com` |
+| Phone | +1 906-498-9806 (id `ap_KugXKLtEEEvLtNcN58QoEz`), agent `agent_pPr1iGCEp3DS5YX4G9GTYB`, model `claude-haiku-5.5`, voice Skylar `db6b0ed5-d5d3-463d-ae85-518a07d3c2b4` |
+| Stripe | Test sandbox "Erketoys". `STRIPE_WEBHOOK_SECRET` (from `stripe listen`) is already in `.env` |
+| SMS | Simulator only. Twilio was skipped because the trial balance was $0 |
+
+**Vercel projects:** both use `rootDirectory` `apps/<x>`, Node 24, with source files outside the root
+directory included.
+
+**`NEXT_PUBLIC_*` values are baked in at build time:** the brain URL, `wss://maincloud.spacetimedb.com`, the
+database name, and the store and owner URLs.
 
 **Logins:**
-- **Maya's demo account:** email `maya@mayascookies.test`. The password is in `.env` as
-  `MAYA_ACCOUNT_PASSWORD`; never paste it into chat or commits. The brain seeds this account on start if
-  it's missing.
-- **Phone owner mode** needs `OWNER_PHONE` and `OWNER_PIN` in `.env`. `OWNER_PHONE` is still empty, so phone
-  owner mode is off.
+- **Maya:** `maya@mayascookies.test`. The password is in `.env` as `MAYA_ACCOUNT_PASSWORD`; never show it in
+  chat.
+- **Test account `sam-test@napkin.test`:** exists only in the **local** brain's data.
 
-**Gitignored state that must not be lost:** `services/brain/.data-cloud/` holds the brain's maincloud
-identity (the owner of `napkin-inc-mayas`), the accounts, sessions and phone orders. Without it the hosted
-brain can't write to its own database. `services/brain/.data/` is the same for local development.
+**Gitignored state that must never be lost** (back it up before experiments):
+- **`services/brain/.data-cloud/`:** the hosted brain's maincloud identities (the system identity owns
+  `napkin-inc-mayas`), plus accounts, sessions and phone orders. Without it the hosted brain can't act as
+  the system or as its actors.
+- **`services/brain/.data/`:** the same for the local `napkin` database, plus specs.
 
-### The processes that must be running for the hosted demo
+The `.data-*/` folders are covered by `.gitignore`, and `.vercelignore` excludes `.env` and the data
+folders. It was verified that `.env` is not served from either Vercel deployment.
 
-All of them run on the owner's Mac, from the repo root.
+## 7. Running it
+
+### Hosted demo: processes on the owner's Mac (from the repo root)
+
+These ran as background shells of the previous Claude session, so they may have died when it ended.
+Check health first:
 
 ```bash
-caffeinate -dimsu -t 36000                       # keep the Mac awake (lid open, on AC power)
-~/.local/bin/cloudflared tunnel --no-autoupdate --url http://localhost:4000   # prints the https tunnel URL
-BRAIN_PUBLIC_URL=<tunnel url> scripts/brain-cloud.sh                          # brain on :4000 against maincloud
-K=$(grep -E '^STRIPE_SECRET_KEY=' .env | cut -d= -f2- | tr -d "\"'"); ~/.local/bin/stripe listen --api-key "$K" \
-  --events checkout.session.completed,checkout.session.async_payment_succeeded,charge.succeeded,charge.updated,charge.refunded,refund.created,refund.updated \
-  --forward-to localhost:4000/webhooks/stripe                                 # webhooks; secret already in .env
+curl -s https://conservative-independent-nat-traditional.trycloudflare.com/health
 ```
 
-Check health: `curl -s <tunnel url>/health`. You want `"ok":true`, `bootstrap.ok`, and `stripe.mode` `test`.
+You want `"ok":true`, `bootstrap.ok`, both businesses registered, and `stripe.mode` `test`. If anything is
+down, start the processes again:
 
-**If the tunnel restarts, its URL changes.** Then do all three of these:
+```bash
+caffeinate -dimsu -t 36000          # keep the Mac awake (lid open, on AC power)
+~/.local/bin/cloudflared tunnel --no-autoupdate --url http://localhost:4000      # prints the https URL
+BRAIN_PUBLIC_URL=<tunnel url> scripts/brain-cloud.sh                             # brain :4000 against maincloud
+K=$(grep -E '^STRIPE_SECRET_KEY=' .env | cut -d= -f2- | tr -d "\"'"); ~/.local/bin/stripe listen --api-key "$K" \
+  --events checkout.session.completed,checkout.session.async_payment_succeeded,charge.succeeded,charge.updated,charge.refunded,refund.created,refund.updated \
+  --forward-to localhost:4000/webhooks/stripe
+```
+
+`scripts/brain-cloud.sh` sets these and then runs `pnpm --filter @napkin/brain start`, which loads `.env`
+through `tsx --env-file-if-exists`:
+- the maincloud URI and database;
+- `BRAIN_DATA_DIR=services/brain/.data-cloud`;
+- the store and owner URLs;
+- `BRAIN_URL`.
+
+CORS allows the two Vercel origins and localhost 3001/3002.
+
+**If the tunnel URL changes** (any cloudflared restart), do all three:
 1. Restart the brain with the new `BRAIN_PUBLIC_URL`.
-2. Redeploy both apps, because the URL is baked in at build time:
-   `BRAIN_PUBLIC_URL=<new url> scripts/deploy-web.sh both`
-3. Point the Cartesia agent's tools at the new URL:
+2. Redeploy both apps: `BRAIN_PUBLIC_URL=<new> scripts/deploy-web.sh both`. This uses the logged-in Vercel
+   CLI; the script sets the org and project ids.
+3. Point the phone agent at the new URL:
    ```bash
    pnpm --filter @napkin/brain exec tsx --env-file-if-exists=../../.env scripts/cartesia-setup.ts <new url> \
      --model claude-haiku-5.5 --voice db6b0ed5-d5d3-463d-ae85-518a07d3c2b4 --phone-number-id ap_KugXKLtEEEvLtNcN58QoEz
    ```
-   Try `--dry-run` first. Cartesia fixes the temperature for this model, so the script must not send one.
+   Add `--dry-run` first to print the requests without sending them.
 
-A named Cloudflare tunnel (stable URL) would remove this chore; that's worth doing if there is time.
+A **named Cloudflare tunnel** (stable URL) would remove this chore before judging; it's worth considering.
 
-Vercel deploys use the Vercel CLI, which is already logged in on the Mac. `deploy-web.sh` sets
-`VERCEL_ORG_ID`/`VERCEL_PROJECT_ID` itself.
-
-### Local development (everything on the Mac)
+### Local development
 
 ```bash
-pnpm stdb                                   # local SpacetimeDB on 127.0.0.1:3000
-pnpm publish:local && pnpm bootstrap        # publish the module to local DB `napkin`, load Maya
-pnpm --filter @napkin/brain start           # :4000
+pnpm stdb                                   # local SpacetimeDB 127.0.0.1:3000
+pnpm publish:local && pnpm bootstrap        # publish the module to local DB `napkin`, load Maya + baseline
+pnpm --filter @napkin/brain start           # :4000 (needs a free port 4000; the hosted brain uses it too)
 pnpm --filter @napkin/owner dev             # :3001
 pnpm --filter @napkin/store dev             # :3002
 ```
 
-Only one `next dev` per app directory can run at a time.
+- **The hosted brain already uses port 4000.** For a second, local brain use a different port, as the
+  previous agent did:
+  ```bash
+  PORT=4100 CORS_ORIGINS=http://localhost:3001 pnpm --filter @napkin/brain start
+  ```
+  Then start the owner app against it:
+  ```bash
+  NEXT_PUBLIC_BRAIN_URL=http://localhost:4100 NEXT_PUBLIC_SPACETIMEDB_URI=ws://localhost:3000 NEXT_PUBLIC_SPACETIMEDB_DB=napkin pnpm exec next dev -p 3001
+  ```
+  Run that from `apps/owner`.
+- **Only one `next dev` per app directory** can run at a time.
+- **`.claude/launch.json`** has `brain`, `owner` and `store` configurations for the preview browser.
 
-## 5. What is left, in priority order
+**Tools on the Mac:**
+- Node 24 and pnpm 10;
+- the `spacetime` 2.13 CLI;
+- the Vercel CLI, logged in;
+- the Stripe CLI and cloudflared, in `~/.local/bin`.
 
-1. **The owner's own live test.** Nobody has signed up on the *live* site yet. The previous agent doesn't type
-   passwords into public sites, so this is the owner's job.
-   - Create a fresh account on https://napkin-owner.vercel.app, upload a napkin photo, answer the questions,
-     and go live.
-   - Separately, sign in as Maya.
+Homebrew is blocked until `sudo xcodebuild -license accept`.
+
+## 8. History: how we got here
+
+**Night 1 (Fri → Sat):** the owner slept while the previous session built with parallel agents.
+- **M1:** the platform, ledger-core, store and owner app, end to end with hand-written Maya data. Verified
+  at 2 AM.
+- **M2:** the prover, intake, the question engine, the compiler, guards and the Build page.
+- **M3:** AI staff, the phone line and the red team. It paused twice on usage limits.
+- **Red team:** the real-model and compromised-model passes. They found and fixed the split-refund guard
+  gap, and the final run is in `RESULTS.md`.
+
+**Saturday daytime**, with the owner, in order:
+1. The owner added keys and logged in to services. The Anthropic key needs `ANTHROPIC_WORKSPACE_ID`, which
+   is set.
+2. **Deployment:** maincloud, Vercel and the quick tunnel; real Stripe test checkouts verified (orders
+   MC-R0353 and TB-YKMN0). Commit `6869986`.
+3. **Twilio:** the trial had $0 balance, so it was skipped. **Cartesia:** the number was claimed through the
+   API and the agent created. Pay-without-SMS was added: the `/pay` page plus the agent reading the order
+   number aloud. Commit `abed2c8`.
+4. The owner asked what a brand-new user experiences. Testing it found bugs: no stock questions, percent
+   answers marked ambiguous, and new businesses without actor identities. All fixed in commit `6e8f1d7`.
+   Timing was measured at about 27 s of machine time end to end; the interview is the human part, about 30
+   questions for a rich napkin.
+5. **The owner's request (verbatim, the most recent feature):** "I need a page for new customers. Cause my
+   project is not just for one user: maya. Other people should go to the website, and see the info and
+   everything, and button that says start ur business. And when they do, they need to create an accound
+   and etc. Then, after onboarding and business creation, they have their own dashboard, which is not
+   maya's cookies, it is a different entity… And maya's or other user's dashboard shouldnt't have create a
+   new business. One busieness per account."
+   - **Built:** accounts, landing page, onboarding, per-account dashboards, plus the interview dead-end
+     fixes. Commit `d74e223`, deployed.
+6. Handoff docs: commit `4cf45ad` and this rewrite.
+
+## 9. What I was doing last
+
+The previous session had just finished the accounts feature and deployed it.
+
+**Verified locally**, against a test brain on :4100 and the local database:
+- Sign-up as `sam-test@napkin.test`, then "Sam's Tacos", a typed description (28 facts), the interview,
+  compile, live, and a dashboard showing only Sam's data (opening stock 60 × $1.20 = $72).
+- The owner role was granted automatically.
+- Maya's account got a 403 on Sam's spec, and a second business was refused with a 409.
+
+**Verified live, without logging in:**
+- The landing and sign-up pages render.
+- The brain returns 401 with no session.
+- CORS allows the owner app's origin.
+- The store still serves Maya's shop.
+- The brain logged `seeded the account for maya-cookies`.
+
+**Not yet verified:** a real sign-up and a new business on the **live** site, and Maya signing in on the live
+site. That's the first thing in section 10.
+
+## 10. What's left, in priority order
+
+1. **Live end-to-end test.** The owner does it, or you guide them; or test on localhost yourself.
+   - Sign up on https://napkin-owner.vercel.app, upload a napkin photo (or `fixtures/maya/napkin.SYNTHETIC.png`),
+     answer the questions, go live, open the storefront, and pay with `4242…`.
+   - Separately, sign in as Maya and check her dashboard shows her real orders.
    - Fix whatever breaks.
-2. **Demo script for judges** (`docs/DEMO.md` covers only M1/M2 locally).
-   - A 3–4 minute path where the judge is the input:
-     1. The judge sketches or says a business.
-     2. It goes live in about 30 s of machine time; the interview is the human part, about 30 questions for
-        a rich napkin, and fewer when it's simple.
-     3. The judge scans the QR code and pays with a test card.
-     4. The judge calls +1 906-498-9806 and orders by voice.
-     5. The judge tries to talk an AI staffer into a refund it shouldn't give, and the guards refuse.
-   - Add the red-team table as the closer.
-   - Consider a faster path for the demo, such as a short pre-written napkin, so the interview stays short.
-3. **Devpost write-up:** problem, what it does, how it's built (sponsors as plumbing: Anthropic, Cartesia,
-   Stripe, SpacetimeDB, Vercel), challenges, what's next, plus a short video if possible. Ask the owner
-   before making the repo public (rule 5).
-4. **Known gaps (not done; decide whether they matter for the demo):**
-   - The storefront home page (`napkin-store.vercel.app/`) lists **every** business, including test ones.
-     Consider hiding unlisted or test businesses.
-   - The agent chat routes `/agents/:role/message` and `/ask` have no sign-in and aren't scoped to an
-     account.
-   - After going live, the Build page could link straight to the dashboard and the storefront.
-   - The phone line is wired to `maya-cookies` only (`PHONE_BUSINESS_ID`). New businesses have no phone line.
-   - `OWNER_PHONE` is empty, so phone owner mode is off.
-   - The brain runs on a laptop behind a quick tunnel; see section 4. Keep the Mac awake and online during
-     judging.
-   - `docs/REAL_VS_SIMULATED.md` and `docs/MORNING.md` don't mention the accounts work yet.
-   - The decisions saved in `docs/MORNING.md` are still open, with defaults in place.
-5. **Optional polish:** a stable tunnel, storefront theme carry-over on recompile, and asking for per-role
-   refund limits in the interview.
+2. **Demo script for the judges.** Rewrite `docs/DEMO.md` for the hosted demo. A 3–4 minute path where the
+   judge is the input:
+   1. The judge draws or says a business, or picks up a prepared napkin.
+   2. The judge watches it go live. Consider a short prepared napkin, so the interview is a handful of
+      questions instead of about 30.
+   3. The judge scans the QR code with their own phone and pays with a test card. The owner dashboard
+      updates live.
+   4. The judge calls +1 906-498-9806 and orders cookies by voice, then pays at `/pay`.
+   5. The judge tries to sweet-talk an AI staffer into a 50% discount or an over-limit refund. The guards
+      refuse, and a DecisionRecord appears.
+   6. Close on the red-team table: 3 to 0 and 18 to 0, $0 lost.
 
-## 6. Gotchas the previous agent hit
+   Also prepare a fallback if the tunnel or Wi-Fi fails.
+3. **Devpost write-up.** Cover the problem, what it does, how it's built (Anthropic: Opus intake, compiler
+   theme, Sonnet staff, Haiku phone; Cartesia: voice agent and speech-to-text; Stripe test mode; SpacetimeDB;
+   Vercel; Z3), the challenges, what's next, and a 1–2 minute video if possible. **Ask the owner before
+   making the repo public.** Update `docs/REAL_VS_SIMULATED.md`, which is stale, because judges may read it.
+4. **Gaps worth closing for the demo** (judgment calls):
+   - The store home page (`/`) lists every business, including test ones. Hide unlisted ones or link only
+     to live ones.
+   - `/agents/:role/message` and `/ask` have no sign-in and aren't account-scoped.
+   - After going live, the Build page should link to the dashboard and the storefront (and QR).
+   - The phone line serves `maya-cookies` only. New businesses don't get one; say so on stage, or route by
+     business.
+   - `OWNER_PHONE` is empty, so phone owner mode is off. Ask the owner for their number (+1… form) and
+     check that `OWNER_PIN` is set.
+   - The quick tunnel is fragile; a named tunnel would help. Keep the Mac awake and online during judging.
+5. **Polish, if there's time:**
+   - Keep the approved storefront theme on recompile.
+   - Ask for per-role refund limits in the interview.
+   - The impact scores shown in the interview UI.
+   - Clean up the test businesses on maincloud.
 
-- **Percent fields:** `marginFloorPct` and `maxDiscountPct` are percent *points* ("20" = 20%). `taxRate` is a
-  *fraction* ("0.0725"). A bare 0.2 for a points field is refused with a request to add a % sign.
-- **Every role needs an identity:** a new business needs actor identities (storefront, shopkeeper, support,
-  bookkeeper) before it can take orders. `grantActors()` in `services/brain/src/bootstrap.ts` runs after
-  every activation.
-- **Opus 5.5 rejects forced tool calls.** Intake uses auto tool choice plus zod validation instead.
-- **Money questions keep exact template wording.** The LLM may only rephrase non-money questions.
-- **Cartesia:** `temperature` must be omitted for `claude-haiku-5.5`.
-- **Stripe:** `stripe listen` needs an explicit `--events` list. The product ids are `cookie_single`,
-  `box-of-6` and `sea-salt`.
-- **SpacetimeDB:** only one copy of `spacetimedb` (2.13.0) may be installed. In the module, use `ctx.random`
-  and never `Math.random`.
-- **The previous agent's shell and background processes die with its session.** After switching accounts,
-  check that the brain, tunnel and `stripe listen` are still up (`curl <tunnel>/health`), and restart them per
-  section 4 if not.
+## 11. Open decisions (defaults are in place; see `docs/MORNING.md` for details)
 
-## 7. Moving to another account or machine
+- Sea salt: tracked stock or a supply expense?
+- Manual payouts.
+- 5-decimal tax rates are refused.
+- Returned-goods document type.
+- A paid order whose sale couldn't post goes to the inbox only.
+- Per-role refund limits default to 0.
+- Storefront theme resets on recompile.
+- Older pending configurations stay pending.
+- A spoofed caller ID can trigger a 15-minute lockout.
+- Chat customers proving an order is theirs.
+- Coupons: none exist.
+- Shopkeeper discretion on discounts.
+- An order id reveals the status and total only.
+- Stuck refund drafts count against the order's limit.
 
-- **Same Mac, different Claude account (the simple case):** everything stays on disk: the repo, `.env`,
-  `.data-cloud/`, the Vercel, Stripe and cloudflared CLI logins, and `~/.local/bin`. Open
-  `/Users/vinci/napkin-inc` in the new session and paste the prompt in `docs/HANDOFF_PROMPT.md`.
-- **Different machine:** clone `vincivv/napkin-inc`, which needs access to the private repo. Then copy these
-  three things over **privately** (AirDrop or USB, never chat, email or git):
-  - `.env`
-  - `services/brain/.data-cloud/`
-  - `services/brain/.data/`
+## 12. Gotchas
 
-  Then install the tools: Node 24, pnpm 10, the `spacetime` 2.13 CLI, the Vercel CLI (logged in to team
-  `power-of-love`), the Stripe CLI and cloudflared. Run `pnpm install`.
+**Models and AI providers:**
+- **Model ids:** `claude-opus-5-5` (intake, compiler theme), `claude-sonnet-5-5` (AI staff),
+  `claude-haiku-5-5` (classification and phrasing). The phone agent uses Cartesia's catalog id
+  `claude-haiku-5.5`.
+- **Opus 5.5 rejects forced tool calls.** Use auto tool choice plus an instruction plus zod. A schema this
+  large is too big for structured outputs.
+- **Money-question wording stays fixed.** Haiku once turned "cost for the sea-salt add-on" into "cost of a
+  batch".
+- **Cartesia:** omit `temperature` for `claude-haiku-5.5`; it's fixed at 1.
+
+**Stripe:**
+- `stripe listen` requires `--events`.
+- Maya's product ids are `cookie_single`, `box-of-6` and `sea-salt`.
+
+**SpacetimeDB:**
+- Exactly one copy of the `spacetimedb` package (2.13.0) may be installed (SpacetimeDB issue #5740).
+- In the module, use `ctx.random`, never `Math.random`.
+- `u64`/`i64` values are `bigint`.
+- To roll back a reducer's transaction, `throw new SenderError(...)`.
+
+**Repo and tooling:**
+- `pnpm publish:local` must use the script (pnpm's built-in `publish` shadows it).
+- Only one `next dev` per app directory. Port 4000 is the hosted brain.
+- Sizable runs: **at most 3 subagents at once.**
+
+**Data and the owner app:**
+- **Percent conventions:** see "Field kinds" in section 5. A margin refusal on a business with unrealistic
+  costs is correct behavior, not a bug.
+- **Removed preview mode:** a stale sessionStorage preview flag once showed Maya's data in a new account. The
+  owner app now clears it.
