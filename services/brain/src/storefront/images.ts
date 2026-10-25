@@ -197,6 +197,9 @@ export class OpenverseImages implements ImageResolver {
         type: "text",
         text:
           `Pick the photo for ${slot.topic}. Search query: "${slot.query}". Choose the most appetizing, professional-looking, on-topic photo. ` +
+          (slot.aspect === "wide"
+            ? "This is a large banner on a premium storefront (think Warby Parker or a food magazine): only a well-lit, well-composed, professional-quality photo qualifies; a casual snapshot (paper towels, cluttered kitchen counters, flash photos) is a -1. "
+            : "") +
           "REJECT any photo with visible text of any kind: signage, shop or business names, brand logos, packaging labels, menus, watermarks or captions (a photo showing another business's name would look like impersonation), and any photo with a recognizable face. " +
           "REJECT holiday or seasonal scenes (Christmas, Halloween, Easter decorations or shapes): the store is open all year. " +
           "For a product, the photo must clearly show exactly that product as named: a different variety, flavor or item (blondies or snickerdoodles for chocolate chip cookies, a jacket for a hoodie) is wrong. " +
