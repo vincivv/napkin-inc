@@ -7,3 +7,5 @@ Built solo at Cal Hacks 13.0. Payments are **Stripe test mode only**.
 Core principle: the AI talks and judges; deterministic code owns the money and the rules.
 
 See [docs/PLAN.md](docs/PLAN.md).
+
+Taking over the project? Start with [docs/HANDOFF.md](docs/HANDOFF.md).
