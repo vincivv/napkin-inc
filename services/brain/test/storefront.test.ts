@@ -183,9 +183,11 @@ function fakeFetch(byQuery: Record<string, OpenverseResult[]>, opts: { dead?: st
     const method = init?.method ?? "GET";
     calls.push(`${method} ${url}`);
     if (url.startsWith("https://api.openverse.org/v1/images/?")) {
-      const q = new URL(url).searchParams.get("q")!;
+      const sp = new URL(url).searchParams;
+      const q = sp.get("q")!;
       if (opts.failQueries?.includes(q)) return new Response("slow down", { status: 429 });
-      return Response.json({ results: byQuery[q] ?? [] });
+      // a source-filtered search answers from "<query>@<sources>"
+      return Response.json({ results: byQuery[sp.get("source") ? `${q}@${sp.get("source")}` : q] ?? [] });
     }
     if (opts.dead?.includes(url)) return new Response(null, { status: 302, headers: { location: "https://s.yimg.com/photo_unavailable.png" } });
     return new Response(method === "HEAD" ? null : new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), { status: 200, headers: { "content-type": "image/jpeg" } });
@@ -268,6 +270,18 @@ describe("Openverse photos", () => {
     await ov.resolve(slots);
     expect(searches()).toBe(before); // served from the disk cache
   });
+  it("searches stock-photo providers first and falls back to the plain product name", async () => {
+    const stock = result("stock1", { url: "https://images.rawpixel.com/editor_1024/stock1.jpg", source: "rawpixel", license: "cc0", license_version: "1.0" });
+    const net = fakeFetch({ "chocolate chip cookies@rawpixel,stocksnap": [stock], "chocolate chip cookies": [result("flickr1")] });
+    const vision = fakeVision(0);
+    const out = await new OpenverseImages({ fetch: net.fn, vision }).resolve([{ key: "product:a", query: "gooey cookie hero shot", aspect: "any", topic: "a", fallback: "chocolate chip cookies" }]);
+    expect(out["product:a"]!.url).toBe("https://images.rawpixel.com/editor_1024/stock1.jpg");
+    expect(out["product:a"]!.license).toBe("CC0 1.0");
+    expect(vision.calls[0]!.content.filter((c) => c.type === "image")).toHaveLength(2); // stock first, then the general result
+    const searched = net.calls.filter((c) => c.includes("/v1/images/?")).map((c) => new URL(c.slice(4)).searchParams);
+    expect(searched[0]!.get("source")).toBe("rawpixel,stocksnap");
+    expect(searched.some((p) => p.get("q") === "chocolate chip cookies" && !p.get("source"))).toBe(true);
+  });
   it("vision says none -> no photo; vision down -> first candidate without place/sign words", async () => {
     const byQuery = { "cookies plate": [result("bakery1", { title: "Cookies at the corner bakery" }), result("plain")] };
     const none = await new OpenverseImages({ fetch: fakeFetch(byQuery).fn, vision: fakeVision(-1) }).resolve([{ key: "hero", query: "cookies plate", aspect: "wide", topic: "t" }]);
@@ -312,7 +326,7 @@ describe("generateDesign", () => {
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
 
-function routes() {
+function routes(o: { images?: ImageResolver; waitMs?: number } = {}) {
   const dir = tmp();
   const accounts = new AccountStore(dir);
   const app = new Hono();
@@ -328,9 +342,9 @@ function routes() {
   const live: Record<string, Configuration> = { "maya-cookies": cfg };
   const photo = toDesignImage(result("gen"), "x")!;
   const designs = new DesignStore(dir);
-  const service = new DesignService(designs, { images: { resolve: async (slots) => Object.fromEntries(slots.map((s) => [s.key, { ...photo, url: `https://live.staticflickr.com/${s.key.replace(":", "_")}.jpg` }])) } });
+  const service = new DesignService(designs, { images: o.images ?? { resolve: async (slots) => Object.fromEntries(slots.map((s) => [s.key, { ...photo, url: `https://live.staticflickr.com/${s.key.replace(":", "_")}.jpg` }])) } });
   const media = new MediaStore(dir);
-  registerStorefrontRoutes(app, { service, media, activeConfig: (id) => live[id], gate: businessGate(accounts), mediaBaseUrl: "http://brain.test" });
+  registerStorefrontRoutes(app, { service, media, activeConfig: (id) => live[id], gate: businessGate(accounts), mediaBaseUrl: "http://brain.test", ...(o.waitMs !== undefined ? { waitMs: o.waitMs } : {}) });
   const owner = accounts.newSession(accounts.create("maya@example.com", "correct horse", { id: "maya-cookies", name: "Maya's Cookies" }).id);
   const eve = accounts.newSession(accounts.create("eve@example.com", "correct horse", { id: "evil", name: "Evil" }).id);
   const call = async (method: string, url: string, o: { token?: string; json?: unknown; form?: FormData } = {}) => {
@@ -408,6 +422,22 @@ describe("storefront routes", () => {
       expect(r.body.reasons.length).toBeGreaterThan(0);
     }
     expect(h.designs.get("maya-cookies")?.hero.cta).toBe("Order now"); // nothing changed by the refusals
+  });
+
+  it("a slow regenerate answers 202 and the owner polls /design/status (gated) until it lands", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const h = routes({ images: { resolve: async () => (await gate, {}) }, waitMs: 20 });
+    const r = await h.call("POST", "/storefront/maya-cookies/design/regenerate", { token: h.owner, json: {} });
+    expect(r.status).toBe(202);
+    expect(r.body).toEqual({ status: "running" });
+    expect((await h.call("POST", "/storefront/maya-cookies/design/regenerate", { token: h.owner, json: {} })).status).toBe(409);
+    expect((await h.call("GET", "/storefront/maya-cookies/design/status")).status).toBe(401);
+    expect((await h.call("GET", "/storefront/maya-cookies/design/status", { token: h.eve })).status).toBe(403);
+    expect((await h.call("GET", "/storefront/maya-cookies/design/status", { token: h.owner })).body).toMatchObject({ running: true, error: null, generatedAt: null });
+    release();
+    await vi.waitFor(async () => expect((await h.call("GET", "/storefront/maya-cookies/design/status", { token: h.owner })).body.running).toBe(false));
+    expect((await h.call("GET", "/storefront/maya-cookies/design/status", { token: h.owner })).body.generatedAt).toEqual(expect.any(String));
   });
 
   it("uploads: sniffed images only, at most 6 MB; served from /media; DELETE removes them; regenerate keeps them", async () => {

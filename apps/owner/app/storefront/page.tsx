@@ -118,7 +118,7 @@ export default function StorefrontPage() {
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button variant="primary" disabled={!!busy} onClick={() => run("regenerate", () => brain.regenerateDesign(biz, design.style))}>
-                  {busy === "regenerate" ? "Designing… (up to a minute)" : "Regenerate with AI"}
+                  {busy === "regenerate" ? "Designing… (up to 2 minutes)" : "Regenerate with AI"}
                 </Button>
                 <Button disabled={!!busy} onClick={() => run("regenerate", () => brain.regenerateDesign(biz, design.style === "bold" ? "editorial" : "bold"))}>
                   Try {design.style === "bold" ? "editorial" : "bold"}

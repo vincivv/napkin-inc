@@ -68,6 +68,7 @@ export class DesignBusy extends Error {
 /** Generation with one run per business at a time; owner uploads survive a regenerate. */
 export class DesignService {
   private readonly running = new Set<string>();
+  private readonly errors = new Map<string, string>();
   constructor(
     readonly designs: DesignStore,
     private readonly deps: GenerateDeps,
@@ -77,9 +78,15 @@ export class DesignService {
     return this.running.has(businessId);
   }
 
+  /** Why the last regenerate for this business failed (cleared by the next one). */
+  lastError(businessId: string): string | undefined {
+    return this.errors.get(businessId);
+  }
+
   async regenerate(input: DesignInput, style?: DesignStyleName): Promise<StorefrontDesign> {
     if (this.running.has(input.businessId)) throw new DesignBusy(`a design for ${input.businessId} is already being generated`);
     this.running.add(input.businessId);
+    this.errors.delete(input.businessId);
     try {
       const t0 = Date.now();
       const fresh = await generateDesign(input, this.deps, style ? { style } : {});
@@ -93,6 +100,9 @@ export class DesignService {
       this.designs.put(fresh);
       log.info("design", `${input.businessId}: ${fresh.style} design saved in ${Date.now() - t0} ms (${fresh.generator}; ${fresh.notes.length} notes)`);
       return fresh;
+    } catch (e) {
+      this.errors.set(input.businessId, (e as Error).message);
+      throw e;
     } finally {
       this.running.delete(input.businessId);
     }
@@ -151,6 +161,8 @@ export interface StorefrontRouteDeps {
   gate: MiddlewareHandler;
   /** public base URL of this brain (BRAIN_URL), for upload URLs */
   mediaBaseUrl: string;
+  /** how long POST .../regenerate waits before answering 202 (default 60 s, under the tunnel's 100 s limit) */
+  waitMs?: number;
 }
 
 const BUSINESS_ID = /^[a-z0-9-]{1,64}$/;
@@ -202,12 +214,25 @@ export function registerStorefrontRoutes(app: Hono, d: StorefrontRouteDeps): voi
     if (!parsed.success) return c.json({ error: "invalid request", reasons: parsed.error.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`) }, 400);
     const cfg = liveConfig(c);
     if (cfg instanceof Response) return cfg;
-    try {
-      return c.json(await d.service.regenerate(designInputFromConfig(cfg), parsed.data.style));
-    } catch (e) {
-      if (e instanceof DesignBusy) return c.json({ error: e.message }, 409);
-      throw e;
+    if (d.service.isRunning(cfg.businessId)) return c.json({ error: `a design for ${cfg.businessId} is already being generated` }, 409);
+    // Generation can outlast the tunnel's 100 s request limit: answer with the design when it is quick,
+    // otherwise 202 and the owner app polls GET .../design/status.
+    const job = d.service.regenerate(designInputFromConfig(cfg), parsed.data.style);
+    job.catch((e: Error) => log.error("design", `regenerate for ${cfg.businessId} failed: ${e.message}`));
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const done = await Promise.race([job.then((x) => ({ design: x })), new Promise<undefined>((r) => (t = setTimeout(() => r(undefined), d.waitMs ?? 60_000)))]).catch((e: unknown) => ({ error: e }));
+    clearTimeout(t);
+    if (done && "design" in done) return c.json(done.design);
+    if (done && "error" in done) {
+      if (done.error instanceof DesignBusy) return c.json({ error: done.error.message }, 409);
+      throw done.error;
     }
+    return c.json({ status: "running" }, 202);
+  });
+
+  app.get("/storefront/:businessId/design/status", d.gate, (c) => {
+    const id = c.req.param("businessId");
+    return c.json({ running: d.service.isRunning(id), error: d.service.lastError(id) ?? null, generatedAt: designs.get(id)?.generatedAt ?? null }, 200, { "Cache-Control": "no-store" });
   });
 
   app.patch("/storefront/:businessId/design", d.gate, async (c) => {

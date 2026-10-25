@@ -136,8 +136,21 @@ export const brain = {
   decide: (businessId: string, id: string, confirm: boolean) => req<SpecResponse>(`/owner/statement/${id}/decide`, json({ businessId, confirm })),
 
   // ---- storefront design (look only: never prices, stock or policies) ----
-  design: (b: string) => req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/design`),
-  regenerateDesign: (b: string, style?: StorefrontDesign["style"]) => req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/design/regenerate`, json(style ? { style } : {})),
+  design: (b: string) => req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/design`, { cache: "no-store" }),
+  /** Resolves with the new design. A slow generation answers 202; then this polls the status until it lands. */
+  async regenerateDesign(b: string, style?: StorefrontDesign["style"]): Promise<StorefrontDesign> {
+    const id = encodeURIComponent(b);
+    const r = await req<StorefrontDesign | { status: "running" }>(`/storefront/${id}/design/regenerate`, json(style ? { style } : {}));
+    if (!("status" in r)) return r;
+    for (let i = 0; i < 80; i++) {
+      await new Promise((ok) => setTimeout(ok, 3_000));
+      const s = await req<{ running: boolean; error: string | null }>(`/storefront/${id}/design/status`, { cache: "no-store" });
+      if (s.running) continue;
+      if (s.error) throw new BrainError(500, `the design could not be generated: ${s.error}`);
+      return brain.design(b);
+    }
+    throw new BrainError(504, "the design is still being generated; reload this page in a minute");
+  },
   patchDesign: (b: string, patch: DesignPatch) =>
     req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/design`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) }),
   uploadDesignImage(b: string, slot: string, file: File) {

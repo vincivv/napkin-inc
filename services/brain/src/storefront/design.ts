@@ -291,6 +291,8 @@ export interface ImageSlot {
   aspect: "wide" | "any";
   /** what the photo should show, for the vision pick */
   topic: string;
+  /** plain product-name query, tried last when the proposed query finds nothing usable */
+  fallback?: string;
 }
 
 /** The image searches for a design: the proposal's queries when valid, else queries from product names. */
@@ -306,12 +308,12 @@ export function imageSlots(p: DesignProposal | undefined, input: DesignInput, no
   };
   const first = input.products[0]?.name ?? input.businessName;
   const slots: ImageSlot[] = [
-    { key: "hero", query: pick(q?.hero, fallbackQuery(first), "hero"), aspect: "wide", topic: `a wide hero photo for ${input.businessName} (${input.oneLiner})` },
-    { key: "banner", query: pick(q?.banner, `${fallbackQuery(first)} on table`.trim(), "banner"), aspect: "wide", topic: `a wide banner photo for ${input.businessName}'s ${input.fulfillment === "pickup" ? "pickup" : "visit"} section` },
+    { key: "hero", query: pick(q?.hero, fallbackQuery(first), "hero"), aspect: "wide", topic: `a wide hero photo for ${input.businessName} (${input.oneLiner})`, fallback: fallbackQuery(first) },
+    { key: "banner", query: pick(q?.banner, `${fallbackQuery(first)} on table`.trim(), "banner"), aspect: "wide", topic: `a wide banner photo for ${input.businessName}'s ${input.fulfillment === "pickup" ? "pickup" : "visit"} section`, fallback: fallbackQuery(first) },
   ];
   for (const prod of input.products) {
     const proposed = q?.products?.find((x) => x.productId === prod.id)?.query;
-    slots.push({ key: `product:${prod.id}`, query: pick(proposed, fallbackQuery(prod.name), `product ${prod.id}`), aspect: "any", topic: `a product photo of "${prod.name}" sold by ${input.businessName}` });
+    slots.push({ key: `product:${prod.id}`, query: pick(proposed, fallbackQuery(prod.name), `product ${prod.id}`), aspect: "any", topic: `a product photo of "${prod.name}" sold by ${input.businessName}`, fallback: fallbackQuery(prod.name) });
   }
   return slots.filter((x) => x.query.length > 0);
 }

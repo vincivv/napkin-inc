@@ -319,7 +319,7 @@ export function businessGate(store: AccountStore): MiddlewareHandler {
 }
 
 /** Routes that carry the business in the path (the storefront design routes mount the gate per route). */
-const PATH_BUSINESS = /^\/(?:intake\/photo|spec)\/([a-z0-9-]{1,64})$|^\/compile\/([a-z0-9-]{1,64})\/latest$|^\/storefront\/([a-z0-9-]{1,64})\/(?:design(?:\/regenerate)?|images\/[^/]+)$/;
+const PATH_BUSINESS = /^\/(?:intake\/photo|spec)\/([a-z0-9-]{1,64})$|^\/compile\/([a-z0-9-]{1,64})\/latest$|^\/storefront\/([a-z0-9-]{1,64})\/(?:design(?:\/regenerate|\/status)?|images\/[^/]+)$/;
 
 /** The setup routes the gate protects (Hono path patterns). */
 export const GATED_PATHS = ["/intake/*", "/spec/*", "/questions/*", "/owner/*", "/compile", "/compile/*"] as const;

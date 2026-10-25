@@ -28,6 +28,8 @@ export interface OpenverseResult {
   foreign_landing_url?: string | null;
   tags?: { name: string }[] | null;
   mature?: boolean | null;
+  /** Openverse provider, e.g. "flickr", "wikimedia", "rawpixel" */
+  source?: string | null;
   unstable__sensitivity?: unknown[] | null;
 }
 
@@ -36,9 +38,13 @@ export interface ImageResolver {
   resolve(slots: ImageSlot[]): Promise<Record<string, DesignImage>>;
 }
 
-export function openverseUrl(query: string, aspect: ImageSlot["aspect"]): string {
+/** Openverse providers of professional stock photography (CC0); searched first, they look most like a real shop's photos. */
+export const STOCK_SOURCES = ["rawpixel", "stocksnap"] as const;
+
+export function openverseUrl(query: string, aspect: ImageSlot["aspect"], sources?: readonly string[]): string {
   const q = new URLSearchParams({ q: query, license: "cc0,pdm,by,by-sa", mature: "false", page_size: "12" });
   if (aspect === "wide") q.set("aspect_ratio", "wide");
+  if (sources?.length) q.set("source", sources.join(","));
   return `${OPENVERSE_API}?${q.toString().replace(/%2C/g, ",")}`;
 }
 
@@ -157,8 +163,8 @@ export class OpenverseImages implements ImageResolver {
   }
 
   /** Raw results for a query, from the disk cache when fresh. Throws on network/HTTP errors. */
-  async search(query: string, aspect: ImageSlot["aspect"]): Promise<OpenverseResult[]> {
-    const url = openverseUrl(query, aspect);
+  async search(query: string, aspect: ImageSlot["aspect"], sources?: readonly string[]): Promise<OpenverseResult[]> {
+    const url = openverseUrl(query, aspect, sources);
     const file = this.cacheFile(url);
     if (file) {
       try {
@@ -168,7 +174,7 @@ export class OpenverseImages implements ImageResolver {
         /* no cache entry */
       }
     }
-    const res = await this.fetch(url, { headers: { accept: "application/json", "user-agent": "napkin-inc-brain/0.1 (storefront design)" }, signal: AbortSignal.timeout(this.o.searchTimeoutMs ?? 15_000) });
+    const res = await this.fetch(url, { headers: { accept: "application/json", "user-agent": "napkin-inc-brain/0.1 (storefront design)" }, signal: AbortSignal.timeout(this.o.searchTimeoutMs ?? 25_000) });
     if (!res.ok) throw new Error(`openverse ${res.status} for "${query}"`);
     const body = (await res.json()) as { results?: OpenverseResult[] };
     const results = Array.isArray(body.results) ? body.results : [];
@@ -179,11 +185,11 @@ export class OpenverseImages implements ImageResolver {
     return results;
   }
 
-  /** Index of the best of up to 6 candidates by vision, -1 for none; "unavailable" when vision is off or fails. */
+  /** Index of the best of up to 8 candidates by vision, -1 for none; "unavailable" when vision is off or fails. */
   async pick(slot: ImageSlot, cands: OpenverseResult[]): Promise<number | "unavailable"> {
     if (!this.o.vision || cands.length === 0) return "unavailable";
     // The thumbnails are downloaded here and sent inline: Anthropic's URL fetcher is refused by Openverse's robots.txt.
-    const thumbs = await Promise.all(cands.slice(0, 6).map((c) => this.download(c.thumbnail && c.thumbnail.startsWith("https://") ? c.thumbnail : c.url!)));
+    const thumbs = await Promise.all(cands.slice(0, 8).map((c) => this.download(c.thumbnail && c.thumbnail.startsWith("https://") ? c.thumbnail : c.url!)));
     const shown = thumbs.flatMap((t, i) => (t ? [{ i, t }] : []));
     if (shown.length === 0) return "unavailable";
     const content: UserContent[] = [
@@ -192,6 +198,7 @@ export class OpenverseImages implements ImageResolver {
         text:
           `Pick the photo for ${slot.topic}. Search query: "${slot.query}". Choose the most appetizing, professional-looking, on-topic photo. ` +
           "REJECT any photo with visible text of any kind: signage, shop or business names, brand logos, packaging labels, menus, watermarks or captions (a photo showing another business's name would look like impersonation), and any photo with a recognizable face. " +
+          "REJECT holiday or seasonal scenes (Christmas, Halloween, Easter decorations or shapes): the store is open all year. " +
           "For a product, the photo must clearly show exactly that product as named: a different variety, flavor or item (blondies or snickerdoodles for chocolate chip cookies, a jacket for a hoodie) is wrong. " +
           "If no photo passes, answer -1.",
       },
@@ -231,11 +238,20 @@ export class OpenverseImages implements ImageResolver {
 
   /** Ordered usable photos for one slot (best first); [] when nothing fits. */
   private async slotCandidates(slot: ImageSlot): Promise<DesignImage[]> {
-    // Openverse matches every word, so a precise query often finds nothing: relax it until there is a choice
+    // Openverse matches every word, so a precise query often finds nothing: relax it until there is a choice,
+    // ending with the plain product name. Stock-photo providers first, then everything (Flickr, Wikimedia...).
+    const queries = [...new Set([...relaxedQueries(slot.query), ...(slot.fallback ? [slot.fallback] : [])])];
     const cands: OpenverseResult[] = [];
-    for (const q of relaxedQueries(slot.query)) {
-      for (const r of filterCandidates(await this.search(q, slot.aspect))) if (!cands.some((c) => c.id === r.id)) cands.push(r);
-      if (cands.length >= 4) break;
+    const add = (rs: OpenverseResult[]) => {
+      for (const r of filterCandidates(rs)) if (!cands.some((c) => c.id === r.id)) cands.push(r);
+    };
+    // both searches at once: uncached Openverse queries can take 15-30 s each
+    const quiet = (p: Promise<OpenverseResult[]>) => p.catch((e: Error) => (log.warn("design", `image search for ${slot.key}: ${e.message}`), []));
+    for (const q of queries) {
+      const [stock, general] = await Promise.all([quiet(this.search(q, slot.aspect, STOCK_SOURCES)), quiet(this.search(q, slot.aspect))]);
+      add(stock);
+      add(general);
+      if (cands.length >= 6) break;
     }
     if (cands.length === 0) return [];
     const best = await this.pick(slot, cands);
@@ -280,7 +296,7 @@ export class OpenverseImages implements ImageResolver {
     };
     const all = Promise.all(Array.from({ length: Math.min(this.o.concurrency ?? 4, slots.length) }, worker));
     try {
-      await withTimeout(all, this.o.timeoutMs ?? 40_000, "image search");
+      await withTimeout(all, this.o.timeoutMs ?? 60_000, "image search");
     } catch (e) {
       log.warn("design", `${(e as Error).message}; using the photos found so far`);
       queue.length = 0;
