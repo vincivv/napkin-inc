@@ -17,6 +17,7 @@ import { applyDiff, buildDiff, revertDiff, StaleDiff } from "../src/questions/st
 import { coerceValue, CoerceError, shiftDecimal } from "../src/spec/coerce";
 import { getFact, isMissing, listFacts, setFact } from "../src/spec/paths";
 import { SpecStore } from "../src/spec/store";
+import { unitsPerSale } from "../src/spec/stock";
 import { Hono } from "hono";
 
 const rf = (value: string, o: Partial<{ confidence: number; provenance: "paper" | "inferred"; quote: string; region: { x: number; y: number; w: number; h: number } }> = {}) => ({
@@ -96,6 +97,28 @@ describe("labels", () => {
     expect(labelFor(s, `${p}.price`)).toBe("the price of Chicken burrito");
     expect(labelFor(s, `${p}.stockUnits`)).toBe("how many units of stock one Chicken burrito sale uses");
     expect(labelFor(photoSpec(), "offerings.chocolate-chip-cookie.variants.box-of-6.price")).toBe("the price of Chocolate chip cookie, Box of 6");
+  });
+});
+
+describe("one-size items and stock", () => {
+  it("one sale of a one-size item uses one of itself: never asked, and a mistaken stored answer is dropped", () => {
+    const owner = (value: unknown) => ({ value, provenance: "owner_said" as const, confidence: 1, source: { kind: "chat" as const, ref: "t", quote: String(value) }, confirmed: true });
+    const one: Extracted = { offerings: [{ name: rf("Beef burrito"), variants: [{ name: rf("Beef burrito"), price: rf("15") }], addOns: [] }] };
+    const base = assembleSpec(one, { mode: "photo", ref: "x.png" }).spec;
+    const o = base.offerings[0]!;
+    // the owner read "units per sale" as "how many I have" and answered 20
+    const spec = { ...base, offerings: [{ ...o, stockTracked: owner(true), initialStock: owner(20), variants: [{ ...o.variants[0]!, stockUnits: owner("20") }] }] } as typeof base;
+    const s = refreshQuestions(spec);
+    const v = s.offerings[0]!.variants[0]!;
+    expect(v.stockUnits).toBeUndefined();
+    expect(unitsPerSale(s.offerings[0]!, v)).toBe("1");
+    expect(s.openQuestions.some((q) => q.fieldPath.endsWith(".stockUnits"))).toBe(false);
+    expect(moneyBlockers(s).some((b) => b.path.endsWith(".stockUnits"))).toBe(false);
+    // a size named differently still asks, in words that can't be read as a stock count
+    const box: Extracted = { offerings: [{ name: rf("Cookie"), variants: [{ name: rf("Box of 6"), price: rf("15") }], addOns: [] }] };
+    const b = refreshQuestions(assembleSpec(box, { mode: "photo", ref: "x.png" }).spec);
+    const q = b.openQuestions.find((x) => x.fieldPath.endsWith(".stockUnits"))!;
+    expect(q.question).toMatch(/When you sell one Box of 6, how many Cookie does it use up\? .*not how many you have/);
   });
 });
 

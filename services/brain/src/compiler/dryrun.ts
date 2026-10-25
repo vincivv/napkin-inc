@@ -133,6 +133,14 @@ export function dryRun(cfg: Configuration): DryRunReport {
   const stock = cfg.catalogs.find((c) => c.lineKey === "stockItem");
   for (const s of stock?.entries ?? []) {
     const unitCost = String(s.data["unitCost"] ?? "");
+    // configurations compiled before hand stock changes existed have no such document types
+    const added = cfg.documents.find((d) => d.id === "stock_added");
+    for (const paidFrom of added ? ["1000", "2000", "3000"] : []) {
+      cases.push(attempt(`stock_added/${s.id}/from-${paidFrom}`, () => post(docDef(cfg, "stock_added"), { fields: { supplier: "dryrun", paidFrom }, lines: [{ stockItem: s.id, qty: "1", unitCost }] }, ctx)).c);
+    }
+    if (cfg.documents.some((d) => d.id === "stock_removed")) {
+      cases.push(attempt(`stock_removed/${s.id}`, () => post(docDef(cfg, "stock_removed"), { fields: { reason: "dryrun" }, lines: [{ stockItem: s.id, qty: "1", unitCost }] }, ctx)).c);
+    }
     cases.push(attempt(`stock_receipt/${s.id}`, () => post(docDef(cfg, "stock_receipt"), { fields: { supplier: "dryrun" }, lines: [{ stockItem: s.id, qty: "1", unitCost }] }, ctx)).c);
   }
   const opening = Object.entries(cfg.initialStock ?? {}).filter(([, q]) => q > 0);

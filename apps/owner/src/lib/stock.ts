@@ -2,8 +2,9 @@
 // and the active configuration's catalogs. Nothing here estimates or invents a quantity.
 
 import type { Configuration } from "@napkin/schema";
-import type { DocumentRow, RegisterBalanceRow, RegisterMovementRow } from "@/data/types";
+import type { DocLine, DocumentRow, FieldValue, RegisterBalanceRow, RegisterMovementRow } from "@/data/types";
 import { parseDims, productsUsingStock } from "./config";
+import { normalizeAmount } from "./expenses";
 import { dayIn, stockLevel, type StockLevel } from "./reports";
 
 export const STOCK_REGISTER = "stock";
@@ -21,9 +22,10 @@ export interface StockItemView {
   largest: { name: string; units: bigint } | undefined;
   /** how many of each product the current quantity can still fill */
   fills: { productId: string; name: string; units: bigint; count: bigint }[];
+  /** units sold (sales only: stock removed by hand is not "used") */
   usedToday: bigint;
   used7d: bigint;
-  /** last 7 calendar days (oldest first) of units used, in the business's time zone */
+  /** last 7 calendar days (oldest first) of units sold, in the business's time zone */
   daily: { day: string; used: bigint }[];
   lastIn: RegisterMovementRow | undefined;
   movements: RegisterMovementRow[];
@@ -48,6 +50,7 @@ export function stockItems(
   movements: readonly RegisterMovementRow[],
   packs: Map<string, { productId: string; name: string; units: bigint }[]>,
   timeZone: string,
+  docTypeOf: (documentId: bigint) => string | undefined,
   nowMs = Date.now(),
 ): StockItemView[] {
   const catalog = config?.catalogs.find((c) => c.lineKey === "stockItem")?.entries ?? [];
@@ -74,7 +77,7 @@ export function stockItems(
       const largest = usedBy.reduce<(typeof usedBy)[number] | undefined>((m, p) => (!m || p.units > m.units ? p : m), undefined);
       const byDay = new Map<string, bigint>();
       for (const m of ms) {
-        if (m.kind !== "out") continue;
+        if (m.kind !== "out" || docTypeOf(m.documentId) !== "sale") continue;
         const d = dayIn(m.postedAt.microsSinceUnixEpoch, timeZone);
         byDay.set(d, (byDay.get(d) ?? 0n) + (m.qty < 0n ? -m.qty : m.qty));
       }
@@ -127,4 +130,55 @@ export function stockAlerts(balances: readonly RegisterBalanceRow[], config: Con
     if (lvl === "out" || lvl === "critical") n++;
   }
   return n;
+}
+
+// ---------- changing stock by hand (the "stock_added" / "stock_removed" document types) ----------
+
+export const STOCK_ADDED = "stock_added";
+export const STOCK_REMOVED = "stock_removed";
+export type StockChange = "add" | "remove";
+
+/** How added stock was paid for: doc.paidFrom is an account code (the template's checks refuse anything else). */
+export const PAID_FROM = [
+  { code: "1000", label: "Paid now", hint: "from the business’s money" },
+  { code: "2000", label: "I owe the supplier", hint: "pay them later" },
+  { code: "3000", label: "Out of my own pocket", hint: "or made it myself" },
+] as const;
+
+export const REMOVE_REASONS = ["Spoiled or expired", "Broken or damaged", "Given away", "Recount: I have fewer than this shows", "Used for myself"] as const;
+
+/** True when the active configuration has the hand stock-change documents (older ones need a recompile). */
+export function canChangeStock(config: Configuration | undefined): boolean {
+  const ids = new Set(config?.documents.map((d) => d.id) ?? []);
+  return ids.has(STOCK_ADDED) && ids.has(STOCK_REMOVED);
+}
+
+export interface StockDraft {
+  item: string;
+  qty: string;
+  unitCost: string;
+  paidFrom: string;
+  supplier: string;
+  reason: string;
+}
+
+/** Validate a draft and build the createDocument payload, or say what is wrong in plain words. */
+export function buildStockChange(kind: StockChange, d: StockDraft, onHand: bigint | undefined): { docType: string; fields: FieldValue[]; lines: DocLine[]; valueCents: bigint } | { error: string } {
+  if (!d.item) return { error: "Pick an item." };
+  const qty = d.qty.trim();
+  if (!/^\d+$/.test(qty) || BigInt(qty) < 1n) return { error: "Enter how many, as a whole number (at least 1)." };
+  const n = BigInt(qty);
+  if (n > 100000n) return { error: "That’s more than 100,000 at once. Check the number." };
+  const unitCost = normalizeAmount(d.unitCost);
+  if (!unitCost) return { error: "Enter the cost of one, in dollars and cents, like 2.50." };
+  const valueCents = n * (dollarsToCents(unitCost) ?? 0n);
+  const lines: DocLine[] = [{ values: [{ name: "stockItem", value: d.item }, { name: "qty", value: qty }, { name: "unitCost", value: unitCost }] }];
+  if (kind === "add") {
+    if (!PAID_FROM.some((p) => p.code === d.paidFrom)) return { error: "Say how you paid for it." };
+    return { docType: STOCK_ADDED, fields: [{ name: "supplier", value: d.supplier.trim().slice(0, 200) }, { name: "paidFrom", value: d.paidFrom }], lines, valueCents };
+  }
+  if (onHand !== undefined && n > onHand) return { error: `You only have ${onHand} on the books, so you can’t take out ${n}.` };
+  const reason = d.reason.trim();
+  if (!reason) return { error: "Say why it’s being taken out." };
+  return { docType: STOCK_REMOVED, fields: [{ name: "reason", value: reason.slice(0, 200) }], lines, valueCents };
 }

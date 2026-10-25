@@ -95,6 +95,74 @@ const EXPENSE: DocumentType = {
   ],
 };
 
+/**
+ * The owner changes stock by hand: "Stock added" (a delivery, a fresh batch) and "Stock removed" (spoiled,
+ * broken, given away, a recount). Owner-only, post on create, like an expense: the platform still refuses
+ * removing more than is on hand (the stock register never goes negative). An addition is paid now (1000),
+ * owed to the supplier (2000) or put in by the owner personally (3000); a removal is written off to 5200.
+ */
+export const STOCK_ADDED_PAID_FROM = [
+  { code: "1000", ruleId: "added.cash", memo: "paid now" },
+  { code: "2000", ruleId: "added.payable", memo: "owed to supplier" },
+  { code: "3000", ruleId: "added.owner", memo: "put in by the owner" },
+] as const;
+export const STOCK_WRITE_OFF = { code: "5200", name: "Stock written off" } as const;
+
+const STOCK_LINE_FIELDS: DocumentType["lineFields"] = [
+  { name: "stockItem", type: "string", required: true },
+  { name: "qty", type: "qty", required: true },
+  { name: "unitCost", type: "money", required: true },
+];
+const STOCK_LINE_CHECKS: DocumentType["checks"] = [
+  { id: "qty_positive", scope: "line", assert: "line.qty >= 1", message: "quantity must be at least 1" },
+  { id: "cost_nonneg", scope: "line", assert: "line.unitCost >= 0", message: "unit cost cannot be negative" },
+];
+const ownerOnly = (note: string): DocumentType["approval"] => ({ creatorRoles: ["owner"], approverRoles: ["owner"], cannotApproveOwn: false, postOn: "create", note });
+
+const STOCK_ADDED: DocumentType = {
+  id: "stock_added",
+  name: "Stock added",
+  approval: ownerOnly("the owner adds stock by hand (a delivery, a fresh batch); doc.paidFrom is 1000 paid now, 2000 owed to the supplier or 3000 put in by the owner"),
+  fields: [
+    { name: "supplier", type: "string" },
+    { name: "paidFrom", type: "number", required: true },
+  ],
+  lineFields: STOCK_LINE_FIELDS,
+  derived: [{ name: "value", scope: "line", expr: "line.qty * line.unitCost" }],
+  checks: [
+    ...STOCK_LINE_CHECKS,
+    { id: "paid_from", scope: "doc", assert: anyOf("doc.paidFrom", STOCK_ADDED_PAID_FROM), message: "added stock is paid now (1000), owed to the supplier (2000) or put in by the owner (3000)" },
+  ],
+  postingRules: [
+    { id: "added.inventory", scope: "line", target: { kind: "account", code: "1300" }, side: "debit", amountExpr: "line.value", memo: "stock added" },
+    ...STOCK_ADDED_PAID_FROM.map((p) => ({
+      id: p.ruleId,
+      scope: "line" as const,
+      target: { kind: "account" as const, code: p.code },
+      side: "credit" as const,
+      amountExpr: "line.value",
+      when: `doc.paidFrom == ${p.code}`,
+      memo: p.memo,
+    })),
+    { id: "added.stock_in", scope: "line", target: { kind: "register", id: "stock", dims: { item: "line.stockItem" } }, side: "in", amountExpr: "line.value", qtyExpr: "line.qty" },
+  ],
+};
+
+const STOCK_REMOVED: DocumentType = {
+  id: "stock_removed",
+  name: "Stock removed",
+  approval: ownerOnly("the owner takes stock out by hand (spoiled, broken, given away, a recount); written off at its unit cost"),
+  fields: [{ name: "reason", type: "string", required: true }],
+  lineFields: STOCK_LINE_FIELDS,
+  derived: [{ name: "value", scope: "line", expr: "line.qty * line.unitCost" }],
+  checks: STOCK_LINE_CHECKS,
+  postingRules: [
+    { id: "removed.write_off", scope: "line", target: { kind: "account", code: STOCK_WRITE_OFF.code }, side: "debit", amountExpr: "line.value", memo: "stock written off" },
+    { id: "removed.inventory", scope: "line", target: { kind: "account", code: "1300" }, side: "credit", amountExpr: "line.value", memo: "stock removed" },
+    { id: "removed.stock_out", scope: "line", target: { kind: "register", id: "stock", dims: { item: "line.stockItem" } }, side: "out", amountExpr: "line.value", qtyExpr: "line.qty" },
+  ],
+};
+
 export const DOCUMENTS: readonly DocumentType[] = [
   {
     id: "sale",
@@ -392,6 +460,8 @@ export const DOCUMENTS: readonly DocumentType[] = [
     ],
   },
   EXPENSE,
+  STOCK_ADDED,
+  STOCK_REMOVED,
 ];
 
 export const CHART_OF_ACCOUNTS: readonly Account[] = [
@@ -407,6 +477,7 @@ export const CHART_OF_ACCOUNTS: readonly Account[] = [
   { code: "4200", name: "Refunds", type: "contra_revenue" },
   { code: "5000", name: "Cost of goods sold", type: "expense" },
   { code: "5100", name: "Processor fees", type: "expense" },
+  { code: STOCK_WRITE_OFF.code, name: STOCK_WRITE_OFF.name, type: "expense" },
   ...EXPENSE_CATEGORIES.map((c) => ({ code: c.code, name: c.name, type: "expense" as const })),
 ];
 

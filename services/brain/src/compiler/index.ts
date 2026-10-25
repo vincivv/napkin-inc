@@ -14,6 +14,7 @@ import { proofFailed, type ProverPort, type SpecExample } from "./prover-port";
 import { acceptProposal, type CopyProposer } from "./storefront";
 import * as T from "./templates/item_seller";
 import { coerceTimeZone } from "../spec/coerce";
+import { unitsPerSale } from "../spec/stock";
 
 function zoneOrEmpty(v: unknown): string {
   if (typeof v !== "string" || !v.trim()) return "";
@@ -106,7 +107,7 @@ export function fillTemplate(spec: BusinessSpec, opts: Pick<CompileOptions, "bus
       // One stock item per tracked offering; its unit cost must agree across every variant.
       const unitCosts = new Map<string, { r: Rational; ids: string[] }>();
       for (const v of o.variants) {
-        const r = Rational.parse(v.cost.value).div(Rational.parse(v.stockUnits!.value));
+        const r = Rational.parse(v.cost.value).div(Rational.parse(unitsPerSale(o, v)!));
         const k = r.toJSON();
         unitCosts.set(k, { r, ids: [...(unitCosts.get(k)?.ids ?? []), v.id] });
       }
@@ -131,7 +132,7 @@ export function fillTemplate(spec: BusinessSpec, opts: Pick<CompileOptions, "bus
           price: money(v.price.value),
           cost: money(v.cost.value),
           stockItem: tracked ? o.id : "",
-          stockUnits: tracked ? Rational.parse(v.stockUnits!.value).toDecimal() : "0",
+          stockUnits: tracked ? Rational.parse(unitsPerSale(o, v)!).toDecimal() : "0",
           ...(o.description ? { description: o.description.value } : {}),
         },
       });

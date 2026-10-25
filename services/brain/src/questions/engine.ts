@@ -8,6 +8,7 @@ import { moneyFacts } from "../compiler/facts";
 import { CoerceError, coerceValue, showValue, valueKey } from "../spec/coerce";
 import { getFact, isMissing, listFacts, missingFact, normalizePath, removeFact, setFact, slugify, type AnyFact } from "../spec/paths";
 import { impactScore, isMoneyRelevant, moneyImpact } from "./impact";
+import { isOneSize, unitsPerSale } from "../spec/stock";
 
 const LABELS: Record<string, string> = {
   "policies.taxRate": "your sales tax rate",
@@ -77,8 +78,7 @@ function askMissing(spec: BusinessSpec, path: string, label: string): string {
     const vName = v && String(v.name.value) ? String(v.name.value) : "this size";
     if (m[3] === "stockTracked") return `Do you want to track stock for ${offName}?`;
     if (m[3] === "initialStock") return `How many ${offName} do you have in stock right now?`;
-    if (sameName(vName, offName)) return `How many units of stock does one ${offName} use? (A box of 6 uses 6.)`;
-    return `How many ${offName} does one ${vName} use from stock? (A box of 6 uses 6.)`;
+    return `When you sell one ${vName}, how many ${offName} does it use up? (A box of 6 uses 6, a single uses 1. This is not how many you have.)`;
   }
   return `What is ${label}?`;
 }
@@ -99,7 +99,10 @@ export function isApplicable(spec: BusinessSpec, path: string): boolean {
   const m = /^offerings\.([^.]+)\.(initialStock|variants\.[^.]+\.stockUnits)$/.exec(path);
   if (!m) return true;
   const off = spec.offerings.find((o) => o.id === m[1]);
-  return !(off && off.stockTracked.confirmed && off.stockTracked.value === false);
+  if (!off) return true;
+  const v = /^variants\.([^.]+)\.stockUnits$/.exec(m[2]!);
+  if (v && off.variants.some((x) => x.id === v[1] && isOneSize(off, x))) return false;
+  return !(off.stockTracked.confirmed && off.stockTracked.value === false);
 }
 
 export interface Blocker {
@@ -181,22 +184,23 @@ function stockCostProblems(spec: BusinessSpec): Map<string, string> {
   const usable = (f: AnyFact | undefined): f is AnyFact => Boolean(f && usableForMoney(f));
   for (const o of spec.offerings) {
     if (!usable(o.stockTracked as AnyFact) || o.stockTracked.value !== true) continue;
-    if (!o.variants.every((v) => usable(v.cost as AnyFact) && usable(v.stockUnits as AnyFact | undefined))) continue;
-    const vs = [...o.variants].sort((a, b) => Number(a.stockUnits!.value) - Number(b.stockUnits!.value));
+    if (!o.variants.every((v) => usable(v.cost as AnyFact) && (isOneSize(o, v) || usable(v.stockUnits as AnyFact | undefined)))) continue;
+    const units = (v: (typeof o.variants)[number]) => unitsPerSale(o, v)!;
+    const vs = [...o.variants].sort((a, b) => Number(units(a)) - Number(units(b)));
     const ref = vs[0];
     if (!ref) continue;
-    const unit = Rational.parse(ref.cost.value).div(Rational.parse(ref.stockUnits!.value));
+    const unit = Rational.parse(ref.cost.value).div(Rational.parse(units(ref)));
     const name = o.name.value;
     if (!unit.mul(Rational.of(100n)).isInteger()) {
-      out.set(`offerings.${o.id}.variants.${ref.id}.cost`, `does not split into a whole number of cents across its ${ref.stockUnits!.value} units of stock`);
+      out.set(`offerings.${o.id}.variants.${ref.id}.cost`, `does not split into a whole number of cents across its ${units(ref)} units of stock`);
       continue;
     }
     for (const v of vs.slice(1)) {
-      const expected = unit.mul(Rational.parse(v.stockUnits!.value));
+      const expected = unit.mul(Rational.parse(units(v)));
       if (Rational.parse(v.cost.value).eq(expected)) continue;
       out.set(
         `offerings.${o.id}.variants.${v.id}.cost`,
-        `should be $${dollars(expected)}: it uses ${v.stockUnits!.value} units of ${name} stock and one unit costs $${dollars(unit)} (from ${ref.name.value}), and every option of ${name} draws on the same stock`,
+        `should be $${dollars(expected)}: it uses ${units(v)} units of ${name} stock and one unit costs $${dollars(unit)} (from ${ref.name.value}), and every option of ${name} draws on the same stock`,
       );
     }
   }
@@ -235,7 +239,11 @@ export function withRequiredPlaceholders(spec: BusinessSpec): BusinessSpec {
       const { initialStock, ...rest } = o;
       return { ...rest, variants, ...(initialStock && !isMissing(initialStock) ? { initialStock } : {}) };
     }
-    const variants = o.variants.map((v) => (v.stockUnits ? v : ((changed = true), { ...v, stockUnits: missingFact("1") })));
+    const variants = o.variants.map((v) => {
+      // a one-size item uses one of itself per sale: never asked, and a stored answer is dropped (see spec/stock)
+      if (isOneSize(o, v)) return v.stockUnits ? ((changed = true), (({ stockUnits: _, ...rest }) => rest)(v)) : v;
+      return v.stockUnits ? v : ((changed = true), { ...v, stockUnits: missingFact("1") });
+    });
     const initialStock = o.initialStock ?? ((changed = true), missingFact(0));
     return { ...o, variants, initialStock };
   });

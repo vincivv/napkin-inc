@@ -5,6 +5,7 @@
 import { Rational } from "@napkin/ledger-core";
 import { usableForMoney, type BusinessSpec, type Fact } from "@napkin/schema";
 import { UnconfirmedMoneyFacts, type FactIssue } from "./errors";
+import { isOneSize } from "../spec/stock";
 
 type AnyFact = Fact<unknown>;
 
@@ -50,7 +51,7 @@ export function moneyFacts(spec: BusinessSpec): MoneyFact[] {
     for (const v of o.variants) {
       out.push({ path: `${base}.variants[${v.id}].price`, fact: v.price as AnyFact, validate: positiveCents });
       out.push({ path: `${base}.variants[${v.id}].cost`, fact: v.cost as AnyFact, validate: wholeCents });
-      if (tracked) out.push({ path: `${base}.variants[${v.id}].stockUnits`, fact: v.stockUnits as AnyFact | undefined, validate: positiveInt });
+      if (tracked && !isOneSize(o, v)) out.push({ path: `${base}.variants[${v.id}].stockUnits`, fact: v.stockUnits as AnyFact | undefined, validate: positiveInt });
     }
     for (const a of o.addOns) {
       out.push({ path: `${base}.addOns[${a.id}].price`, fact: a.price as AnyFact, validate: positiveCents });

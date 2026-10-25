@@ -10,7 +10,8 @@ import { useData } from "@/data/context";
 import { Badge, Card, Empty, ErrorNote, Loading, Money, OwnerButton, PageHeader, RelTime, Stat, cx, errText, fmtTime, tableCls, tdCls, thCls, type Tone } from "@/components/ui";
 import { productsUsingStock } from "@/lib/config";
 import { docLabel, useDocMap, useTz } from "@/lib/hooks";
-import { daysLeft, lineValue, pendingDeliveries, stockItems, type StockItemView } from "@/lib/stock";
+import { buildStockChange, canChangeStock, daysLeft, lineValue, PAID_FROM, pendingDeliveries, REMOVE_REASONS, stockItems, type StockChange, type StockDraft, type StockItemView } from "@/lib/stock";
+import { formatCents } from "@/lib/money";
 import type { StockLevel } from "@/lib/reports";
 import type { DocumentRow } from "@/data/types";
 
@@ -27,12 +28,21 @@ export default function StockPage() {
   const { snapshot, session, config } = useData();
   const tz = useTz();
   const packs = useMemo(() => productsUsingStock(config?.config), [config]);
+  const docs = useDocMap();
   const items = useMemo(
-    () => stockItems(config?.config, snapshot.registerBalances, snapshot.registerMovements, packs, tz),
-    [config, snapshot.registerBalances, snapshot.registerMovements, packs, tz],
+    () => stockItems(config?.config, snapshot.registerBalances, snapshot.registerMovements, packs, tz, (id) => docs.get(id)?.docType),
+    [config, snapshot.registerBalances, snapshot.registerMovements, packs, tz, docs],
   );
   const pending = useMemo(() => pendingDeliveries(snapshot.documents), [snapshot.documents]);
   const [open, setOpen] = useState<string>();
+  const [change, setChange] = useState<{ kind: StockChange; item: string }>();
+  const [saved, setSaved] = useState<string>();
+  const editable = canChangeStock(config?.config);
+  const start = (kind: StockChange, item = "") => {
+    setSaved(undefined);
+    setChange({ kind, item });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   if (session.mode === "live" && !session.ready) return <Loading />;
 
   const totalValue = items.reduce((s, v) => s + v.valueCents, 0n);
@@ -42,7 +52,44 @@ export default function StockPage() {
 
   return (
     <>
-      <PageHeader title="Stock" subtitle="What you have on hand right now. Every sale takes stock out the moment it’s booked." />
+      <PageHeader
+        title="Stock"
+        subtitle="What you have on hand right now. Every sale takes stock out the moment it’s booked."
+        actions={
+          editable && items.length > 0 ? (
+            <>
+              <OwnerButton size="md" variant="primary" onClick={() => start("add")}>
+                + Add stock
+              </OwnerButton>
+              <OwnerButton size="md" onClick={() => start("remove")}>
+                Remove stock
+              </OwnerButton>
+            </>
+          ) : undefined
+        }
+      />
+      {saved && <div className="mb-4 rounded-md border border-pos/30 bg-pos-soft px-3 py-2 text-[12.5px] text-pos">{saved}</div>}
+      {change && (
+        <StockChangeForm
+          key={`${change.kind}:${change.item}`}
+          kind={change.kind}
+          initialItem={change.item}
+          items={items}
+          onCancel={() => setChange(undefined)}
+          onDone={(msg) => {
+            setChange(undefined);
+            setSaved(msg);
+          }}
+        />
+      )}
+      {!editable && items.length > 0 && (
+        <div className="mb-4 rounded-md border border-line bg-surface px-3 py-2 text-[12.5px] text-muted">
+          Your shop was set up before you could add or remove stock here.{" "}
+          <Link href="/build" className="font-medium text-accent hover:underline">
+            Recompile on the Build page to turn it on.
+          </Link>
+        </div>
+      )}
       {items.length === 0 ? (
         <Card>
           <Empty title="Nothing tracked yet" hint="Stock shows up here once your shop is live and its starting stock is on the books." />
@@ -58,7 +105,7 @@ export default function StockPage() {
               tone={attention.some((v) => v.level === "out" || v.level === "critical") ? "neg" : undefined}
               sub={attention.length ? attention.map((v) => v.name).join(", ") : "Everything is stocked"}
             />
-            <Stat label="Used today" value={usedToday.toString()} sub="units, across all items" />
+            <Stat label="Sold today" value={usedToday.toString()} sub="units, across all items" />
           </div>
 
           {placeholder && (
@@ -77,8 +124,8 @@ export default function StockPage() {
                     <th className={thCls}>Item</th>
                     <th className={cx(thCls, "text-right")}>On hand</th>
                     <th className={thCls}>Can fill</th>
-                    <th className={cx(thCls, "text-right")}>Used today</th>
-                    <th className={thCls}>Last 7 days</th>
+                    <th className={cx(thCls, "text-right")}>Sold today</th>
+                    <th className={thCls}>Sold, 7 days</th>
                     <th className={cx(thCls, "text-right")}>Value at cost</th>
                     <th className={thCls}>Status</th>
                   </tr>
@@ -99,13 +146,13 @@ export default function StockPage() {
                               <span className="mr-1.5 inline-block w-3 text-faint">{isOpen ? "▾" : "▸"}</span>
                               {v.name}
                             </div>
-                            <div className="pl-[18px] text-[11.5px] text-faint">
+                            <div className="whitespace-nowrap pl-[18px] text-[11.5px] text-faint">
                               {v.lastIn ? <>Last added <RelTime ts={v.lastIn.postedAt} /></> : "No stock added yet"}
                             </div>
                           </td>
                           <td className={cx(tdCls, "text-right")}>
                             <span className={cx("num text-[16px] font-semibold", v.level === "out" || v.level === "critical" ? "text-neg" : v.level === "low" ? "text-warn" : "")}>{v.qty.toString()}</span>
-                            {left !== undefined && <div className="text-[11.5px] text-faint">≈ {left === 0 ? "under a day" : `${left} day${left === 1 ? "" : "s"}`} left</div>}
+                            {left !== undefined && <div className="whitespace-nowrap text-[11.5px] text-faint">≈ {left === 0 ? "under a day" : `${left} day${left === 1 ? "" : "s"}`} left</div>}
                           </td>
                           <td className={cx(tdCls, "text-[12.5px]")}>
                             {v.fills.length === 0 ? (
@@ -138,6 +185,16 @@ export default function StockPage() {
                             >
                               {levelLabel(v)}
                             </Badge>
+                            {editable && (
+                              <div className="-ml-1.5 mt-1 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <button className="rounded px-1.5 py-0.5 text-[12px] font-medium text-accent-ink hover:bg-accent-soft" onClick={() => start("add", v.item)}>
+                                + Add
+                              </button>
+                              <button className="rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40" disabled={v.qty <= 0n} onClick={() => start("remove", v.item)}>
+                                Remove
+                              </button>
+                              </div>
+                            )}
                           </td>
                         </tr>
                         {isOpen && (
@@ -155,7 +212,7 @@ export default function StockPage() {
             </div>
           </Card>
           <p className="text-[12px] text-faint">
-            Counts come from your books: opening stock and approved deliveries add, sales take away, refunds don’t put items back. Click a row to see every change.
+            Counts come from your books: starting stock and stock you add go in, sales and stock you remove come out, refunds don’t put items back. Click a row to see every change.
           </p>
         </div>
       )}
@@ -271,6 +328,130 @@ function PendingDeliveries({ docs }: { docs: readonly DocumentRow[] }) {
           );
         })}
       </div>
+    </Card>
+  );
+}
+
+const inputCls = "h-8 w-full min-w-0 rounded-md border border-line-strong bg-surface px-2.5 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-50";
+const labelCls = "mb-1 block text-[11.5px] font-medium text-faint";
+const centsToDollars = (c: bigint | undefined) => (c === undefined ? "" : `${c / 100n}.${String(c % 100n).padStart(2, "0")}`);
+
+/** Add stock (a delivery, a fresh batch) or take it out (spoiled, a recount). Posts as the owner; the books refuse going below zero. */
+function StockChangeForm({ kind, initialItem, items, onCancel, onDone }: { kind: StockChange; initialItem: string; items: readonly StockItemView[]; onCancel: () => void; onDone: (msg: string) => void }) {
+  const { actions } = useData();
+  const pick = (id: string) => items.find((v) => v.item === id);
+  const [d, setD] = useState<StockDraft>(() => ({ item: initialItem, qty: "", unitCost: centsToDollars(pick(initialItem)?.unitCostCents), paidFrom: "", supplier: "", reason: "" }));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string>();
+  const cur = pick(d.item);
+  const set = <K extends keyof StockDraft>(k: K, v: StockDraft[K]) => setD((x) => ({ ...x, [k]: v }));
+  const built = buildStockChange(kind, d, cur?.qty);
+  const add = kind === "add";
+
+  async function save() {
+    if ("error" in built) return setErr(built.error);
+    setBusy(true);
+    setErr(undefined);
+    try {
+      await actions.createDocument({ docType: built.docType, fields: built.fields, lines: built.lines, note: "" });
+      const after = (cur?.qty ?? 0n) + (add ? 1n : -1n) * BigInt(d.qty.trim());
+      onDone(`${add ? "Added" : "Took out"} ${d.qty.trim()} ${cur?.name ?? d.item}. You now have ${after}.`);
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="mb-4" title={add ? "Add stock" : "Remove stock"}>
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label>
+            <span className={labelCls}>Item</span>
+            <select
+              className={inputCls}
+              value={d.item}
+              autoFocus={!d.item}
+              onChange={(e) => setD((x) => ({ ...x, item: e.target.value, unitCost: centsToDollars(pick(e.target.value)?.unitCostCents) }))}
+            >
+              <option value="">Pick an item…</option>
+              {items.map((v) => (
+                <option key={v.item} value={v.item} disabled={!add && v.qty <= 0n}>
+                  {v.name} ({v.qty.toString()} on hand)
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className={labelCls}>{add ? "How many came in" : "How many to take out"}</span>
+            <input className={inputCls} inputMode="numeric" autoFocus={!!d.item} value={d.qty} onChange={(e) => set("qty", e.target.value.replace(/[^\d]/g, "").slice(0, 6))} placeholder="e.g. 20" />
+          </label>
+          <label>
+            <span className={labelCls}>Cost of one</span>
+            <input className={inputCls} inputMode="decimal" value={d.unitCost} disabled={!add} onChange={(e) => set("unitCost", e.target.value)} placeholder="e.g. 2.50" />
+          </label>
+        </div>
+        {add ? (
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <fieldset>
+              <span className={labelCls}>How did you pay for it?</span>
+              <div className="flex flex-wrap gap-2">
+                {PAID_FROM.map((p) => (
+                  <label key={p.code} className={cx("cursor-pointer rounded-md border px-3 py-1.5 text-[12.5px]", d.paidFrom === p.code ? "border-accent bg-accent-soft text-accent-ink" : "border-line-strong hover:bg-surface-2")}>
+                    <input type="radio" className="sr-only" name="paidFrom" checked={d.paidFrom === p.code} onChange={() => set("paidFrom", p.code)} />
+                    <span className="font-medium">{p.label}</span> <span className="text-faint">· {p.hint}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label>
+              <span className={labelCls}>Supplier (optional)</span>
+              <input className={inputCls} value={d.supplier} onChange={(e) => set("supplier", e.target.value)} placeholder="e.g. Costco" />
+            </label>
+          </div>
+        ) : (
+          <fieldset>
+            <span className={labelCls}>Why?</span>
+            <div className="flex flex-wrap gap-2">
+              {REMOVE_REASONS.map((r) => (
+                <label key={r} className={cx("cursor-pointer rounded-md border px-3 py-1.5 text-[12.5px]", d.reason === r ? "border-accent bg-accent-soft text-accent-ink" : "border-line-strong hover:bg-surface-2")}>
+                  <input type="radio" className="sr-only" name="reason" checked={d.reason === r} onChange={() => set("reason", r)} />
+                  {r}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
+        <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
+          <div className="min-w-0 flex-1 text-[12.5px] text-muted">
+            {"error" in built ? (
+              err ? <span className="text-neg">{err}</span> : cur ? <>You have {cur.qty.toString()} {cur.name} now.</> : "Pick what changed."
+            ) : add ? (
+              <>
+                {cur?.name}: {cur?.qty.toString()} → <b className="text-ink">{((cur?.qty ?? 0n) + BigInt(d.qty)).toString()}</b> · adds {formatCents(built.valueCents)} of stock to your books
+              </>
+            ) : (
+              <>
+                {cur?.name}: {cur?.qty.toString()} → <b className="text-ink">{((cur?.qty ?? 0n) - BigInt(d.qty)).toString()}</b> · writes off {formatCents(built.valueCents)} at cost
+              </>
+            )}
+            {err && !("error" in built) && <span className="block text-neg">{err}</span>}
+          </div>
+          <OwnerButton type="button" size="md" variant="ghost" onClick={onCancel} disabled={busy}>
+            Cancel
+          </OwnerButton>
+          <OwnerButton type="submit" size="md" variant="primary" disabled={busy}>
+            {busy ? "Saving…" : add ? "Add to stock" : "Take out of stock"}
+          </OwnerButton>
+        </div>
+      </form>
     </Card>
   );
 }

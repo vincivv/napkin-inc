@@ -191,6 +191,11 @@
       "type": "expense"
     },
     {
+      "code": "5200",
+      "name": "Stock written off",
+      "type": "expense"
+    },
+    {
       "code": "6000",
       "name": "Rent",
       "type": "expense"
@@ -1139,6 +1144,237 @@
           "amountExpr": "doc.total",
           "when": "doc.paidFrom == 2000",
           "memo": "owed to supplier"
+        }
+      ]
+    },
+    {
+      "id": "stock_added",
+      "name": "Stock added",
+      "approval": {
+        "creatorRoles": [
+          "owner"
+        ],
+        "approverRoles": [
+          "owner"
+        ],
+        "cannotApproveOwn": false,
+        "postOn": "create",
+        "note": "the owner adds stock by hand (a delivery, a fresh batch); doc.paidFrom is 1000 paid now, 2000 owed to the supplier or 3000 put in by the owner"
+      },
+      "fields": [
+        {
+          "name": "supplier",
+          "type": "string"
+        },
+        {
+          "name": "paidFrom",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "lineFields": [
+        {
+          "name": "stockItem",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "qty",
+          "type": "qty",
+          "required": true
+        },
+        {
+          "name": "unitCost",
+          "type": "money",
+          "required": true
+        }
+      ],
+      "derived": [
+        {
+          "name": "value",
+          "scope": "line",
+          "expr": "line.qty * line.unitCost"
+        }
+      ],
+      "checks": [
+        {
+          "id": "qty_positive",
+          "scope": "line",
+          "assert": "line.qty >= 1",
+          "message": "quantity must be at least 1"
+        },
+        {
+          "id": "cost_nonneg",
+          "scope": "line",
+          "assert": "line.unitCost >= 0",
+          "message": "unit cost cannot be negative"
+        },
+        {
+          "id": "paid_from",
+          "scope": "doc",
+          "assert": "doc.paidFrom == 1000 || doc.paidFrom == 2000 || doc.paidFrom == 3000",
+          "message": "added stock is paid now (1000), owed to the supplier (2000) or put in by the owner (3000)"
+        }
+      ],
+      "postingRules": [
+        {
+          "id": "added.inventory",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "1300"
+          },
+          "side": "debit",
+          "amountExpr": "line.value",
+          "memo": "stock added"
+        },
+        {
+          "id": "added.cash",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "1000"
+          },
+          "side": "credit",
+          "amountExpr": "line.value",
+          "when": "doc.paidFrom == 1000",
+          "memo": "paid now"
+        },
+        {
+          "id": "added.payable",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "2000"
+          },
+          "side": "credit",
+          "amountExpr": "line.value",
+          "when": "doc.paidFrom == 2000",
+          "memo": "owed to supplier"
+        },
+        {
+          "id": "added.owner",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "3000"
+          },
+          "side": "credit",
+          "amountExpr": "line.value",
+          "when": "doc.paidFrom == 3000",
+          "memo": "put in by the owner"
+        },
+        {
+          "id": "added.stock_in",
+          "scope": "line",
+          "target": {
+            "kind": "register",
+            "id": "stock",
+            "dims": {
+              "item": "line.stockItem"
+            }
+          },
+          "side": "in",
+          "amountExpr": "line.value",
+          "qtyExpr": "line.qty"
+        }
+      ]
+    },
+    {
+      "id": "stock_removed",
+      "name": "Stock removed",
+      "approval": {
+        "creatorRoles": [
+          "owner"
+        ],
+        "approverRoles": [
+          "owner"
+        ],
+        "cannotApproveOwn": false,
+        "postOn": "create",
+        "note": "the owner takes stock out by hand (spoiled, broken, given away, a recount); written off at its unit cost"
+      },
+      "fields": [
+        {
+          "name": "reason",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "lineFields": [
+        {
+          "name": "stockItem",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "qty",
+          "type": "qty",
+          "required": true
+        },
+        {
+          "name": "unitCost",
+          "type": "money",
+          "required": true
+        }
+      ],
+      "derived": [
+        {
+          "name": "value",
+          "scope": "line",
+          "expr": "line.qty * line.unitCost"
+        }
+      ],
+      "checks": [
+        {
+          "id": "qty_positive",
+          "scope": "line",
+          "assert": "line.qty >= 1",
+          "message": "quantity must be at least 1"
+        },
+        {
+          "id": "cost_nonneg",
+          "scope": "line",
+          "assert": "line.unitCost >= 0",
+          "message": "unit cost cannot be negative"
+        }
+      ],
+      "postingRules": [
+        {
+          "id": "removed.write_off",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "5200"
+          },
+          "side": "debit",
+          "amountExpr": "line.value",
+          "memo": "stock written off"
+        },
+        {
+          "id": "removed.inventory",
+          "scope": "line",
+          "target": {
+            "kind": "account",
+            "code": "1300"
+          },
+          "side": "credit",
+          "amountExpr": "line.value",
+          "memo": "stock removed"
+        },
+        {
+          "id": "removed.stock_out",
+          "scope": "line",
+          "target": {
+            "kind": "register",
+            "id": "stock",
+            "dims": {
+              "item": "line.stockItem"
+            }
+          },
+          "side": "out",
+          "amountExpr": "line.value",
+          "qtyExpr": "line.qty"
         }
       ]
     }
