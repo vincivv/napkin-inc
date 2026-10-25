@@ -17,30 +17,28 @@ export default function RegistersPage() {
   const [sel, setSel] = useState<string>();
   const cur = sel ?? regs[0];
   if (session.mode === "live" && !session.ready) return <Loading />;
-  const def = config?.config?.registers.find((r) => r.id === cur);
   const bal = snapshot.registerBalances.filter((b) => b.registerId === cur).sort((a, b) => a.dimsKey.localeCompare(b.dimsKey));
   const mov = newestFirst(snapshot.registerMovements.filter((m) => m.registerId === cur), (m) => m.postedAt.microsSinceUnixEpoch, (m) => m.id);
   return (
     <>
-      <PageHeader title="Registers" subtitle="Running balances kept in the same transaction as every posting." />
+      <PageHeader title="Registers" subtitle="Running totals, updated with every sale, delivery and refund." />
       {regs.length === 0 ? (
         <Card>
           <Empty title="No registers yet" hint="Registers come from the active configuration and fill as documents post." />
         </Card>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap gap-1">
+          <div className="mb-6 flex gap-6 border-b border-line">
             {regs.map((r) => (
-              <button key={r} onClick={() => setSel(r)} className={cx("rounded-md border px-3 py-1 text-[13px]", r === cur ? "border-line-strong bg-surface font-medium" : "border-transparent text-muted hover:text-ink")}>
+              <button key={r} onClick={() => setSel(r)} className={cx("-mb-px border-b-2 pb-3 text-[14px] transition-colors", r === cur ? "border-ink font-medium text-ink" : "border-transparent text-muted hover:text-ink")}>
                 {names.register(r)}
               </button>
             ))}
           </div>
-          <div className="space-y-4">
+          <div className="space-y-6">
             <Card
               title={`Balances · ${names.register(cur!)}`}
               pad={false}
-              actions={def && <Badge>{def.kind} · dims {def.dimensions.join(", ") || "none"}{def.allowNegative ? "" : " · never negative"}</Badge>}
             >
               {bal.length === 0 ? (
                 <Empty compact title="No balance rows yet" />
@@ -48,7 +46,7 @@ export default function RegistersPage() {
                 <table className={tableCls}>
                   <thead>
                     <tr>
-                      <th className={thCls}>Dimensions</th>
+                      <th className={thCls}>Item</th>
                       <th className={cx(thCls, "text-right")}>Quantity</th>
                       <th className={cx(thCls, "text-right")}>Amount</th>
                     </tr>
@@ -57,7 +55,7 @@ export default function RegistersPage() {
                     {bal.map((b) => (
                       <tr key={b.key}>
                         <td className={tdCls}>
-                          {names.dims(b.dimsKey)} <span className="ml-1 font-mono text-[11px] text-faint">{b.dimsKey}</span>
+                          {names.dims(b.dimsKey)}
                         </td>
                         <td className={cx(tdCls, "num text-right", b.qty < 0n && "text-neg")}>{b.qty.toString()}</td>
                         <td className={cx(tdCls, "text-right")}>
@@ -79,7 +77,7 @@ export default function RegistersPage() {
                       <tr>
                         <th className={thCls}>When</th>
                         <th className={thCls}>Document</th>
-                        <th className={thCls}>Dimensions</th>
+                        <th className={thCls}>Item</th>
                         <th className={thCls}>Dir</th>
                         <th className={cx(thCls, "text-right")}>Qty</th>
                         <th className={cx(thCls, "text-right")}>Amount</th>

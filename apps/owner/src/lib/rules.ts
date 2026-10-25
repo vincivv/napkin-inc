@@ -89,3 +89,45 @@ export function compiledSpecVersion(config: Configuration | undefined): number |
   const m = /BusinessSpec v(\d+)/.exec(config?.source ?? "");
   return m ? Number(m[1]) : undefined;
 }
+
+// ---- Items list helpers (the Items tab shows one compact row per item, expandable) ----
+
+const priceOf = (rows: FactRow[]) => rows.find((r) => leaf(r.path) === "price" && !r.missing && r.display);
+const num = (s: string) => {
+  const n = Number(s.replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/** "$4.50", or "$3.50 – $5.00" across sizes; undefined when no price is known yet. */
+export function priceLabel(g: ItemGroup): string | undefined {
+  const own = priceOf(g.rows);
+  const prices = g.sizes.map((s) => priceOf(s.rows)).filter((r): r is FactRow => !!r);
+  if (!prices.length) return own?.display ?? undefined;
+  const sorted = prices.map((r) => ({ d: r.display!, n: num(r.display!) })).sort((a, b) => (a.n ?? 0) - (b.n ?? 0));
+  const lo = sorted[0]!;
+  const hi = sorted[sorted.length - 1]!;
+  return lo.d === hi.d ? lo.d : `${lo.d} – ${hi.d}`;
+}
+
+/** "3 sizes · 1 add-on" (empty when the item has neither). */
+export function itemSummary(g: ItemGroup): string {
+  const parts: string[] = [];
+  if (g.sizes.length) parts.push(`${g.sizes.length} size${g.sizes.length === 1 ? "" : "s"}`);
+  if (g.addOns.length) parts.push(`${g.addOns.length} add-on${g.addOns.length === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+/** Stock is tracked when starting stock was given, or the "track stock" fact says yes. */
+export function tracksStock(g: ItemGroup): boolean {
+  if (g.hasStock) return true;
+  const t = [...g.rows, ...g.sizes.flatMap((s) => s.rows)].find((r) => leaf(r.path) === "stockTracked");
+  return !!t && /^(yes|true|on)$/i.test((t.display ?? "").trim());
+}
+
+/** Case-insensitive match on the item's, its sizes' or its add-ons' names. */
+export function matchesItem(g: ItemGroup, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const names = [g.name?.display ?? g.id, ...g.sizes.map((s) => s.name?.display ?? s.id), ...g.addOns.map((a) => a.name?.display ?? a.id)];
+  return names.some((n) => n.toLowerCase().includes(q));
+}

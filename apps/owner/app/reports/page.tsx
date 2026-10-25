@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { useData } from "@/data/context";
-import { Badge, Card, Empty, Loading, Money, PageHeader, cx, fmtTime, tableCls, tdCls, thCls } from "@/components/ui";
+import { Badge, Empty, Loading, Money, PageHeader, cx, fmtTime, tableCls, tdCls, thCls } from "@/components/ui";
+import { ReportAccordion, useOpenSections, type ReportSection } from "@/components/reports/ReportAccordion";
 import { ACCOUNTS, booksCheck, cashFlow, marginByItem, openByRef, pnl, stockRows, tb } from "@/lib/reports";
 import { formatCents, pct } from "@/lib/money";
 import { useDocMap, docLabel, useTz } from "@/lib/hooks";
@@ -25,11 +26,14 @@ function Row({ label, cents, bold, indent, note }: { label: ReactNode; cents: bi
   );
 }
 
+const SECTION_IDS = ["pnl", "tax", "export", "tb", "cash", "receivables", "payables", "stock", "margin"] as const;
+
 export default function ReportsPage() {
   const { snapshot, session, names, config } = useData();
   const docs = useDocMap();
   const tz = useTz();
   const [taxBy, setTaxBy] = useState<TaxPeriodKind>("quarter");
+  const { open, toggle, setAll } = useOpenSections(SECTION_IDS);
   const lines = snapshot.journalLines;
   const r = useMemo(() => {
     const t = tb(lines);
@@ -57,26 +61,126 @@ export default function ReportsPage() {
   const slug = (config?.config?.business.name ?? "books").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "books";
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
 
-  return (
-    <>
-      <PageHeader
-        title="Reports"
-        subtitle="Computed live from posted journal lines and register balances. All money is integer cents."
-        actions={
-          <nav className="flex flex-wrap gap-1 text-[12px]">
-            {[["tb", "Trial balance"], ["pnl", "P&L"], ["tax", "Sales tax"], ["export", "For your accountant"], ["stock", "Stock"], ["receivables", "Receivables"], ["payables", "Payables"], ["cash", "Cash flow"], ["margin", "Margin"]].map(([id, l]) => (
-              <a key={id} href={`#${id}`} className="rounded px-2 py-1 text-muted hover:bg-surface-2 hover:text-ink">
-                {l}
-              </a>
+  const taxShowPaid = r.tax.some((t) => t.taxPaidCents !== 0n);
+  const taxDue = r.tax.reduce((a, t) => a + t.netTaxDueCents, 0n);
+  const recvTotal = r.receivables.reduce((a, x) => a + x.balanceCents, 0n);
+  const payTotal = r.payables.reduce((a, x) => a + x.balanceCents, 0n);
+  const cashNow = r.cash.at(-1)?.runningCents ?? 0n;
+  const downloadTax = () => downloadCsv(`${slug}-sales-tax-by-${taxBy}-${today}.csv`, salesTaxRows(r.tax, taxRate));
+  const btn = "rounded-md border border-line bg-surface px-2 py-1 text-[12px] hover:bg-surface-2 disabled:opacity-50";
+
+  const sections: ReportSection[] = [
+    {
+      id: "pnl",
+      title: "Profit & loss",
+      description: "Revenue, discounts, refunds, cost of goods and fees down to net income.",
+      summary: <>Net income <Money cents={p.netIncomeCents} className="font-medium" /></>,
+      children: (
+        <table className={tableCls}>
+          <tbody>
+            <Row label={`Revenue · ${ACCOUNTS.revenue}`} cents={p.revenueCents} />
+            <Row indent label={`Discounts · ${ACCOUNTS.discounts}`} cents={-p.discountsCents} />
+            <Row indent label={`Refunds · ${ACCOUNTS.refunds}`} cents={-p.refundsCents} />
+            <Row bold label="Net revenue" cents={p.netRevenueCents} />
+            <Row indent label={`Cost of goods sold · ${ACCOUNTS.cogs}`} cents={-p.cogsCents} note={costUnconfirmed ? "ingredient costs are unconfirmed placeholders" : undefined} />
+            <Row bold label="Gross profit" cents={p.grossProfitCents} note={pct(p.grossProfitCents, p.netRevenueCents)} />
+            <Row indent label={`Processor fees · ${ACCOUNTS.fees}`} cents={-p.feesCents} />
+            {p.operatingExpenses.map((x) => (
+              <Row key={x.code} indent label={`${names.account(x.code)} · ${x.code}`} cents={-x.cents} />
             ))}
-          </nav>
-        }
-      />
-      <div className="space-y-4">
-        <Card id="tb" title="Trial balance" pad={false} actions={<Badge tone={r.books.balanced ? "pos" : "neg"}>{r.books.balanced ? "debits = credits" : "OUT OF BALANCE"}</Badge>}>
-          {r.tb.length === 0 ? (
-            <Empty compact title="No journal lines yet" />
+            <Row bold label="Net income" cents={p.netIncomeCents} />
+          </tbody>
+        </table>
+      ),
+    },
+    {
+      id: "tax",
+      title: "Sales tax",
+      description: `Tax collected, refunded and due, by ${taxBy}. Use these totals on your state's return.`,
+      summary: r.tax.length === 0 ? "No sales yet" : <><Money cents={taxDue} className="font-medium" /> owed</>,
+      actions: (
+        <>
+          <select value={taxBy} onChange={(e) => setTaxBy(e.target.value as TaxPeriodKind)} className="h-7 rounded-md border border-line bg-surface px-2 text-[12px]" aria-label="Group sales tax by">
+            <option value="month">By month</option>
+            <option value="quarter">By quarter</option>
+          </select>
+          <button type="button" disabled={r.tax.length === 0} onClick={downloadTax} className={btn}>
+            Download CSV
+          </button>
+        </>
+      ),
+      children: (
+        <>
+          {r.tax.length === 0 ? (
+            <Empty compact title="No sales yet" hint="Tax shows up here as soon as a paid sale posts." />
           ) : (
+            <div className="overflow-x-auto">
+              <table className={tableCls}>
+                <thead>
+                  <tr>
+                    <th className={thCls}>Period</th>
+                    <th className={cx(thCls, "text-right")}>Taxable sales</th>
+                    <th className={cx(thCls, "text-right")}>Tax collected</th>
+                    <th className={cx(thCls, "text-right")}>Tax refunded</th>
+                    {taxShowPaid && <th className={cx(thCls, "text-right")}>Already paid</th>}
+                    <th className={cx(thCls, "text-right")}>Tax due</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.tax.map((t) => (
+                    <tr key={t.period}>
+                      <td className={cx(tdCls, "font-mono text-[12px]")}>{t.period}</td>
+                      <td className={right()}><Money cents={t.taxableSalesCents} muted0 /></td>
+                      <td className={right()}><Money cents={t.taxCollectedCents} muted0 /></td>
+                      <td className={right()}><Money cents={-t.taxRefundedCents} muted0 /></td>
+                      {taxShowPaid && <td className={right()}><Money cents={-t.taxPaidCents} muted0 /></td>}
+                      <td className={right("font-semibold")}><Money cents={t.netTaxDueCents} muted0 /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="space-y-1 px-4 py-2.5 text-[11.5px] text-muted">
+            <p>
+              Rate in your settings: <span className="font-medium text-ink">{pctText(taxRate)}</span>
+              {taxRate === "0" || Number(taxRate) === 0 ? " — no tax is being charged. If your state or city taxes what you sell, set the rate before you take more orders." : ". Periods use your shop's time zone."}
+            </p>
+            <p>Napkin does not file or pay sales tax for you. Use these totals on your state&apos;s return, and check with your state or an accountant which items are taxable and how often you file.</p>
+          </div>
+        </>
+      ),
+    },
+    {
+      id: "export",
+      title: "For your accountant",
+      description: "CSV files for Excel, Google Sheets, QuickBooks or Xero.",
+      summary: "3 downloads",
+      children: (
+        <div className="p-4">
+          <p className="text-[13px] text-muted">Spreadsheet files (CSV) that open in Excel, Google Sheets, QuickBooks or Xero imports. Amounts are dollars, dates are in your shop&apos;s time zone.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <ExportButton disabled={lines.length === 0} onClick={() => downloadCsv(`${slug}-journal-${today}.csv`, journalRows(lines, docs, names, tz))} title="General journal" sub={`${lines.length} lines, every posted entry`} />
+            <ExportButton disabled={r.tb.length === 0} onClick={() => downloadCsv(`${slug}-trial-balance-${today}.csv`, trialBalanceRows(r.tb, names))} title="Trial balance" sub={`${r.tb.length} accounts, as of today`} />
+            <ExportButton disabled={r.tax.length === 0} onClick={downloadTax} title="Sales tax" sub={`by ${taxBy}`} />
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "tb",
+      title: "Trial balance",
+      description: "Debits, credits and balance for every account in the books.",
+      summary: (
+        <span className="inline-flex items-center gap-2">
+          {r.tb.length} accounts <Badge tone={r.books.balanced ? "pos" : "neg"}>{r.books.balanced ? "debits = credits" : "OUT OF BALANCE"}</Badge>
+        </span>
+      ),
+      children:
+        r.tb.length === 0 ? (
+          <Empty compact title="No journal lines yet" />
+        ) : (
+          <div className="overflow-x-auto">
             <table className={tableCls}>
               <thead>
                 <tr>
@@ -105,125 +209,104 @@ export default function ReportsPage() {
                 </tr>
               </tbody>
             </table>
-          )}
-        </Card>
-
-        <Card id="pnl" title="Profit & loss" pad={false}>
+          </div>
+        ),
+    },
+    {
+      id: "cash",
+      title: "Cash flow",
+      description: "Money coming in from Stripe and going out of the bank, newest first.",
+      summary: r.cash.length === 0 ? "No movements yet" : <><Money cents={cashNow} className="font-medium" /> balance</>,
+      children:
+        r.cash.length === 0 ? (
+          <Empty compact title="No cash movements yet" />
+        ) : (
+          <div className="max-h-[480px] overflow-auto">
+            <table className={tableCls}>
+              <thead>
+                <tr>
+                  <th className={thCls}>When</th>
+                  <th className={thCls}>Account</th>
+                  <th className={thCls}>Document</th>
+                  <th className={cx(thCls, "text-right")}>In</th>
+                  <th className={cx(thCls, "text-right")}>Out</th>
+                  <th className={cx(thCls, "text-right")}>Running</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.cash.slice().reverse().map((c) => (
+                  <tr key={String(c.id)}>
+                    <td className={cx(tdCls, "whitespace-nowrap text-muted")}>{fmtTime({ microsSinceUnixEpoch: c.postedAtMicros }, tz)}</td>
+                    <td className={tdCls}><span className="font-mono text-[11.5px] text-muted">{c.accountCode}</span> {names.account(c.accountCode)}</td>
+                    <td className={tdCls}><Link className="text-accent-ink hover:underline" href={`/documents/${c.documentId}`}>{docLabel(docs.get(c.documentId), names)}</Link></td>
+                    <td className={right()}>{c.inCents !== 0n && <Money cents={c.inCents} />}</td>
+                    <td className={right()}>{c.outCents !== 0n && <Money cents={c.outCents} />}</td>
+                    <td className={right()}><Money cents={c.runningCents} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ),
+    },
+    {
+      id: "receivables",
+      title: "Receivables",
+      description: "Money customers still owe, by order.",
+      summary: r.receivables.length === 0 ? "Nothing owed" : <><Money cents={recvTotal} className="font-medium" /> owed to you</>,
+      children: <OpenTable items={r.receivables} empty="Nothing owed. Sales post when payment arrives." />,
+    },
+    {
+      id: "payables",
+      title: "Payables",
+      description: "Money you owe suppliers.",
+      summary: r.payables.length === 0 ? "Nothing owed" : <><Money cents={payTotal} className="font-medium" /> you owe</>,
+      children: <OpenTable items={r.payables} empty="Nothing owed to suppliers." />,
+    },
+    {
+      id: "stock",
+      title: "Stock on hand",
+      description: "Quantity and value at cost of every item in stock.",
+      summary: r.stock.length === 0 ? "No stock" : <><Money cents={stockTotal} className="font-medium" /> at cost</>,
+      children:
+        r.stock.length === 0 ? (
+          <Empty compact title="No stock rows" />
+        ) : (
           <table className={tableCls}>
+            <thead>
+              <tr>
+                <th className={thCls}>Item</th>
+                <th className={cx(thCls, "text-right")}>Qty</th>
+                <th className={cx(thCls, "text-right")}>At cost</th>
+              </tr>
+            </thead>
             <tbody>
-              <Row label={`Revenue · ${ACCOUNTS.revenue}`} cents={p.revenueCents} />
-              <Row indent label={`Discounts · ${ACCOUNTS.discounts}`} cents={-p.discountsCents} />
-              <Row indent label={`Refunds · ${ACCOUNTS.refunds}`} cents={-p.refundsCents} />
-              <Row bold label="Net revenue" cents={p.netRevenueCents} />
-              <Row indent label={`Cost of goods sold · ${ACCOUNTS.cogs}`} cents={-p.cogsCents} note={costUnconfirmed ? "ingredient costs are unconfirmed placeholders" : undefined} />
-              <Row bold label="Gross profit" cents={p.grossProfitCents} note={pct(p.grossProfitCents, p.netRevenueCents)} />
-              <Row indent label={`Processor fees · ${ACCOUNTS.fees}`} cents={-p.feesCents} />
-              {p.operatingExpenses.map((x) => (
-                <Row key={x.code} indent label={`${names.account(x.code)} · ${x.code}`} cents={-x.cents} />
+              {r.stock.map((s) => (
+                <tr key={s.key}>
+                  <td className={tdCls}>{names.entry(s.item)}</td>
+                  <td className={right("num")}>{s.qty.toString()}</td>
+                  <td className={right()}><Money cents={s.amountCents} muted0 /></td>
+                </tr>
               ))}
-              <Row bold label="Net income" cents={p.netIncomeCents} />
+              <tr className="font-semibold">
+                <td className={tdCls} colSpan={2}>Inventory value</td>
+                <td className={right()}><Money cents={stockTotal} /></td>
+              </tr>
             </tbody>
           </table>
-        </Card>
-
-        <Card
-          id="tax"
-          title="Sales tax"
-          pad={false}
-          actions={
-            <div className="flex items-center gap-2">
-              <select value={taxBy} onChange={(e) => setTaxBy(e.target.value as TaxPeriodKind)} className="rounded border border-line bg-surface px-2 py-1 text-[12px]" aria-label="Group sales tax by">
-                <option value="month">By month</option>
-                <option value="quarter">By quarter</option>
-              </select>
-              <button type="button" disabled={r.tax.length === 0} onClick={() => downloadCsv(`${slug}-sales-tax-by-${taxBy}-${today}.csv`, salesTaxRows(r.tax, taxRate))} className="rounded border border-line px-2 py-1 text-[12px] hover:bg-surface-2 disabled:opacity-50">
-                Download CSV
-              </button>
-            </div>
-          }
-        >
-          {r.tax.length === 0 ? (
-            <Empty compact title="No sales yet" hint="Tax shows up here as soon as a paid sale posts." />
+        ),
+    },
+    {
+      id: "margin",
+      title: "Margin by item",
+      description: "Net sales, cost and margin for each product sold.",
+      summary: r.margin.length === 0 ? "No sales yet" : `${r.margin.length} item${r.margin.length === 1 ? "" : "s"}`,
+      children: (
+        <>
+          {r.margin.length === 0 ? (
+            <Empty compact title="No sales yet" />
           ) : (
             <div className="overflow-x-auto">
-              <table className={tableCls}>
-                <thead>
-                  <tr>
-                    <th className={thCls}>Period</th>
-                    <th className={cx(thCls, "text-right")}>Taxable sales</th>
-                    <th className={cx(thCls, "text-right")}>Tax collected</th>
-                    <th className={cx(thCls, "text-right")}>Tax refunded</th>
-                    {r.tax.some((t) => t.taxPaidCents !== 0n) && <th className={cx(thCls, "text-right")}>Already paid</th>}
-                    <th className={cx(thCls, "text-right")}>Tax due</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {r.tax.map((t) => (
-                    <tr key={t.period}>
-                      <td className={cx(tdCls, "font-mono text-[12px]")}>{t.period}</td>
-                      <td className={right()}><Money cents={t.taxableSalesCents} muted0 /></td>
-                      <td className={right()}><Money cents={t.taxCollectedCents} muted0 /></td>
-                      <td className={right()}><Money cents={-t.taxRefundedCents} muted0 /></td>
-                      {r.tax.some((x) => x.taxPaidCents !== 0n) && <td className={right()}><Money cents={-t.taxPaidCents} muted0 /></td>}
-                      <td className={right("font-semibold")}><Money cents={t.netTaxDueCents} muted0 /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <div className="space-y-1 border-t border-line px-4 py-2.5 text-[11.5px] text-muted">
-            <p>
-              Rate in your settings: <span className="font-medium text-ink">{pctText(taxRate)}</span>
-              {taxRate === "0" || Number(taxRate) === 0 ? " — no tax is being charged. If your state or city taxes what you sell, set the rate before you take more orders." : ". Periods use your shop's time zone."}
-            </p>
-            <p>Napkin does not file or pay sales tax for you. Use these totals on your state&apos;s return, and check with your state or an accountant which items are taxable and how often you file.</p>
-          </div>
-        </Card>
-
-        <Card id="export" title="For your accountant">
-          <p className="text-[13px] text-muted">Spreadsheet files (CSV) that open in Excel, Google Sheets, QuickBooks or Xero imports. Amounts are dollars, dates are in your shop&apos;s time zone.</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <ExportButton disabled={lines.length === 0} onClick={() => downloadCsv(`${slug}-journal-${today}.csv`, journalRows(lines, docs, names, tz))} title="General journal" sub={`${lines.length} lines, every posted entry`} />
-            <ExportButton disabled={r.tb.length === 0} onClick={() => downloadCsv(`${slug}-trial-balance-${today}.csv`, trialBalanceRows(r.tb, names))} title="Trial balance" sub={`${r.tb.length} accounts, as of today`} />
-            <ExportButton disabled={r.tax.length === 0} onClick={() => downloadCsv(`${slug}-sales-tax-by-${taxBy}-${today}.csv`, salesTaxRows(r.tax, taxRate))} title="Sales tax" sub={`by ${taxBy}`} />
-          </div>
-        </Card>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card id="stock" title="Stock on hand" pad={false}>
-            {r.stock.length === 0 ? (
-              <Empty compact title="No stock rows" />
-            ) : (
-              <table className={tableCls}>
-                <thead>
-                  <tr>
-                    <th className={thCls}>Item</th>
-                    <th className={cx(thCls, "text-right")}>Qty</th>
-                    <th className={cx(thCls, "text-right")}>At cost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {r.stock.map((s) => (
-                    <tr key={s.key}>
-                      <td className={tdCls}>{names.entry(s.item)}</td>
-                      <td className={right("num")}>{s.qty.toString()}</td>
-                      <td className={right()}><Money cents={s.amountCents} muted0 /></td>
-                    </tr>
-                  ))}
-                  <tr className="font-semibold">
-                    <td className={tdCls} colSpan={2}>Inventory value</td>
-                    <td className={right()}><Money cents={stockTotal} /></td>
-                  </tr>
-                </tbody>
-              </table>
-            )}
-          </Card>
-
-          <Card id="margin" title="Margin by item" pad={false}>
-            {r.margin.length === 0 ? (
-              <Empty compact title="No sales yet" />
-            ) : (
               <table className={tableCls}>
                 <thead>
                   <tr>
@@ -252,79 +335,56 @@ export default function ReportsPage() {
                   ))}
                 </tbody>
               </table>
-            )}
-            {costUnconfirmed && <div className="border-t border-line px-4 py-2 text-[11.5px] text-warn">Costs are placeholders the owner has not confirmed.</div>}
-          </Card>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <OpenCard id="receivables" title="Receivables · 1200, by order" items={r.receivables} empty="Nothing owed. Sales post when payment arrives." />
-          <OpenCard id="payables" title="Payables · 2000" items={r.payables} empty="Nothing owed to suppliers." />
-        </div>
-
-        <Card id="cash" title="Cash flow · Stripe clearing 1010 and bank 1000" pad={false}>
-          {r.cash.length === 0 ? (
-            <Empty compact title="No cash movements yet" />
-          ) : (
-            <div className="max-h-[480px] overflow-auto">
-              <table className={tableCls}>
-                <thead>
-                  <tr>
-                    <th className={thCls}>When</th>
-                    <th className={thCls}>Account</th>
-                    <th className={thCls}>Document</th>
-                    <th className={cx(thCls, "text-right")}>In</th>
-                    <th className={cx(thCls, "text-right")}>Out</th>
-                    <th className={cx(thCls, "text-right")}>Running</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {r.cash.slice().reverse().map((c) => (
-                    <tr key={String(c.id)}>
-                      <td className={cx(tdCls, "whitespace-nowrap text-muted")}>{fmtTime({ microsSinceUnixEpoch: c.postedAtMicros }, tz)}</td>
-                      <td className={tdCls}><span className="font-mono text-[11.5px] text-muted">{c.accountCode}</span> {names.account(c.accountCode)}</td>
-                      <td className={tdCls}><Link className="text-accent-ink hover:underline" href={`/documents/${c.documentId}`}>{docLabel(docs.get(c.documentId), names)}</Link></td>
-                      <td className={right()}>{c.inCents !== 0n && <Money cents={c.inCents} />}</td>
-                      <td className={right()}>{c.outCents !== 0n && <Money cents={c.outCents} />}</td>
-                      <td className={right()}><Money cents={c.runningCents} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           )}
-        </Card>
-      </div>
+          {costUnconfirmed && <div className="px-4 py-2 text-[11.5px] text-warn">Costs are placeholders the owner has not confirmed.</div>}
+        </>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <PageHeader
+        title="Reports"
+        subtitle="Computed live from posted journal lines and register balances. Click a report to open it."
+        actions={
+          <div className="flex gap-1 text-[12px]">
+            <button type="button" onClick={() => setAll(true)} className="rounded px-2 py-1 text-muted hover:bg-surface-2 hover:text-ink">
+              Expand all
+            </button>
+            <button type="button" onClick={() => setAll(false)} disabled={open.size === 0} className="rounded px-2 py-1 text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50">
+              Collapse all
+            </button>
+          </div>
+        }
+      />
+      <ReportAccordion sections={sections} open={open} onToggle={toggle} />
     </>
   );
 }
 
-function OpenCard({ id, title, items, empty }: { id: string; title: string; items: { key: string; label: string; balanceCents: bigint; documentIds: bigint[] }[]; empty: string }) {
+function OpenTable({ items, empty }: { items: { key: string; label: string; balanceCents: bigint; documentIds: bigint[] }[]; empty: string }) {
+  if (items.length === 0) return <Empty compact title={empty} />;
   return (
-    <Card id={id} title={title} pad={false}>
-      {items.length === 0 ? (
-        <Empty compact title={empty} />
-      ) : (
-        <table className={tableCls}>
-          <tbody>
-            {items.map((i) => (
-              <tr key={i.key}>
-                <td className={tdCls}>
-                  <span className="font-mono text-[12px]">{i.key}</span>
-                </td>
-                <td className={right()}>
-                  <Money cents={i.balanceCents} />
-                </td>
-              </tr>
-            ))}
-            <tr className="font-semibold">
-              <td className={tdCls}>Total</td>
-              <td className={right()}>{formatCents(items.reduce((a, x) => a + x.balanceCents, 0n))}</td>
-            </tr>
-          </tbody>
-        </table>
-      )}
-    </Card>
+    <table className={tableCls}>
+      <tbody>
+        {items.map((i) => (
+          <tr key={i.key}>
+            <td className={tdCls}>
+              <span className="font-mono text-[12px]">{i.key}</span>
+            </td>
+            <td className={right()}>
+              <Money cents={i.balanceCents} />
+            </td>
+          </tr>
+        ))}
+        <tr className="font-semibold">
+          <td className={tdCls}>Total</td>
+          <td className={right()}>{formatCents(items.reduce((a, x) => a + x.balanceCents, 0n))}</td>
+        </tr>
+      </tbody>
+    </table>
   );
 }
 

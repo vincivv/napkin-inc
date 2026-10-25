@@ -243,7 +243,7 @@ function History({ v, tz }: { v: StockItemView; tz: string }) {
   if (!rows.length) return <div className="text-[12.5px] text-faint">No changes on the books yet.</div>;
   return (
     <div>
-      <div className="mb-1.5 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-muted">Recent changes · {v.name}</div>
+      <div className="mb-2 text-[13px] font-medium text-ink">Recent changes · {v.name}</div>
       <table className="w-full text-[12.5px]">
         <tbody>
           {rows.map((m) => {

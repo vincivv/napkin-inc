@@ -11,10 +11,10 @@ export function cx(...xs: (string | false | null | undefined)[]) {
 
 export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-[19px] font-semibold tracking-tight text-ink">{title}</h1>
-        {subtitle && <div className="mt-0.5 text-[13px] text-muted">{subtitle}</div>}
+        <h1 className="text-[26px] font-semibold tracking-[-0.02em] text-ink">{title}</h1>
+        {subtitle && <div className="mt-1 text-[14px] text-muted">{subtitle}</div>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -23,14 +23,14 @@ export function PageHeader({ title, subtitle, actions }: { title: ReactNode; sub
 
 export function Card({ title, actions, children, className, pad = true, id }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; pad?: boolean; id?: string }) {
   return (
-    <section id={id} className={cx("min-w-0 rounded-lg border border-line bg-surface shadow-card", className)}>
+    <section id={id} className={cx("min-w-0 rounded-xl border border-line bg-surface shadow-card", className)}>
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-2.5">
-          <h2 className="text-[12px] font-semibold uppercase tracking-[0.06em] text-muted">{title}</h2>
-          {actions && <div className="flex items-center gap-2 text-[12px]">{actions}</div>}
+        <header className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
+          <h2 className="text-[14px] font-semibold text-ink">{title}</h2>
+          {actions && <div className="flex items-center gap-2 text-[13px]">{actions}</div>}
         </header>
       )}
-      <div className={pad ? "p-4" : ""}>{children}</div>
+      <div className={pad ? "p-5" : ""}>{children}</div>
     </section>
   );
 }
@@ -47,11 +47,13 @@ const toneCls: Record<Tone, string> = {
 
 export function Badge({ tone = "neutral", children, title, className }: { tone?: Tone; children: ReactNode; title?: string; className?: string }) {
   return (
-    <span title={title} className={cx("inline-flex items-center gap-1 whitespace-nowrap rounded-[5px] border px-1.5 py-px text-[11.5px] font-medium leading-[18px]", toneCls[tone], className)}>
+    <span title={title} className={cx("inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-px text-[12px] font-medium leading-[18px]", toneCls[tone], className)}>
       {children}
     </span>
   );
 }
+
+const STATUS_LABEL: Record<string, string> = { pending_payment: "Awaiting payment", paid: "Paid", ready: "Ready", picked_up: "Picked up", partially_refunded: "Partly refunded" };
 
 const statusTone: Record<string, Tone> = {
   draft: "warn",
@@ -84,7 +86,8 @@ const statusTone: Record<string, Tone> = {
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  return <Badge tone={statusTone[status] ?? "neutral"}>{status.replace(/_/g, " ")}</Badge>;
+  const words = STATUS_LABEL[status] ?? status.replace(/_/g, " ");
+  return <Badge tone={statusTone[status] ?? "neutral"}>{words.charAt(0).toUpperCase() + words.slice(1)}</Badge>;
 }
 
 export function Money({ cents, className, sign, muted0 }: { cents: bigint; className?: string; sign?: boolean; muted0?: boolean }) {
@@ -127,7 +130,7 @@ export function Loading({ label = "Loading…" }: { label?: string }) {
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 const variantCls: Record<Variant, string> = {
-  primary: "bg-accent text-white hover:opacity-90 border-transparent",
+  primary: "bg-ink text-canvas hover:opacity-85 border-transparent",
   secondary: "bg-surface text-ink border-line-strong hover:bg-surface-2",
   ghost: "bg-transparent text-muted border-transparent hover:bg-surface-2 hover:text-ink",
   danger: "bg-surface text-neg border-line-strong hover:bg-neg-soft",
@@ -141,7 +144,7 @@ export function Button({ variant = "secondary", className, disabledReason, child
       disabled={disabled}
       className={cx(
         "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-medium transition-[background,opacity] disabled:cursor-not-allowed disabled:opacity-45",
-        size === "sm" ? "h-7 px-2.5 text-[12px]" : "h-8 px-3 text-[13px]",
+        size === "sm" ? "h-8 px-3 text-[13px]" : "h-9 px-3.5 text-[14px]",
         variantCls[variant],
         className,
       )}
@@ -172,9 +175,9 @@ export function OwnerButton(props: ButtonHTMLAttributes<HTMLButtonElement> & { v
   return <Button {...rest} disabledReason={!isOwner ? "Sign in as the owner to do this" : reason} />;
 }
 
-export const tableCls = "w-full border-collapse text-left text-[12.5px]";
-export const thCls = "sticky top-0 z-[1] border-b border-line bg-surface px-3 py-2 text-[11.5px] font-medium text-muted whitespace-nowrap";
-export const tdCls = "border-b border-line px-3 py-2 align-top";
+export const tableCls = "w-full border-collapse text-left text-[13.5px]";
+export const thCls = "sticky top-0 z-[1] border-b border-line bg-surface px-4 py-2.5 text-[12.5px] font-medium text-muted whitespace-nowrap";
+export const tdCls = "border-b border-line px-4 py-3 align-top";
 export const rowLinkCls = "cursor-pointer transition-colors hover:bg-surface-2";
 
 export function Mono({ children, className }: { children: ReactNode; className?: string }) {

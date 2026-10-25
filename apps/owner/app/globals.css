@@ -2,75 +2,75 @@
 
 /* Theme tokens. Light by default, dark via system preference or data-theme="dark" on <html>. */
 :root {
-  --canvas: #f7f7f5;
+  --canvas: #fafafa;
   --surface: #ffffff;
-  --surface-2: #f2f2ef;
-  --line: #e6e5e1;
-  --line-strong: #d6d5cf;
-  --ink: #1b1b19;
-  --muted: #6b6a64;
-  --faint: #9a9890;
-  --accent: #4f46e5;
-  --accent-soft: #eceafd;
-  --accent-ink: #3b33c4;
-  --pos: #12805c;
-  --pos-soft: #e3f4ec;
-  --neg: #c4321f;
-  --neg-soft: #fbe8e4;
-  --warn: #a35d00;
-  --warn-soft: #fbf0dc;
-  --info: #1f6fb2;
-  --info-soft: #e3effa;
-  --shadow: 0 1px 2px rgb(20 20 18 / 0.04), 0 1px 1px rgb(20 20 18 / 0.03);
+  --surface-2: #f4f4f5;
+  --line: #ebebeb;
+  --line-strong: #dcdcdc;
+  --ink: #171717;
+  --muted: #5f5f5f;
+  --faint: #8f8f8f;
+  --accent: #0070f3;
+  --accent-soft: #e9f2fe;
+  --accent-ink: #0060d1;
+  --pos: #18794e;
+  --pos-soft: #e7f6ee;
+  --neg: #d93036;
+  --neg-soft: #fdecec;
+  --warn: #a35200;
+  --warn-soft: #fff4e0;
+  --info: #0070f3;
+  --info-soft: #e9f2fe;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.04);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --canvas: #0f0f10;
-    --surface: #161618;
-    --surface-2: #1d1d20;
-    --line: #2a2a2e;
-    --line-strong: #37373c;
-    --ink: #ececea;
-    --muted: #9b9a96;
-    --faint: #6c6b68;
-    --accent: #8b85ff;
-    --accent-soft: #24223f;
-    --accent-ink: #b3afff;
-    --pos: #3fbf8f;
-    --pos-soft: #13291f;
-    --neg: #ff6b57;
-    --neg-soft: #36170f;
-    --warn: #e9a23b;
-    --warn-soft: #33240c;
-    --info: #63a8e8;
-    --info-soft: #11263a;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+    --canvas: #000000;
+    --surface: #0a0a0a;
+    --surface-2: #1a1a1a;
+    --line: #242424;
+    --line-strong: #333333;
+    --ink: #ededed;
+    --muted: #a1a1a1;
+    --faint: #737373;
+    --accent: #52a8ff;
+    --accent-soft: #0b2240;
+    --accent-ink: #7cbcff;
+    --pos: #3ecf8e;
+    --pos-soft: #0d2a1d;
+    --neg: #ff6166;
+    --neg-soft: #3a1213;
+    --warn: #f5a524;
+    --warn-soft: #34240a;
+    --info: #52a8ff;
+    --info-soft: #0b2240;
+    --shadow: none;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --canvas: #0f0f10;
-  --surface: #161618;
-  --surface-2: #1d1d20;
-  --line: #2a2a2e;
-  --line-strong: #37373c;
-  --ink: #ececea;
-  --muted: #9b9a96;
-  --faint: #6c6b68;
-  --accent: #8b85ff;
-  --accent-soft: #24223f;
-  --accent-ink: #b3afff;
-  --pos: #3fbf8f;
-  --pos-soft: #13291f;
-  --neg: #ff6b57;
-  --neg-soft: #36170f;
-  --warn: #e9a23b;
-  --warn-soft: #33240c;
-  --info: #63a8e8;
-  --info-soft: #11263a;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  --canvas: #000000;
+  --surface: #0a0a0a;
+  --surface-2: #1a1a1a;
+  --line: #242424;
+  --line-strong: #333333;
+  --ink: #ededed;
+  --muted: #a1a1a1;
+  --faint: #737373;
+  --accent: #52a8ff;
+  --accent-soft: #0b2240;
+  --accent-ink: #7cbcff;
+  --pos: #3ecf8e;
+  --pos-soft: #0d2a1d;
+  --neg: #ff6166;
+  --neg-soft: #3a1213;
+  --warn: #f5a524;
+  --warn-soft: #34240a;
+  --info: #52a8ff;
+  --info-soft: #0b2240;
+  --shadow: none;
   color-scheme: dark;
 }
 
@@ -94,8 +94,8 @@
   --color-warn-soft: var(--warn-soft);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
-  --font-sans: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --font-sans: var(--font-geist), "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   --shadow-card: var(--shadow);
 }
 
@@ -106,10 +106,9 @@ body {
 }
 body {
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: "cv11", "ss01";
 }
 
 .num {
