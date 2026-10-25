@@ -58,6 +58,8 @@ export function salesTaxByPeriod(lines: readonly JournalLineRow[], docs: Readonl
     if (!r) m.set(p, (r = { period: p, salesCents: 0n, refundedSalesCents: 0n, taxableSalesCents: 0n, taxCollectedCents: 0n, taxRefundedCents: 0n, taxPaidCents: 0n, netTaxDueCents: 0n }));
     return r;
   };
+  // a refund that books its own tax line (a future template) needs no estimate from its 4200 line
+  const ownTaxLine = new Set(lines.filter((l) => l.accountCode === SALES_TAX_ACCOUNT).map((l) => l.documentId));
   for (const l of lines) {
     const code = l.accountCode;
     if (code !== REVENUE && code !== DISCOUNTS && code !== REFUNDS && code !== SALES_TAX_ACCOUNT) continue;
@@ -75,7 +77,7 @@ export function salesTaxByPeriod(lines: readonly JournalLineRow[], docs: Readonl
     } else {
       // a refund: split what went back to the customer into its sale part and its tax part
       const amount = l.debitCents - l.creditCents;
-      const tax = Rational.fromCents(amount).mul(refundTaxShare(docs.get(l.documentId), docs)).round2().toCents();
+      const tax = ownTaxLine.has(l.documentId) ? 0n : Rational.fromCents(amount).mul(refundTaxShare(docs.get(l.documentId), docs)).round2().toCents();
       r.taxRefundedCents += tax;
       r.refundedSalesCents += amount - tax;
     }
