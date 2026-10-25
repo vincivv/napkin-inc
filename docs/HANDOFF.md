@@ -135,7 +135,9 @@ topping.
    | Orders | All orders, filterable by status |
    | Documents | Every document (sale, payment, refund…) |
    | Registers | Stock and other registers |
-   | Reports | Trial balance, P&L, stock, receivables, payables, cash flow, margin by item |
+   | Reports | Trial balance, P&L (with operating expenses), **sales tax by month or quarter**, **For your accountant** CSV downloads (journal, trial balance, sales tax), stock, receivables, payables, cash flow, margin by item |
+   | Expenses | Rent, supplies, wages, utilities, other. Snap a receipt: Opus reads vendor, date, total and a category as a pre-fill; the owner checks it, picks paid now (Cash 1000) or owed (Payables 2000), and saves. It posts immediately as an `expense` document. Shops compiled before this existed see "Recompile on the Build page" |
+   | Getting legal | A checklist: six basics every US small business needs (structure and registration, EIN, licenses, sales tax permit, insurance, bank account) with official IRS/SBA links, plus items tailored by Opus to what the shop sells and where (links kept only if `.gov`-style and they resolve). Done / Not needed / To do with notes. A starting list, not legal advice; Napkin files nothing. Also linked from the setup header and from Build once live |
    | Inbox | Agent escalations for the owner to answer |
    | Decisions | Every DecisionRecord |
    | Audit log | Everything that changed |
@@ -273,11 +275,15 @@ topping.
 | Payments | `POST /checkout`, `GET /p/:orderId` (pay link, 303 to Stripe), `POST /webhooks/stripe` (signature verified), `POST /dev/simulate-payment/:orderId` (simulator only) |
 | AI staff | `POST /agents/:role/message`, `POST /ask`. Bookkeeper and `/ask` need the owning account; Shopkeeper and Support are public (store chat) and rate-limited. |
 | Phone | `POST /phone/tools/:name`: Cartesia webhook tools, bearer `PHONE_TOOL_SECRET` |
+| Expenses | `POST /expenses/receipt` (multipart `businessId` + `image`: stores it under `dataDir/receipts/`, returns the Opus read as a pre-fill), `GET /expenses/receipt?businessId=&ref=`. The expense itself is a `createDocument` from the owner app |
+| Getting legal | `GET /legal/:businessId`, `POST /legal/:businessId/location {city,state}`, `POST /legal/:businessId/generate`, `PATCH /legal/:businessId/items/:itemId {status?,note?}`; stored in `dataDir/legal/` |
 
 **The account gate** (`businessGate` in `accounts/index.ts`) protects
-`/intake/*, /spec/*, /questions/*, /owner/*, /compile, /compile/*`:
-- It finds the businessId in the query, then the path, then the body (multipart or JSON).
-- The answer is **401** with no session, **403** for another account's business, and **400** when there's
+`/intake/*, /spec/*, /questions/*, /owner/*, /compile, /compile/*, /expenses/*, /legal/*` (the storefront
+design routes mount it per route):
+- It collects every businessId the request names: the path, the query, and (for POSTs without one in the
+  path) the body, multipart or JSON. Every one of them must be the caller's own.
+- The answer is **401** with no session, **403** if any of them is another business, and **400** when there's
   no businessId.
 
 **Accounts store details:**
@@ -637,6 +643,12 @@ links on Build, the storefront redesign, "Ask your books" on the dashboard, the 
 live shop, and reconnecting every live shop's actors at brain startup (before, shops created from a napkin
 stopped taking orders after any brain restart).
 
+Done on 2026-10-25: the official side. Reports has a sales tax report (tax collected, tax handed back with
+refunds, tax due, by month or quarter) and CSV downloads for an accountant; owners log expenses with a
+receipt photo (new `expense` document type, accounts 6000 Rent, 6100 Supplies, 6200 Wages, 6300 Utilities,
+6900 Other; P&L shows them); and a getting-legal checklist. Existing shops (Maya included) need a recompile
+on Build to get expenses; **ask the owner before recompiling hosted Maya**.
+
 1. **Live end-to-end test by the owner.** Sign up on https://napkin-owner.vercel.app, use the sample napkin,
    go live, open the storefront, and pay with `4242…`. Sign in as Maya and check her dashboard. Fix
    whatever breaks.
@@ -651,6 +663,13 @@ stopped taking orders after any brain restart).
      the two readings; the owner resolves them in the interview, but it adds questions.
    - When no photo passes the vision pick for an item, the store shows a label tile instead.
    - The quick tunnel is fragile; the watchdog recovers in about 2 minutes, a named tunnel would avoid it.
+   - **Refunds book their tax to Refunds 4200**, not back out of Sales tax payable 2100, so the trial balance
+     overstates tax owed after a refund. The sales tax report already backs it out (from the refund's
+     saleTotal/saleNet); the real fix is a third refund posting rule, and it must pass the Z3 balance proof.
+   - Recompiling regenerates the storefront tagline (the owner didn't ask for that).
+   - No document pays off an "owed" expense yet, so Payables 2000 only grows; receipts uploaded without
+     saving an expense stay in `dataDir/receipts/`.
+   - Real payouts to the owner's bank need Stripe Connect (owner's call; everything is test mode now).
 4. **Polish, if there's time:**
    - An "Ask your books" box on the dashboard using the owner-only `/ask`.
    - Keep the approved storefront theme on recompile.

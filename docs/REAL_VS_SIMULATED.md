@@ -64,6 +64,12 @@ the code, the code wins; tell us.
   guards off, **0** with guards on. A scripted "compromised model": 18 breaches with guards off, **0** with
   guards on. $0 lost in every run. Chaos: 8/8 pass.
 
+**The official side** (added 2026-10-25)
+- Sales tax report and accountant CSVs are computed from the real posted journal lines. Expenses post real
+  balanced documents (proved by Z3 like every other type). Receipt reading is real Claude Opus vision, used
+  only as a pre-fill the owner checks. The legal checklist's base links are real IRS/SBA pages; tailored
+  items come from Opus and keep a link only if it is a government site that answered.
+
 ## Simulated or placeholder (say so on stage)
 - **SMS:** a simulator. Twilio was skipped (trial balance $0), so callers are told the order number out
   loud and pay at https://napkin-store.vercel.app/pay.
@@ -80,4 +86,9 @@ the code, the code wins; tell us.
 - Phone owner mode is off until an owner phone number is configured, and then only for Maya's Cookies.
 - The sea-salt add-on's $0.20 cost is credited to Inventory although sea salt isn't a stock item (an
   open accounting decision for the owner).
+- Napkin does **not** file or pay sales tax, apply for permits or licenses, or give legal or tax advice. It
+  shows the totals and the checklist; the owner (or their accountant) files.
+- Refunds book their tax to Refunds 4200 instead of Sales tax payable 2100 (the tax report corrects for it;
+  the trial balance does not yet).
+- Maya's hosted configuration predates expenses: her Expenses page asks for a recompile.
 - Other open owner decisions are listed in `docs/HANDOFF.md` section 11 and `docs/MORNING.md`.
