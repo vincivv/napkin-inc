@@ -4,7 +4,8 @@ A 3–4 minute path where the judge is the input. Everything runs on the hosted 
 
 - Owner app: https://napkin-owner.vercel.app
 - Store: https://napkin-store.vercel.app
-- Phone: +1 906-498-9806, one line shared by every live shop (the caller says which shop)
+- Phone: +1 906-498-9806, one line shared by every live shop: the caller says the shop's 4-digit code
+  (Maya's Cookies: shown on her store, the QR sheet and her dashboard)
 
 What's real and what's simulated is in `docs/REAL_VS_SIMULATED.md`. Say "test mode" out loud when money moves.
 
@@ -64,10 +65,11 @@ What's real and what's simulated is in `docs/REAL_VS_SIMULATED.md`. Say "test mo
    - **Books balance: debits = credits ✓**.
 
 ### 4. The phone line (45 s, optional)
-1. The judge calls **+1 906-498-9806**. The agent asks which shop; the judge names **the shop they just
-   created** (or Maya's Cookies) and orders, e.g. "one small jar, name Sam".
+1. The judge calls **+1 906-498-9806**. The agent asks for the shop code; the judge reads **the code of the
+   shop they just created** off its Build page or storefront (or Maya's) and orders, e.g. "one small jar,
+   name Sam".
 2. The voice agent quotes from that shop's live menu, creates the order and reads out the order number.
-   Point out: the shop got phone ordering a minute after the napkin, with no setup.
+   Point out: the shop got its phone code the moment it went live, with no setup.
 3. The judge pays at https://napkin-store.vercel.app/pay with the order number. SMS is simulated, so the number is spoken, not texted.
 
 ### 5. Try to break it (30 s)

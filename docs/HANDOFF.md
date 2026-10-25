@@ -157,10 +157,12 @@ topping.
 
 ### A caller, on the phone line (+1 906-498-9806, shared by every live shop)
 
-- One number serves every live shop. The agent answers "Which shop are you calling?" and `find_shop` ties
-  the call to the shop the caller names (fuzzy match, so "the juniper candle shop" works). Every other tool
-  then acts for that shop only, server-side, per conversation. Each store shows the number and says to ask
-  for the shop by name.
+- One number serves every live shop. Each shop has a **4-digit phone code**, assigned the moment it goes
+  live and saved in `phone-codes.json` in the brain's data folder (never changes). The agent asks for the
+  code and `find_shop` ties the call to that shop; if the caller has no code it falls back to the shop name
+  (fuzzy match) and the agent confirms the shop. Every other tool then acts for that shop only,
+  server-side, per conversation. The code is shown on the store (pickup section, footer), the QR sheet, and
+  the owner's Build page and dashboard, all from public `GET /phone/code/:businessId`.
 - The Cartesia voice agent (Claude Haiku 5.5, voice "Skylar") can do these things, through 8 webhook tools
   on the brain:
   - read the menu (`menu_lookup`);
@@ -471,7 +473,7 @@ database name, and the store and owner URLs.
 
 **Gitignored state that must never be lost** (back it up before experiments):
 - **`services/brain/.data-cloud/`:** the hosted brain's maincloud identities (the system identity owns
-  `napkin-inc-mayas`), plus accounts, sessions and phone orders. Without it the hosted brain can't act as
+  `napkin-inc-mayas`), plus accounts, sessions, phone orders, shop phone codes and storefront designs. Without it the hosted brain can't act as
   the system or as its actors.
 - **`services/brain/.data/`:** the same for the local `napkin` database, plus specs.
 

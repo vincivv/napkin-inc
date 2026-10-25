@@ -149,7 +149,7 @@ the bound shop only (a shop must be live: active configuration, guards on). Cart
 
 | Tool | Mode | What it does |
 |---|---|---|
-| `find_shop` | customer | fuzzy-matches the spoken name (apostrophes, plurals, partial names, misspellings) against live shops; binds the call to a clear match, asks "X or Y?" for close ones, lists some shops when nothing matches. Until it succeeds every other tool answers `shop_required` |
+| `find_shop` | customer | `shop_code`: the shop's 4-digit phone code (spoken digits like "nine five oh four" work), an exact match among live shops. Fallback `shop_name`: fuzzy match (apostrophes, plurals, partial names, misspellings); binds a clear match and tells the agent to confirm it, asks "X or Y?" for close ones. Until it succeeds every other tool answers `shop_required`. Codes: `PhoneCodes` (`phone-codes.json`), assigned at go-live and at startup, public via `GET /phone/code/:businessId` |
 | `menu_lookup` | customer | live catalog prices + availability (`floor(stock / stockUnits)`); never costs |
 | `order_status` | customer / owner | details only if the caller ID placed that phone order (or the owner is verified); otherwise one generic reply, identical for unknown orders |
 | `place_order` | customer | validates lines against the live catalog, then `createCheckout(..., {channel: "phone"})` (the storefront's path). Total = platform pricing. Pay link `BRAIN_URL/p/<orderId>` texted to the **caller ID** via the platform outbox (`enqueueOutbox`, kind `sms`, key `paylink:<orderId>`). A retry (same conversation + caller + cart) returns the same order and never queues a second text. The reply says `queued` (never "texted") until the platform row is done with a real send |

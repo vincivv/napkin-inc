@@ -48,8 +48,8 @@ the code, the code wins; tell us.
   what the guards allowed, refused or sent to the owner.
 
 **Phone line**
-- +1 906-498-9806, one number shared by every live shop: the agent asks which shop and the brain ties the
-  call to it. A Cartesia voice agent (Claude Haiku 5.5, voice "Skylar") calling 8 webhook tools on the
+- +1 906-498-9806, one number shared by every live shop: callers say the shop's 4-digit code (shown on
+  its store), and the brain ties the call to that shop. A Cartesia voice agent (Claude Haiku 5.5, voice "Skylar") calling 8 webhook tools on the
   brain: find the shop, menu, order, order status, escalate, and owner verification / report / instruction. Owner instructions only queue; they apply after the owner confirms in the app.
 
 **Storefronts**
@@ -76,7 +76,7 @@ the code, the code wins; tell us.
 - **Red-team runs** used a local scratch database and the Stripe simulator, not the hosted demo.
 
 ## Not built / known gaps
-- Shops share one phone number (the caller says the shop name); no business gets its own number.
+- Shops share one phone number (the caller says the shop's code); no business gets its own number.
 - Phone owner mode is off until an owner phone number is configured, and then only for Maya's Cookies.
 - The sea-salt add-on's $0.20 cost is credited to Inventory although sea salt isn't a stock item (an
   open accounting decision for the owner).
