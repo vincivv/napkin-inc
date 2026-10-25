@@ -67,6 +67,14 @@ describe("assembleSpec (never assume)", () => {
     expect(getFact(s, "policies.maxDiscountPct")!.confidence).toBeLessThanOrEqual(0.4);
     expect(getFact(s, "policies.refundMethod")).toMatchObject({ provenance: "owner_said", confirmed: false, source: { kind: "voice", quote: "back to the card" } });
   });
+  it("reads currency and payment methods when the paper states them", () => {
+    const spec = assembleSpec({ ...napkin, policies: { currency: rf("USD"), paymentMethods: rf("cards only") } }, { mode: "photo", ref: "n.png" }).spec;
+    expect(spec.policies.currency).toMatchObject({ value: "USD", provenance: "paper" });
+    expect(spec.policies.paymentMethods).toMatchObject({ value: ["card"], provenance: "paper" });
+    const { rejected } = assembleSpec({ ...napkin, policies: { currency: rf("EUR") } }, { mode: "photo", ref: "n.png" });
+    expect(rejected.join(" ")).toMatch(/only USD/);
+  });
+
   it("unusable values are rejected, not guessed", () => {
     const ex: Extracted = { offerings: [{ name: rf("Cookie"), variants: [{ name: rf("One"), price: rf("three-ish") }], addOns: [] }] };
     const r = assembleSpec(ex, { mode: "photo", ref: "x" });

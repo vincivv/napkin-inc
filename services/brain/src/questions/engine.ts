@@ -42,6 +42,7 @@ export function labelFor(spec: BusinessSpec, path: string): string {
     if (field === "cost" && grp === "addOns") return `your ingredient cost for the ${elName} add-on on one order of ${offName}`;
     if (field === "cost") return `your ingredient cost to make one ${grp ? `${elName} of ${offName}` : offName}`;
     if (field === "price" && grp === "addOns") return `the price you charge for the ${elName} add-on`;
+    if (field === "stockUnits") return `how many ${offName} one ${elName} sale uses from stock`;
     const what = { price: "the price of", stockUnits: "the stock units of", name: "the name of", initialStock: "the starting stock of", stockTracked: "whether you track stock for", description: "the description of" }[field!] ?? field;
     const target = grp ? `${offName}, ${elName}` : offName;
     return `${what} ${target}`;
@@ -83,6 +84,7 @@ export function describeQuestion(spec: BusinessSpec, path: string, fact: AnyFact
   const v = showValue(path, fact.value);
   if (fact.provenance === "paper") return `I read ${fact.source.quote ? `"${fact.source.quote}"` : "this"} on your paper as ${label}: ${v}. Is that right?`;
   if (fact.provenance === "owner_said") return `You said ${label} is ${v}. Can you confirm that?`;
+  if (/\.stockUnits$/.test(path)) return `${askMissing(spec, path, label)} My guess is ${v}, but you have not told me.`;
   return `I am only guessing ${label} might be ${v}; you have not told me. What is it really?`;
 }
 

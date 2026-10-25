@@ -62,7 +62,7 @@ export const EXTRACTION_SCHEMA = {
     },
     policies: {
       type: "object",
-      properties: { taxRate: F, marginFloorPct: F, refundWindowHours: F, refundMethod: F, maxDiscountPct: F, couponsAllowed: F },
+      properties: { currency: F, paymentMethods: F, taxRate: F, marginFloorPct: F, refundWindowHours: F, refundMethod: F, maxDiscountPct: F, couponsAllowed: F },
     },
     operations: {
       type: "object",
@@ -100,7 +100,7 @@ export const Extraction = z.object({
       addOns: z.array(z.object({ name: RawFact, price: RF, cost: RF })).default([]),
     }),
   ),
-  policies: z.object({ taxRate: RF, marginFloorPct: RF, refundWindowHours: RF, refundMethod: RF, maxDiscountPct: RF, couponsAllowed: RF }).partial().optional(),
+  policies: z.object({ currency: RF, paymentMethods: RF, taxRate: RF, marginFloorPct: RF, refundWindowHours: RF, refundMethod: RF, maxDiscountPct: RF, couponsAllowed: RF }).partial().optional(),
   operations: z
     .object({ fulfillment: RF, pickupLocation: RF, suppliers: z.array(z.object({ name: RawFact, items: RF })).default([]) })
     .partial()
@@ -258,14 +258,14 @@ export function assembleSpec(ex: Extracted, ctx: AssembleCtx): { spec: BusinessS
     pattern: "item_seller" as const,
     offerings,
     policies: {
-      currency: missingFact("USD" as const),
+      currency: pick<"USD">("policies.currency", p.currency, "USD"),
       taxRate: pick("policies.taxRate", p.taxRate, "0"),
       marginFloorPct: pick("policies.marginFloorPct", p.marginFloorPct, "0"),
       refundWindowHours: pick("policies.refundWindowHours", p.refundWindowHours, "0"),
       refundMethod: pick("policies.refundMethod", p.refundMethod, ""),
       maxDiscountPct: pick("policies.maxDiscountPct", p.maxDiscountPct, "0"),
       couponsAllowed: pick("policies.couponsAllowed", p.couponsAllowed, false),
-      paymentMethods: missingFact(["card" as const]),
+      paymentMethods: pick<"card"[]>("policies.paymentMethods", p.paymentMethods, ["card"]),
     },
     operations: {
       fulfillment: pick<"pickup" | "delivery">("operations.fulfillment", o.fulfillment, "pickup"),
