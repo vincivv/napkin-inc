@@ -183,7 +183,11 @@ export function registerStorefrontRoutes(app: Hono, d: StorefrontRouteDeps): voi
     if (saved) return c.json(saved, 200, headers);
     const cfg = d.activeConfig(slug);
     if (!cfg) return c.json({ error: "unknown business" }, 404);
-    return c.json(defaultDesign(designInputFromConfig(cfg)), 200, headers);
+    // a live business with no saved design (live before designs existed, or never compiled here): generate
+    // one in the background, once; until it lands the store gets the deterministic default
+    const input = designInputFromConfig(cfg);
+    d.service.ensureInBackground(input);
+    return c.json(defaultDesign(input), 200, { "Cache-Control": "no-store" });
   });
 
   app.post("/storefront/:businessId/design/regenerate", d.gate, async (c) => {

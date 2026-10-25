@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import maya from "../../../fixtures/maya/configuration.json";
 import { DesignImage, parseConfiguration, StorefrontDesign, type Configuration } from "@napkin/schema";
 import { AccountStore, businessGate, registerAccountRoutes } from "../src/accounts";
@@ -350,13 +350,17 @@ function routes() {
 }
 
 describe("storefront routes", () => {
-  it("public GET returns the default design (cached 15 s) until one is saved; 404 for unknown businesses", async () => {
+  it("public GET of a live business with no design serves the default and generates one in the background; 404 for unknown businesses", async () => {
     const h = routes();
     const r = await h.call("GET", "/storefront/maya-cookies/design");
     expect(r.status).toBe(200);
-    expect(r.headers.get("cache-control")).toBe("public, max-age=15");
+    expect(r.headers.get("cache-control")).toBe("no-store");
     expect(StorefrontDesign.safeParse(r.body).success).toBe(true);
-    expect(r.body).toMatchObject({ businessId: "maya-cookies", generator: "default (deterministic)" });
+    expect(r.body).toMatchObject({ businessId: "maya-cookies", generator: "default (deterministic)", hero: { image: null } });
+    await vi.waitFor(() => expect(h.designs.get("maya-cookies")).toBeDefined());
+    const again = await h.call("GET", "/storefront/maya-cookies/design");
+    expect(again.headers.get("cache-control")).toBe("public, max-age=15");
+    expect(again.body.hero.image?.url).toMatch(/hero/);
     expect((await h.call("GET", "/storefront/nobody/design")).status).toBe(404);
     expect((await h.call("GET", "/storefront/Bad%20Slug/design")).status).toBe(404);
   });
