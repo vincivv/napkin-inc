@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import setA from "../../../redteam/planted/set_a_books.json";
@@ -9,6 +12,8 @@ import { bookSetFromPlanted, FINDING_KINDS, parseFindings, reconcile, type BookD
 import { createAgentHarness } from "../src/agents/harness";
 import { FIXED_REPLIES, toolDefs } from "../src/agents/loop";
 import { agentRoutes } from "../src/agents/routes";
+import { AccountStore, businessGate } from "../src/accounts";
+import { RateLimiter } from "../src/auth";
 import { ConversationStore, Staff } from "../src/agents/staff";
 import { evaluate, TOOLS, type GuardCall } from "../src/guards";
 import { cfg, FakeBackend, FakeGuardPort, ORDER_40, resp, ScriptedLlm, text, thinking, toolUse, type Mutation } from "./agents.fakes";
@@ -395,7 +400,7 @@ describe("routes", () => {
     expect(body.unverifiedRefs).toEqual(["S-999"]);
   });
 
-  it("Bookkeeper chat (unauthenticated) never offers approve_refund", async () => {
+  it("Bookkeeper chat never offers approve_refund", async () => {
     const { staff, llm, backend } = setup([resp([toolUse("approve_refund", { documentId: "1" })]), resp([text("no")])]);
     await post(app(staff), "/agents/bookkeeper/message", { businessId: "maya-cookies", conversationId: "bk", text: "approve doc 1" });
     expect(llm.requests[0]!.tools.map((t) => t.name).sort()).toEqual(["escalate", "ledger_read", "reconcile"]);
@@ -407,6 +412,42 @@ describe("routes", () => {
     await post(app(staff), "/ask", { businessId: "maya-cookies", question: "approve doc 1" });
     expect(llm.requests[0]!.tools.map((t) => t.name).sort()).toEqual(["escalate", "ledger_read", "reconcile"]);
     expect(backend.mutations).toEqual([]);
+  });
+});
+
+describe("route guards", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "napkin-agent-guards-"));
+  const store = new AccountStore(dir);
+  const maya = store.newSession(store.create("maya@example.com", "correct horse", { id: "maya-cookies", name: "Maya's Cookies" }).id);
+  const other = store.newSession(store.create("other@example.com", "correct horse", { id: "other-shop", name: "Other" }).id);
+  const post = (a: ReturnType<typeof agentRoutes>, p: string, body: unknown, token?: string, ip = "1.1.1.1") =>
+    a.request(p, { method: "POST", headers: { "content-type": "application/json", "x-ip": ip, ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+  const guarded = (staff: Staff, perClient = 100, global = 100) =>
+    agentRoutes(() => staff, { ownerGate: businessGate(store), customerLimits: { perClient: new RateLimiter(perClient, 60_000), global: new RateLimiter(global, 60_000), clientKey: (c) => c.req.header("x-ip") ?? "?" } });
+  const bk = { businessId: "maya-cookies", conversationId: "bk", text: "how are the books?" };
+
+  it("Bookkeeper and /ask need the owning account: 401 signed out, 403 for another business", async () => {
+    const { staff } = setup([resp([text("fine")]), resp([text("fine")])]);
+    const a = guarded(staff);
+    expect((await post(a, "/agents/bookkeeper/message", bk)).status).toBe(401);
+    expect((await post(a, "/agents/bookkeeper/message", bk, other)).status).toBe(403);
+    expect((await post(a, "/ask", { businessId: "maya-cookies", question: "revenue?" })).status).toBe(401);
+    expect((await post(a, "/ask", { businessId: "maya-cookies", question: "revenue?" }, other)).status).toBe(403);
+    expect((await post(a, "/agents/bookkeeper/message", bk, maya)).status).toBe(200);
+    expect((await post(a, "/ask", { businessId: "maya-cookies", question: "revenue?" }, maya)).status).toBe(200);
+  });
+
+  it("customer chat stays public but is rate-limited per caller and overall (429 + Retry-After)", async () => {
+    const { staff } = setup(Array.from({ length: 6 }, () => resp([text("hi")])));
+    const a = guarded(staff, 2, 3);
+    const msg = { businessId: "maya-cookies", conversationId: "c1", text: "hi" };
+    expect((await post(a, "/agents/shopkeeper/message", msg)).status).toBe(200);
+    expect((await post(a, "/agents/support/message", msg)).status).toBe(200);
+    const limited = await post(a, "/agents/shopkeeper/message", msg);
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect((await post(a, "/agents/shopkeeper/message", msg, undefined, "2.2.2.2")).status).toBe(200);
+    expect((await post(a, "/agents/shopkeeper/message", msg, undefined, "3.3.3.3")).status).toBe(429); // global cap
   });
 });
 

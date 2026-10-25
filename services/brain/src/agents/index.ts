@@ -6,13 +6,14 @@ import type { PlatformPort } from "../platform";
 import type { CheckoutDeps } from "../payments/checkout";
 import type { StdbHub } from "../stdb";
 import { agentLlmFromEnv } from "./llm";
-import { agentRoutes } from "./routes";
+import { agentRoutes, type AgentRouteGuards } from "./routes";
 import { Staff } from "./staff";
 import { StdbStaffBackend } from "./stdb-backend";
 
 export * from "./types";
 export { Staff, StaffError, ConversationStore } from "./staff";
 export { createAgentHarness, HARNESS_BUSINESSES } from "./harness";
+export { agentRoutes, type AgentRouteGuards } from "./routes";
 export { runAgentTurn, toolDefs, FIXED_REPLIES } from "./loop";
 export { BaselineGuard } from "./baseline";
 export { buildSystemPrompt, quoteUntrusted } from "./prompt";
@@ -28,8 +29,8 @@ export function createLiveStaff(hub: StdbHub, checkout: CheckoutDeps): Staff | u
 }
 
 /** Mounts POST /agents/:role/message and POST /ask (one line in server.ts). */
-export function mountAgents(app: Hono, hub: StdbHub, checkout: Omit<CheckoutDeps, "platform"> & { platform: PlatformPort }): Staff | undefined {
+export function mountAgents(app: Hono, hub: StdbHub, checkout: Omit<CheckoutDeps, "platform"> & { platform: PlatformPort }, guards: AgentRouteGuards = {}): Staff | undefined {
   const staff = createLiveStaff(hub, checkout);
-  app.route("/", agentRoutes(() => staff));
+  app.route("/", agentRoutes(() => staff, guards));
   return staff;
 }
