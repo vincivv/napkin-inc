@@ -91,8 +91,9 @@ function LiveData({ businessId, children }: { businessId: string; children: Reac
       decideOwnerStatement: (id, confirm) => c().reducers.decideOwnerStatement({ id, confirm }),
       redeemRoleGrant: (code) => c().reducers.redeemRoleGrant({ code }),
       activateConfiguration: (configId) => c().reducers.activateConfiguration({ configId }),
+      createDocument: (d) => c().reducers.createDocument({ businessId: b, docType: d.docType, externalRef: d.externalRef ?? "", fields: d.fields, lines: d.lines, note: d.note }),
     };
-  }, [getConnection]);
+  }, [getConnection, b]);
 
   useEffect(() => {
     document.documentElement.dataset.mode = "live";

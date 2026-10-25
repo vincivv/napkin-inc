@@ -70,8 +70,14 @@ export interface Pnl {
   cogsCents: bigint; // 5000
   grossProfitCents: bigint;
   feesCents: bigint; // 5100
+  /** operating expenses (rent, supplies, wages, ...): every 6000-6999 account with a balance, by code */
+  operatingExpenses: { code: string; cents: bigint }[];
+  operatingExpensesCents: bigint;
   netIncomeCents: bigint;
 }
+
+/** Operating-expense accounts are the 6000-6999 range (the expense document's categories). */
+export const isOperatingExpense = (code: string) => /^6\d{3}$/.test(code);
 
 export function pnl(lines: readonly JournalLineRow[]): Pnl {
   const revenueCents = -balanceOf(lines, ACCOUNTS.revenue);
@@ -81,7 +87,11 @@ export function pnl(lines: readonly JournalLineRow[]): Pnl {
   const cogsCents = balanceOf(lines, ACCOUNTS.cogs);
   const grossProfitCents = netRevenueCents - cogsCents;
   const feesCents = balanceOf(lines, ACCOUNTS.fees);
-  return { revenueCents, discountsCents, refundsCents, netRevenueCents, cogsCents, grossProfitCents, feesCents, netIncomeCents: grossProfitCents - feesCents };
+  const opex = new Map<string, bigint>();
+  for (const l of lines) if (isOperatingExpense(l.accountCode)) opex.set(l.accountCode, (opex.get(l.accountCode) ?? 0n) + l.debitCents - l.creditCents);
+  const operatingExpenses = [...opex].filter(([, c]) => c !== 0n).sort(([a], [b]) => a.localeCompare(b)).map(([code, cents]) => ({ code, cents }));
+  const operatingExpensesCents = operatingExpenses.reduce((a, x) => a + x.cents, 0n);
+  return { revenueCents, discountsCents, refundsCents, netRevenueCents, cogsCents, grossProfitCents, feesCents, operatingExpenses, operatingExpensesCents, netIncomeCents: grossProfitCents - feesCents - operatingExpensesCents };
 }
 
 /** Calendar day (YYYY-MM-DD) of a micros timestamp in an IANA time zone. */

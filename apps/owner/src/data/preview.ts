@@ -323,6 +323,9 @@ class PreviewWorld {
     redeemRoleGrant: async () => {
       throw new Error("not used in preview");
     },
+    createDocument: async () => {
+      throw new Error("recording documents is not available in preview");
+    },
     activateConfiguration: async (configId) => {
       this.requireOwner();
       const at = this.nowTs();

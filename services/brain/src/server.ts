@@ -23,6 +23,7 @@ import { activeConfigReader, designInputFromConfig, mountStorefront } from "./st
 import { StdbCompilePlatform } from "./compiler/platform";
 import { llmFromEnv } from "./llm";
 import { RateLimiter } from "./auth";
+import { mountExpenses, ReceiptStore } from "./expenses/routes";
 
 let env: Env;
 try {
@@ -166,6 +167,8 @@ mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePu
   ownerGate: gate,
   customerLimits: { perClient: new RateLimiter(40, 15 * 60_000), global: new RateLimiter(600, 60 * 60_000), clientKey },
 });
+// Owner expenses: receipt photo -> pre-filled values. The owner app posts the expense itself (createDocument as the owner).
+mountExpenses(app, { llm: m2.llm, receipts: new ReceiptStore(env.dataDir) });
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();

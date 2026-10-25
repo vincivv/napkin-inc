@@ -57,6 +57,8 @@ export interface Actions {
   redeemRoleGrant(code: string): Promise<void>;
   /** owner only (invariant 6): make a pending configuration active */
   activateConfiguration(configId: bigint): Promise<void>;
+  /** create a document of a config-defined type in this business (the platform checks creatorRoles, posts when postOn = "create") */
+  createDocument(doc: { docType: string; fields: FieldValue[]; lines: DocLine[]; note: string; externalRef?: string }): Promise<void>;
 }
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";

@@ -16,6 +16,85 @@ type AgentDef = Configuration["agents"][number];
 
 export const TEMPLATE_ID = "item_seller@1";
 
+/**
+ * Everyday expenses (rent, supplies, wages, utilities...). A posting rule's target account is a constant, so
+ * the category picks its account through a NUMERIC line field: line.account holds the expense account code,
+ * one debit rule per code fires `when line.account == <code>`, and the expense_account check refuses any
+ * other value. An expense can therefore only ever debit these accounts and credit the paying side
+ * (doc.paidFrom: 1000 paid now, 2000 owed to the supplier). With the checks skipped (red-team baseline) a
+ * foreign code still matches no debit rule, so the posting is unbalanced and refused (invariant 1).
+ */
+export const EXPENSE_CATEGORIES = [
+  { code: "6000", name: "Rent", category: "rent" },
+  { code: "6100", name: "Supplies", category: "supplies" },
+  { code: "6200", name: "Wages", category: "wages" },
+  { code: "6300", name: "Utilities", category: "utilities" },
+  { code: "6900", name: "Other expenses", category: "other" },
+] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]["category"];
+/** The paying side of an expense: doc.paidFrom holds one of these account codes. */
+export const EXPENSE_PAID_FROM = [
+  { code: "1000", ruleId: "expense.cash", memo: "paid now" },
+  { code: "2000", ruleId: "expense.payable", memo: "owed to supplier" },
+] as const;
+
+const anyOf = (ref: string, codes: readonly { code: string }[]) => codes.map((c) => `${ref} == ${c.code}`).join(" || ");
+
+const EXPENSE: DocumentType = {
+  id: "expense",
+  name: "Expense",
+  approval: {
+    creatorRoles: ["owner"],
+    approverRoles: ["owner"],
+    cannotApproveOwn: false,
+    postOn: "create",
+    note: "recorded by the owner only (AI staff never), optionally pre-filled from a receipt photo the owner checks; line.account is the expense account code, doc.paidFrom is 1000 (paid now) or 2000 (owed to the supplier)",
+  },
+  fields: [
+    { name: "vendor", type: "string" },
+    { name: "date", type: "string", required: true },
+    { name: "paidFrom", type: "number", required: true },
+    { name: "receiptRef", type: "string" },
+  ],
+  lineFields: [
+    { name: "account", type: "number", required: true },
+    { name: "amount", type: "money", required: true },
+    { name: "description", type: "string" },
+  ],
+  derived: [{ name: "total", scope: "doc", expr: "sum(line.amount)" }],
+  checks: [
+    { id: "amount_positive", scope: "line", assert: "line.amount > 0", message: "each expense amount must be positive" },
+    {
+      id: "expense_account",
+      scope: "line",
+      assert: anyOf("line.account", EXPENSE_CATEGORIES),
+      message: `an expense can only be booked to an expense account (${EXPENSE_CATEGORIES.map((c) => `${c.code} ${c.name}`).join(", ")})`,
+    },
+    { id: "total_positive", scope: "doc", assert: "doc.total > 0", message: "an expense needs at least one amount" },
+    { id: "paid_from", scope: "doc", assert: anyOf("doc.paidFrom", EXPENSE_PAID_FROM), message: "an expense is either paid now (1000) or owed to the supplier (2000)" },
+  ],
+  postingRules: [
+    ...EXPENSE_CATEGORIES.map((c) => ({
+      id: `expense.${c.category}`,
+      scope: "line" as const,
+      target: { kind: "account" as const, code: c.code },
+      side: "debit" as const,
+      amountExpr: "line.amount",
+      when: `line.account == ${c.code}`,
+      memo: c.name.toLowerCase(),
+    })),
+    ...EXPENSE_PAID_FROM.map((p) => ({
+      id: p.ruleId,
+      scope: "doc" as const,
+      target: { kind: "account" as const, code: p.code },
+      side: "credit" as const,
+      amountExpr: "doc.total",
+      when: `doc.paidFrom == ${p.code}`,
+      memo: p.memo,
+    })),
+  ],
+};
+
 export const DOCUMENTS: readonly DocumentType[] = [
   {
     id: "sale",
@@ -312,6 +391,7 @@ export const DOCUMENTS: readonly DocumentType[] = [
       { id: "payout.clearing", scope: "doc", target: { kind: "account", code: "1010" }, side: "credit", amountExpr: "doc.amount" },
     ],
   },
+  EXPENSE,
 ];
 
 export const CHART_OF_ACCOUNTS: readonly Account[] = [
@@ -327,6 +407,7 @@ export const CHART_OF_ACCOUNTS: readonly Account[] = [
   { code: "4200", name: "Refunds", type: "contra_revenue" },
   { code: "5000", name: "Cost of goods sold", type: "expense" },
   { code: "5100", name: "Processor fees", type: "expense" },
+  ...EXPENSE_CATEGORIES.map((c) => ({ code: c.code, name: c.name, type: "expense" as const })),
 ];
 
 export const REGISTERS: readonly Register[] = [

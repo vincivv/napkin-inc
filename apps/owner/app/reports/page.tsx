@@ -118,6 +118,9 @@ export default function ReportsPage() {
               <Row indent label={`Cost of goods sold · ${ACCOUNTS.cogs}`} cents={-p.cogsCents} note={costUnconfirmed ? "ingredient costs are unconfirmed placeholders" : undefined} />
               <Row bold label="Gross profit" cents={p.grossProfitCents} note={pct(p.grossProfitCents, p.netRevenueCents)} />
               <Row indent label={`Processor fees · ${ACCOUNTS.fees}`} cents={-p.feesCents} />
+              {p.operatingExpenses.map((x) => (
+                <Row key={x.code} indent label={`${names.account(x.code)} · ${x.code}`} cents={-x.cents} />
+              ))}
               <Row bold label="Net income" cents={p.netIncomeCents} />
             </tbody>
           </table>

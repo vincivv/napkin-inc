@@ -79,6 +79,27 @@ export interface ReviewResponse {
   needAnswers: number;
   moneyReady: boolean;
 }
+/** What the brain read off a receipt photo: a pre-fill only. "" = not read (the owner fills it in). */
+export interface ReceiptRead {
+  vendor: string;
+  date: string;
+  total: string;
+  tax: string;
+  currency: string;
+  category: string;
+  /** the suggested category's expense account code, or "" */
+  account: string;
+  items: { description: string; amount: string }[];
+  notes: string;
+  confidence: number;
+  itemsMatchTotal: boolean | null;
+  dropped: string[];
+}
+export interface ReceiptResponse {
+  receiptRef: string;
+  read: ReceiptRead | null;
+  readError?: string;
+}
 
 export class BrainError extends Error {
   constructor(readonly status: number, message: string) {
@@ -172,6 +193,20 @@ export const brain = {
     return req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/images/${encodeURIComponent(slot)}`, { method: "POST", body: fd });
   },
   removeDesignImage: (b: string, slot: string) => req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/images/${encodeURIComponent(slot)}`, { method: "DELETE" }),
+
+  /** Store a receipt photo and read it into pre-fill values (nothing is posted). */
+  readReceipt(businessId: string, file: File) {
+    const fd = new FormData();
+    fd.set("businessId", businessId);
+    fd.set("image", file);
+    return req<ReceiptResponse>("/expenses/receipt", { method: "POST", body: fd });
+  },
+  /** A stored receipt as an object URL (fetched with the session; an <img src> could not send it). */
+  async receiptObjectUrl(businessId: string, ref: string): Promise<string> {
+    const res = await fetch(`${BRAIN_URL}/expenses/receipt?businessId=${encodeURIComponent(businessId)}&ref=${encodeURIComponent(ref)}`, { headers: authHeaders() });
+    if (!res.ok) throw new BrainError(res.status, `receipt unavailable (${res.status})`);
+    return URL.createObjectURL(await res.blob());
+  },
 };
 
 export type DesignPatch = Partial<Pick<StorefrontDesign, "style" | "corners" | "fonts" | "palette" | "announcement" | "collection">> & {

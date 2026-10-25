@@ -1,7 +1,7 @@
 // Step (d), part 2: a ledger-core dry run. Before a configuration is emitted, a sample of every document
 // is posted through the SAME engine the platform uses (@napkin/ledger-core post()): a sale and a full
-// refund of every product, at 0% and at the maximum discount, plus payment, fee, payout, stock receipt
-// and opening stock. Any unbalanced rule or failing check refuses the configuration.
+// refund of every product, at 0% and at the maximum discount, plus payment, fee, payout, stock receipt,
+// opening stock and one expense per category and paying side. Any unbalanced rule or failing check refuses the configuration.
 // All amounts here are DRY-RUN SAMPLES built from the configuration's own catalog, never business facts.
 
 import { PolicyCheckError, post, Rational, type DocumentDef, type DocumentInput, type PostingContext, type PostingResult, type Scalar } from "@napkin/ledger-core";
@@ -75,6 +75,11 @@ export function refundInput(f: SaleFacts, amount: Rational, refundedSoFar = Rati
   };
 }
 
+/** A one-line expense (dry-run sample: the amount is not a business fact). */
+export function expenseInput(account: string, amount: string, paidFrom: string): DocumentInput {
+  return { fields: { vendor: "dry run", date: "2026-01-01", paidFrom, receiptRef: "" }, lines: [{ account, amount, description: "dry run" }] };
+}
+
 export interface DryRunCase {
   subject: string;
   ok: boolean;
@@ -137,6 +142,17 @@ export function dryRun(cfg: Configuration): DryRunReport {
       return { stockItem: item, qty: String(qty), unitCost: String(e?.data["unitCost"] ?? "") };
     });
     cases.push(attempt("opening_balance", () => post(docDef(cfg, "opening_balance"), { fields: {}, lines }, ctx)).c);
+  }
+  // Expenses (configurations compiled before expenses existed have no such document type).
+  const expense = cfg.documents.find((d) => d.id === "expense");
+  if (expense) {
+    const def = expense as unknown as DocumentDef;
+    const accountsFrom = (side: "debit" | "credit") => expense.postingRules.flatMap((r) => (r.target.kind === "account" && r.side === side ? [r.target.code] : []));
+    for (const paidFrom of accountsFrom("credit")) {
+      for (const account of accountsFrom("debit")) {
+        cases.push(attempt(`expense/${account}/from-${paidFrom}`, () => post(def, expenseInput(account, "1.00", paidFrom), ctx)).c);
+      }
+    }
   }
   return { ok: cases.every((c) => c.ok), cases, belowFloor };
 }
