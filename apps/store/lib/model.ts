@@ -25,6 +25,8 @@ export type StoreInfo = {
   fulfillment: string;
   currency: string;
   couponsAllowed: boolean;
+  /** sales tax as a fraction ("0.0825"); "0" when the shop charges none */
+  taxRate: string;
   theme: Theme;
 };
 
@@ -96,6 +98,7 @@ export function storeInfoFrom(config: Record<string, unknown> | null, businessId
     fulfillment: str(pol.fulfillment),
     currency: str(pol.currency) || "USD",
     couponsAllowed: pol.couponsAllowed === true,
+    taxRate: /^\d+(\.\d+)?$/.test(str(pol.taxRate)) ? str(pol.taxRate) : "0",
     theme: {
       primary: color(th.primary, DEFAULT_THEME.primary),
       accent: color(th.accent, DEFAULT_THEME.accent),
@@ -214,6 +217,18 @@ export function estimateCents(cart: Cart, products: readonly Product[]): bigint 
     sum += p.priceCents * BigInt(qty);
   }
   return sum;
+}
+
+/** Tax the platform will add, per line and rounded to the cent like the sale document's own rule (before any discount). */
+export function estimateTaxCents(cart: Cart, products: readonly Product[], taxRate: string): bigint {
+  const rate = Number(taxRate);
+  if (!(rate > 0)) return 0n;
+  let tax = 0n;
+  for (const [id, qty] of Object.entries(cart)) {
+    const p = products.find((x) => x.id === id);
+    if (qty > 0 && p?.priceCents != null) tax += BigInt(Math.round(Number(p.priceCents * BigInt(qty)) * rate));
+  }
+  return tax;
 }
 
 export const cartCount = (cart: Cart) => Object.values(cart).reduce((a, b) => a + (b > 0 ? b : 0), 0);

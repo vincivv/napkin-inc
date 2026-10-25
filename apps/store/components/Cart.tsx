@@ -6,7 +6,7 @@ import { startCheckout } from "@/lib/brain";
 import { useCart } from "@/lib/cart";
 import { productImage } from "@/lib/design";
 import { formatCents } from "@/lib/money";
-import { cartCount, estimateCents, maxQty } from "@/lib/model";
+import { cartCount, estimateCents, estimateTaxCents, maxQty } from "@/lib/model";
 import { useStore } from "@/lib/store-data";
 import { AddonCard, priceLabel } from "./Products";
 import { DesignContext } from "./StoreShell";
@@ -77,6 +77,7 @@ export function CartSheet() {
   const unknown = Object.keys(cart).filter((id) => !products.some((p) => p.id === id));
   const addonsNotInCart = products.filter((p) => p.isAddon && !cart[p.id]);
   const est = estimateCents(Object.fromEntries(lines.map((p) => [p.id, cart[p.id] ?? 0])), products);
+  const tax = est === null ? 0n : estimateTaxCents(Object.fromEntries(lines.map((p) => [p.id, cart[p.id] ?? 0])), products, info.taxRate);
   const empty = lines.length === 0;
   const count = cartCount(cart);
 
@@ -204,9 +205,21 @@ export function CartSheet() {
 
           {!empty ? (
             <div className="border-t border-line bg-paper px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
+              {est !== null && tax > 0n ? (
+                <div className="mb-1 space-y-0.5 text-sm text-muted">
+                  <div className="flex justify-between">
+                    <span>Subtotal</span>
+                    <span className="tabular-nums">{formatCents(est, info.currency)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tax ({(Number(info.taxRate) * 100).toFixed(2).replace(/\.?0+$/, "")}%)</span>
+                    <span className="tabular-nums">{formatCents(tax, info.currency)}</span>
+                  </div>
+                </div>
+              ) : null}
               <div className="flex items-baseline justify-between">
                 <span className="font-semibold">Estimated total</span>
-                <span className="text-xl font-semibold tabular-nums">{est === null ? "—" : formatCents(est, info.currency)}</span>
+                <span className="text-xl font-semibold tabular-nums">{est === null ? "—" : formatCents(est + tax, info.currency)}</span>
               </div>
               <p className="mt-0.5 text-xs text-muted">
                 Estimate only. The shop confirms the final total (discounts, tax) before you pay.

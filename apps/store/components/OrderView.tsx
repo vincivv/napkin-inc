@@ -55,14 +55,17 @@ function LiveOrder({ orderId, simulate }: { orderId: string; simulate: boolean }
         : null,
     [row],
   );
-  const lines = useMemo((): OrderLine[] => {
+  const { lines, discountRate } = useMemo((): { lines: OrderLine[]; discountRate: string } => {
     const doc = docRows[0];
-    if (!doc) return [];
-    return doc.lines.map((l) => {
-      const v: Record<string, string> = {};
-      for (const fv of l.values) v[fv.name] = fv.value;
-      return { productId: v.productId ?? "", qty: v.qty ?? "", unitPrice: v.unitPrice ?? "" };
-    });
+    if (!doc) return { lines: [], discountRate: "0" };
+    return {
+      lines: doc.lines.map((l) => {
+        const v: Record<string, string> = {};
+        for (const fv of l.values) v[fv.name] = fv.value;
+        return { productId: v.productId ?? "", qty: v.qty ?? "", unitPrice: v.unitPrice ?? "" };
+      }),
+      discountRate: doc.fields.find((f) => f.name === "discountRate")?.value ?? "0",
+    };
   }, [docRows]);
 
   if (!orderReady) return <OrderSkeleton />;
@@ -76,7 +79,26 @@ function LiveOrder({ orderId, simulate }: { orderId: string; simulate: boolean }
       </StatusScreen>
     );
   }
-  return <OrderScreen order={order} lines={lines} simulate={simulate} onSimulate={() => simulatePayment(order.id)} />;
+  return <OrderScreen order={order} lines={lines} discountRate={discountRate} simulate={simulate} onSimulate={() => simulatePayment(order.id)} />;
+}
+
+/**
+ * Subtotal, discount and tax for the receipt. The platform priced the order (total = sum of net + tax per line);
+ * the discount is recomputed per line the same way (rounded to the cent) and tax is what remains, so the rows
+ * always add up to the platform's total exactly.
+ */
+function breakdown(lines: OrderLine[], discountRate: string, totalCents: bigint): { subtotal: bigint; discount: bigint; tax: bigint } | null {
+  let subtotal = 0n;
+  let discount = 0n;
+  const rate = Number(discountRate);
+  for (const l of lines) {
+    const unit = decimalToCents(l.unitPrice);
+    if (unit === null || !/^\d+$/.test(l.qty)) return null;
+    const gross = unit * BigInt(l.qty);
+    subtotal += gross;
+    if (rate > 0) discount += BigInt(Math.round(Number(gross) * rate));
+  }
+  return { subtotal, discount, tax: totalCents - subtotal + discount };
 }
 
 /** Preview only: a fake order so the states can be designed without a platform. ?status=paid etc. */
@@ -128,17 +150,19 @@ function OrderSkeleton() {
 function OrderScreen({
   order,
   lines,
+  discountRate = "0",
   simulate,
   onSimulate,
 }: {
   order: OrderSnapshot;
   lines: OrderLine[];
+  discountRate?: string;
   simulate: boolean;
   onSimulate: () => Promise<void>;
 }) {
   return (
     <StoreGate>
-      {({ info, products }) => <OrderBody order={order} lines={lines} simulate={simulate} onSimulate={onSimulate} info={info} products={products} />}
+      {({ info, products }) => <OrderBody order={order} lines={lines} discountRate={discountRate} simulate={simulate} onSimulate={onSimulate} info={info} products={products} />}
     </StoreGate>
   );
 }
@@ -153,6 +177,7 @@ const STEPS = [
 function OrderBody({
   order,
   lines,
+  discountRate,
   simulate,
   onSimulate,
   info,
@@ -160,6 +185,7 @@ function OrderBody({
 }: {
   order: OrderSnapshot;
   lines: OrderLine[];
+  discountRate: string;
   simulate: boolean;
   onSimulate: () => Promise<void>;
   info: StoreInfo;
@@ -183,6 +209,7 @@ function OrderBody({
   const name = order.customerName.trim();
   const head = headlineFor(order.status, name);
   const cur = info.currency;
+  const sums = lines.length > 0 ? breakdown(lines, discountRate, order.totalCents) : null;
 
   return (
     <div className="mx-auto max-w-md px-4 pt-8">
@@ -274,6 +301,13 @@ function OrderBody({
           </ul>
         ) : null}
         <div className="space-y-1 border-t border-line bg-paper/50 px-5 py-4">
+          {sums && (sums.discount > 0n || sums.tax !== 0n) ? (
+            <>
+              <Row label="Subtotal" value={formatCents(sums.subtotal, cur)} />
+              {sums.discount > 0n ? <Row label="Discount" value={`−${formatCents(sums.discount, cur)}`} /> : null}
+              {sums.tax !== 0n ? <Row label="Tax" value={formatCents(sums.tax, cur)} /> : null}
+            </>
+          ) : null}
           <Row label="Total" value={formatCents(order.totalCents, cur)} strong />
           {order.paidCents > 0n ? <Row label="Paid (test card)" value={formatCents(order.paidCents, cur)} /> : null}
           {order.refundedCents > 0n ? <Row label="Refunded" value={`−${formatCents(order.refundedCents, cur)}`} /> : null}

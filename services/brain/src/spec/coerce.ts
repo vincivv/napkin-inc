@@ -7,9 +7,38 @@ export class CoerceError extends Error {
   override name = "CoerceError";
 }
 
-export type ValueKind = "money" | "pct" | "points" | "hours" | "qty" | "int" | "bool" | "fulfillment" | "currency" | "methods" | "list" | "text";
+export type ValueKind = "money" | "pct" | "points" | "hours" | "qty" | "int" | "bool" | "fulfillment" | "currency" | "methods" | "list" | "timezone" | "text";
+
+/** Everyday US/UK names for a zone -> the IANA id every clock in the apps needs ("Pacific time" would crash them). */
+const ZONE_WORDS: [RegExp, string][] = [
+  [/\b(pacific|pst|pdt|pt|los angeles|la|san francisco|seattle|california|west coast)\b/, "America/Los_Angeles"],
+  [/\b(mountain|mst|mdt|mt|denver)\b/, "America/Denver"],
+  [/\b(arizona|phoenix)\b/, "America/Phoenix"],
+  [/\b(central|cst|cdt|ct|chicago|texas|dallas|houston)\b/, "America/Chicago"],
+  [/\b(eastern|est|edt|et|new york|nyc|boston|miami|east coast)\b/, "America/New_York"],
+  [/\b(alaska|akst|anchorage)\b/, "America/Anchorage"],
+  [/\b(hawaii|hst|honolulu)\b/, "Pacific/Honolulu"],
+  [/\b(uk|london|gmt|bst|british)\b/, "Europe/London"],
+  [/\b(utc|zulu)\b/, "UTC"],
+];
+function isZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+export function coerceTimeZone(raw: string): string {
+  const t = raw.trim();
+  if (t.includes("/") && isZone(t.replace(/\s+/g, "_"))) return new Intl.DateTimeFormat("en-US", { timeZone: t.replace(/\s+/g, "_") }).resolvedOptions().timeZone;
+  const lower = t.toLowerCase();
+  for (const [re, zone] of ZONE_WORDS) if (re.test(lower)) return zone;
+  throw new CoerceError(`I don't know the time zone "${t}"; try a city, e.g. "Los Angeles" or "America/Chicago"`);
+}
 
 const KINDS: Record<string, ValueKind> = {
+  "business.timezone": "timezone",
   "offerings.*.variants.*.price": "money",
   "offerings.*.variants.*.cost": "money",
   "offerings.*.addOns.*.price": "money",
@@ -146,6 +175,8 @@ export function coerceValue(path: string, current: unknown, text: string): unkno
       throw new CoerceError('only "card" payments are supported');
     case "list":
       return raw.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
+    case "timezone":
+      return coerceTimeZone(raw);
     case "text":
       if (typeof current === "boolean") return parseBool(raw);
       return raw;

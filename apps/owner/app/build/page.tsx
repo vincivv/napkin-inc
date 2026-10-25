@@ -110,7 +110,7 @@ export default function BuildPage() {
         subtitle="Compile the confirmed facts into a configuration, check it, then activate it."
         actions={
           <Button variant="primary" onClick={() => void run()} disabled={running}>
-            {running ? "Compiling…" : "Compile configuration"}
+            {running ? (active ? "Finishing setup…" : "Compiling…") : "Compile configuration"}
           </Button>
         }
       />

@@ -13,6 +13,16 @@ import { docDef, dryRun, postingContext, saleInput, type DryRunReport } from "./
 import { proofFailed, type ProverPort, type SpecExample } from "./prover-port";
 import { acceptProposal, type CopyProposer } from "./storefront";
 import * as T from "./templates/item_seller";
+import { coerceTimeZone } from "../spec/coerce";
+
+function zoneOrEmpty(v: unknown): string {
+  if (typeof v !== "string" || !v.trim()) return "";
+  try {
+    return coerceTimeZone(v);
+  } catch {
+    return "";
+  }
+}
 
 export { CompileRefused, NeedsOwnerAnswer, UnconfirmedMoneyFacts } from "./errors";
 export { StubProver, type ProverPort } from "./prover-port";
@@ -188,7 +198,8 @@ export function fillTemplate(spec: BusinessSpec, opts: Pick<CompileOptions, "bus
       community: b.community.value,
       pickupLocation: spec.operations.pickupLocation.value,
       hours: b.hours.value,
-      timezone: b.timezone.value,
+      // an IANA id or nothing: a spec saved before zones were checked may hold "Pacific time", which crashes clocks
+      timezone: zoneOrEmpty(b.timezone.value),
     },
     catalogs: [
       { id: T.PRODUCTS_CATALOG.id, name: T.PRODUCTS_CATALOG.name, lineKey: T.PRODUCTS_CATALOG.lineKey, fields: structuredClone([...T.PRODUCT_FIELDS]), entries: products },

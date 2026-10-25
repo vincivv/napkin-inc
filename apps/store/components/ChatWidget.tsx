@@ -6,6 +6,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { sendChat, type ChatToolCall, type StaffRole } from "@/lib/brain";
+import type { Product } from "@/lib/model";
 import { useStore } from "@/lib/store-data";
 
 type Msg = { from: "you" | "shop"; text: string; calls?: ChatToolCall[]; error?: boolean };
@@ -15,7 +16,7 @@ const ROLES: { role: StaffRole; label: string; hello: string; suggestions: strin
     role: "shopkeeper",
     label: "Shop",
     hello: "Hi! I can tell you what's in stock, quote an order and set it up for you to pay.",
-    suggestions: ["What do you have today?", "Can I get 3 for the price of 2?", "I'd like a box of 6"],
+    suggestions: [], // built from this shop's own menu (see shopSuggestions)
   },
   {
     role: "support",
@@ -24,6 +25,12 @@ const ROLES: { role: StaffRole; label: string; hello: string; suggestions: strin
     suggestions: ["Where is my order?", "I want a refund"],
   },
 ];
+
+/** Starters that fit this shop: one real item to order, plus the menu and the "try to get a deal" question. */
+function shopSuggestions(products: Product[]): string[] {
+  const first = products.find((p) => !p.isAddon);
+  return ["What do you have today?", ...(first ? [`One ${first.name}, please`] : []), "Can I get a discount?"];
+}
 
 function conversationId(slug: string, role: StaffRole): string {
   const key = `napkin.chat.${slug}.${role}`;
@@ -55,6 +62,7 @@ export function ChatWidget() {
   }, [msgs.length, busy, open]);
 
   if (state.status !== "ready" || preview || pathname.endsWith("/qr")) return null;
+  const suggestions = role.role === "shopkeeper" ? shopSuggestions(state.products) : role.suggestions;
 
   async function send(t: string) {
     const q = t.trim();
@@ -133,7 +141,7 @@ export function ChatWidget() {
             ) : null}
             {msgs.length === 0 && !busy ? (
               <div className="flex flex-wrap gap-2 pt-1">
-                {role.suggestions.map((s) => (
+                {suggestions.map((s) => (
                   <button key={s} type="button" onClick={() => void send(s)} className="rounded-btn border border-line-strong px-3 py-1.5 text-sm hover:bg-surface">
                     {s}
                   </button>
@@ -169,8 +177,9 @@ function Bubble({ from, error, children }: { from: Msg["from"]; error?: boolean;
   );
 }
 
-const PAY_URL = /(https?:\/\/[^\s)]+)/g;
+const PAY_URL = /(https?:\/\/[^\s)*]+)/g;
 
+/** The reply as text: links become links (an order page reads "Pay for this order"), **bold** becomes bold. */
 function Linkified({ text }: { text: string }) {
   const parts = text.split(PAY_URL);
   return (
@@ -178,10 +187,10 @@ function Linkified({ text }: { text: string }) {
       {parts.map((p, i) =>
         /^https?:\/\//.test(p) ? (
           <a key={i} href={p} className="break-all font-semibold underline underline-offset-2">
-            {p.includes("/p/") ? "Pay for this order" : p}
+            {/\/(order|p)\//.test(p) ? "Pay for this order" : p}
           </a>
         ) : (
-          <span key={i}>{p}</span>
+          <span key={i}>{p.split(/\*\*(.+?)\*\*/g).map((s, j) => (j % 2 ? <strong key={j}>{s}</strong> : s))}</span>
         ),
       )}
     </>

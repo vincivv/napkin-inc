@@ -10,9 +10,19 @@ export function useDocMap(): Map<bigint, DocumentRow> {
   return useMemo(() => new Map(snapshot.documents.map((d) => [d.id, d])), [snapshot.documents]);
 }
 
+/** The business's time zone; the browser's when it is unset or not a real zone id (a bad one would crash every clock). */
 export function useTz(): string {
   const { config } = useData();
-  return config?.config?.business.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = config?.config?.business.timezone;
+  if (tz) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: tz });
+      return tz;
+    } catch {
+      /* fall through */
+    }
+  }
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 export function docLabel(d: DocumentRow | undefined, names: Names): string {

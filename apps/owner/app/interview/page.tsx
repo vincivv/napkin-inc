@@ -82,7 +82,16 @@ export default function InterviewPage() {
           {review && review.items.length > 1 && <ReviewCard review={review} busy={busy} onConfirm={(ids) => act(() => brain.confirmMany(businessId, ids))} />}
           <Card title={q ? `Question · ${next!.remaining} left` : "Question"}>
             {!q ? (
-              <Empty compact title="No open questions" hint={next?.moneyReady ? "Everything that touches money is confirmed." : "Nothing left to ask."} />
+              <div>
+                <Empty compact title="No open questions" hint={next?.moneyReady ? "Everything that touches money is confirmed." : "Nothing left to ask."} />
+                {next?.moneyReady && (
+                  <div className="mt-1 flex justify-center pb-2">
+                    <Link href="/build">
+                      <Button variant="primary">Next: go live →</Button>
+                    </Link>
+                  </div>
+                )}
+              </div>
             ) : (
               <div key={q.id}>
                 <div className="mb-2 flex flex-wrap gap-1.5">
@@ -90,7 +99,6 @@ export default function InterviewPage() {
                   <Badge title="moneyImpact × (1 − confidence)">impact {q.impactScore.toFixed(2)}</Badge>
                 </div>
                 <p className="text-[16px] font-medium leading-snug text-ink">{q.phrased}</p>
-                {q.phrased !== q.question && <p className="mt-1 text-[11.5px] text-faint">Plain version: {q.question}</p>}
                 {q.current && !q.candidates && (
                   <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-surface-2 px-3 py-2 text-[12.5px]">
                     <span className="text-muted">What I have:</span>

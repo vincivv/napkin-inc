@@ -28,6 +28,8 @@ const LABELS: Record<string, string> = {
   "business.timezone": "your timezone",
 };
 
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
 /** Human label for a path, using the names in the spec ("the cost of Chocolate chip cookie, Box of 6"). */
 export function labelFor(spec: BusinessSpec, path: string): string {
   const norm = normalizePath(path);
@@ -39,12 +41,15 @@ export function labelFor(spec: BusinessSpec, path: string): string {
     const offName = off && String(off.name.value) ? String(off.name.value) : "this item";
     const el = grp && off ? (off[grp as "variants" | "addOns"] as { id: string; name: AnyFact }[]).find((e) => e.id === eid) : undefined;
     const elName = el && String(el.name.value) ? String(el.name.value) : grp === "addOns" ? "this add-on" : "this size";
+    // a one-size item often has a size named like the item ("Chicken burrito" / "Chicken burrito"): say it once
+    const oneName = grp === "variants" && sameName(elName, offName);
     if (field === "cost" && grp === "addOns") return `your ingredient cost for the ${elName} add-on on one order of ${offName}`;
-    if (field === "cost") return `your ingredient cost to make one ${grp ? `${elName} of ${offName}` : offName}`;
+    if (field === "cost") return `your ingredient cost to make one ${grp && !oneName ? `${elName} of ${offName}` : offName}`;
     if (field === "price" && grp === "addOns") return `the price you charge for the ${elName} add-on`;
-    if (field === "stockUnits") return `how many ${offName} one ${elName} sale uses from stock`;
+    if (field === "stockUnits") return oneName ? `how many units of stock one ${offName} sale uses` : `how many ${offName} one ${elName} sale uses from stock`;
+    if (field === "name" && oneName) return `the size name for ${offName}`;
     const what = { price: "the price of", stockUnits: "the stock units of", name: "the name of", initialStock: "the starting stock of", stockTracked: "whether you track stock for", description: "the description of" }[field!] ?? field;
-    const target = grp ? `${offName}, ${elName}` : offName;
+    const target = grp && !oneName ? `${offName}, ${elName}` : offName;
     return `${what} ${target}`;
   }
   return path;
@@ -72,6 +77,7 @@ function askMissing(spec: BusinessSpec, path: string, label: string): string {
     const vName = v && String(v.name.value) ? String(v.name.value) : "this size";
     if (m[3] === "stockTracked") return `Do you want to track stock for ${offName}?`;
     if (m[3] === "initialStock") return `How many ${offName} do you have in stock right now?`;
+    if (sameName(vName, offName)) return `How many units of stock does one ${offName} use? (A box of 6 uses 6.)`;
     return `How many ${offName} does one ${vName} use from stock? (A box of 6 uses 6.)`;
   }
   return `What is ${label}?`;

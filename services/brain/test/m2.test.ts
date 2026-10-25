@@ -9,7 +9,7 @@ import { mergeSpecs } from "../src/intake/merge";
 import type { Llm, ToolRequest } from "../src/llm";
 import { intakeRoutes } from "../src/intake/routes";
 import type { M2Deps, M2Platform } from "../src/m2deps";
-import { applyAnswer, batchConfirmable, confirmMany, moneyBlockers, moneyReady, nextQuestion, refreshQuestions } from "../src/questions/engine";
+import { applyAnswer, batchConfirmable, confirmMany, labelFor, moneyBlockers, moneyReady, nextQuestion, refreshQuestions } from "../src/questions/engine";
 import { impactScore, isMoneyRelevant, moneyImpact } from "../src/questions/impact";
 import { phrasingIsFaithful } from "../src/questions/phrase";
 import { questionRoutes } from "../src/questions/routes";
@@ -87,6 +87,18 @@ describe("assembleSpec (never assume)", () => {
   });
 });
 
+describe("labels", () => {
+  it("a one-size item named like its size is named once", () => {
+    const one: Extracted = { offerings: [{ name: rf("Chicken burrito"), variants: [{ name: rf("Chicken burrito"), price: rf("9") }], addOns: [] }] };
+    const s = refreshQuestions(assembleSpec(one, { mode: "photo", ref: "x.png" }).spec);
+    const p = "offerings.chicken-burrito.variants.chicken-burrito";
+    expect(labelFor(s, `${p}.cost`)).toBe("your ingredient cost to make one Chicken burrito");
+    expect(labelFor(s, `${p}.price`)).toBe("the price of Chicken burrito");
+    expect(labelFor(s, `${p}.stockUnits`)).toBe("how many units of stock one Chicken burrito sale uses");
+    expect(labelFor(photoSpec(), "offerings.chocolate-chip-cookie.variants.box-of-6.price")).toBe("the price of Chocolate chip cookie, Box of 6");
+  });
+});
+
 describe("coerceValue", () => {
   it("parses money, percents and hours exactly", () => {
     expect(coerceValue("offerings.a.variants.b.price", "", "$3")).toBe("3.00");
@@ -94,6 +106,12 @@ describe("coerceValue", () => {
     // two different numbers are ambiguous: asked again, never the first one picked
     expect(() => coerceValue("offerings.a.variants.b.price", "", "$9.00$10")).toThrow(/more than one number/);
     expect(() => coerceValue("offerings.a.variants.b.price", "", "2 for $6")).toThrow(CoerceError);
+    // a time zone must be one every clock understands
+    expect(coerceValue("business.timezone", "", "Pacific time")).toBe("America/Los_Angeles");
+    expect(coerceValue("business.timezone", "", "EST")).toBe("America/New_York");
+    expect(coerceValue("business.timezone", "", "america/chicago")).toBe("America/Chicago");
+    expect(coerceValue("business.timezone", "", "Europe/Paris")).toBe("Europe/Paris");
+    expect(() => coerceValue("business.timezone", "", "whenever")).toThrow(CoerceError);
     expect(coerceValue("policies.maxDiscountPct", "", "20%")).toBe("20");
     expect(coerceValue("policies.maxDiscountPct", "", "0")).toBe("0");
     // *Pct fields are percent points; a bare value between 0 and 1 could mean either, so it is asked again
@@ -194,7 +212,7 @@ describe("moneyReady", () => {
     while (!moneyReady(s) && guard++ < 60) {
       const q = nextQuestion(s)!;
       const f = getFact(s, q.fieldPath)!;
-      const typed: Record<string, string> = { cost: "0.5", stockTracked: "no", couponsAllowed: "no", refundMethod: "original payment", currency: "USD", paymentMethods: "card", fulfillment: "pickup" };
+      const typed: Record<string, string> = { cost: "0.5", stockTracked: "no", couponsAllowed: "no", refundMethod: "original payment", currency: "USD", paymentMethods: "card", fulfillment: "pickup", timezone: "Pacific" };
       const leaf = q.fieldPath.split(".").pop()!;
       s = applyAnswer(s, q.id, f.confidence > 0 && !q.fieldPath.includes("cost") ? { confirm: true } : { answer: typed[leaf] ?? "10%" }).spec;
     }
