@@ -90,6 +90,10 @@ describe("assembleSpec (never assume)", () => {
 describe("coerceValue", () => {
   it("parses money, percents and hours exactly", () => {
     expect(coerceValue("offerings.a.variants.b.price", "", "$3")).toBe("3.00");
+    expect(coerceValue("offerings.a.variants.b.price", "", "about $4 each, $4.00 flat")).toBe("4.00");
+    // two different numbers are ambiguous: asked again, never the first one picked
+    expect(() => coerceValue("offerings.a.variants.b.price", "", "$9.00$10")).toThrow(/more than one number/);
+    expect(() => coerceValue("offerings.a.variants.b.price", "", "2 for $6")).toThrow(CoerceError);
     expect(coerceValue("policies.maxDiscountPct", "", "20%")).toBe("20");
     expect(coerceValue("policies.maxDiscountPct", "", "0")).toBe("0");
     // *Pct fields are percent points; a bare value between 0 and 1 could mean either, so it is asked again
@@ -515,6 +519,48 @@ describe("routes", () => {
     expect((await h.app.request("/intake/photo/maya-cookies")).status).toBe(404);
     expect(fs.readdirSync(path.join(h.dir, "specs")).some((f) => f.includes("photo"))).toBe(false);
     expect((await h.app.request("/intake/photo/maya-cookies", { method: "DELETE" })).status).toBe(409);
+  });
+
+  it("the owner edits and removes facts from the intake list, and can start over before going live", async () => {
+    const h = harness(llm());
+    const fd = new FormData();
+    fd.set("businessId", "maya-cookies");
+    fd.set("image", png());
+    expect((await h.app.request("/intake/photo", { method: "POST", body: fd })).status).toBe(200);
+    const priceP = "offerings.chocolate-chip-cookie.variants.single.price";
+
+    const ed = await j(h.app, "/intake/edit", { businessId: "maya-cookies", path: priceP, value: "$3.50" });
+    expect(ed.status).toBe(200);
+    expect(getFact(h.deps.store.get("maya-cookies")!.spec, priceP)).toMatchObject({ value: "3.50", provenance: "owner_said", confirmed: true });
+    expect(h.deps.store.get("maya-cookies")!.spec.openQuestions.some((q) => q.fieldPath === priceP && q.status === "open")).toBe(false);
+    expect((await j(h.app, "/intake/edit", { businessId: "maya-cookies", path: priceP, value: "banana" })).status).toBe(422);
+    expect((await j(h.app, "/intake/edit", { businessId: "maya-cookies", path: "nope.nope", value: "1" })).status).toBe(422);
+
+    // an add-on goes with its questions; a variant goes; a plain value goes back to "not provided"
+    expect((await j(h.app, "/intake/remove", { businessId: "maya-cookies", path: "offerings.chocolate-chip-cookie.addOns.sea-salt.name" })).status).toBe(200);
+    expect((await j(h.app, "/intake/remove", { businessId: "maya-cookies", path: "offerings.chocolate-chip-cookie.variants.box-of-6.name" })).status).toBe(200);
+    let rec = h.deps.store.get("maya-cookies")!;
+    expect(rec.spec.offerings[0]!.addOns).toEqual([]);
+    expect(rec.spec.offerings[0]!.variants.map((v) => v.id)).toEqual(["single"]);
+    expect(rec.spec.openQuestions.some((q) => q.fieldPath.includes("sea-salt") || q.fieldPath.includes("box-of-6"))).toBe(false);
+    expect(rec.drafts.photo!.spec.offerings[0]!.addOns).toEqual([]); // a re-merge can't bring it back
+    expect((await j(h.app, "/intake/remove", { businessId: "maya-cookies", path: "business.name" })).status).toBe(200);
+    expect(isMissing(getFact(h.deps.store.get("maya-cookies")!.spec, "business.name")!)).toBe(true);
+    expect((await j(h.app, "/intake/remove", { businessId: "maya-cookies", path: "business.name" })).status).toBe(422);
+    expect((await j(h.app, "/intake/merge", { businessId: "maya-cookies" })).status).toBe(200);
+    rec = h.deps.store.get("maya-cookies")!;
+    expect(rec.spec.offerings[0]!.variants.map((v) => v.id)).toEqual(["single"]);
+    // the last variant would take its item with it, but a business needs at least one item
+    expect((await j(h.app, "/intake/remove", { businessId: "maya-cookies", path: "offerings.chocolate-chip-cookie.variants.single.name" })).status).toBe(422);
+    expect(h.deps.store.get("maya-cookies")!.spec.offerings).toHaveLength(1);
+    expect(() => parseBusinessSpec(h.deps.store.get("maya-cookies")!.spec)).not.toThrow();
+
+    expect((await j(h.app, "/intake/reset", { businessId: "maya-cookies" })).status).toBe(409); // the fake platform says it's live
+    h.platform.hasBusiness = () => false;
+    expect((await j(h.app, "/intake/reset", { businessId: "maya-cookies" })).status).toBe(200);
+    expect(h.deps.store.get("maya-cookies")).toBeUndefined();
+    expect(fs.readdirSync(path.join(h.dir, "specs"))).toEqual([]);
+    expect((await h.app.request("/spec/maya-cookies")).status).toBe(404);
   });
 
   it("retries once on invalid model output, then fails cleanly", async () => {

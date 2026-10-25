@@ -6,7 +6,7 @@ import type { BusinessSpec, OpenQuestion } from "@napkin/schema";
 import { usableForMoney } from "@napkin/schema";
 import { moneyFacts } from "../compiler/facts";
 import { CoerceError, coerceValue, showValue } from "../spec/coerce";
-import { getFact, isMissing, listFacts, missingFact, normalizePath, setFact, type AnyFact } from "../spec/paths";
+import { getFact, isMissing, listFacts, missingFact, normalizePath, removeFact, setFact, slugify, type AnyFact } from "../spec/paths";
 import { impactScore, isMoneyRelevant, moneyImpact } from "./impact";
 
 const LABELS: Record<string, string> = {
@@ -268,6 +268,70 @@ export function applyAnswer(spec: BusinessSpec, questionId: string, input: Answe
     markAnswered(setFact(spec, q.fieldPath, after), q, input.answer ?? quote),
   );
   return { spec: next, path: q.fieldPath, before, after };
+}
+
+/**
+ * The owner corrects any fact directly (the intake list's Edit): the same coercion and checks as an answer,
+ * and the result is the owner's own confirmed word. Open questions about that field are answered by it.
+ */
+export function editFact(spec: BusinessSpec, path: string, answer: string): { spec: BusinessSpec; before: AnyFact; after: AnyFact } {
+  const before = getFact(spec, path);
+  if (!before) throw new AnswerError(`no field ${path}`);
+  if (!answer.trim()) throw new AnswerError("type the new value");
+  let value: unknown;
+  try {
+    value = coerceValue(path, before.value, answer);
+  } catch (e) {
+    throw new AnswerError(e instanceof CoerceError ? e.message : String(e));
+  }
+  const after: AnyFact = { value, provenance: "owner_said", confidence: 1, source: { kind: "chat", ref: `edit.${path}`, quote: answer.trim() }, confirmed: true };
+  const problem = invalidFacts(setFact(spec, path, after)).get(path);
+  if (problem) throw new AnswerError(`${showValue(path, value)} ${problem}`);
+  const edited = setFact(spec, path, after);
+  const next = { ...edited, openQuestions: edited.openQuestions.map((q) => (q.fieldPath === path && (q.status === "open" || q.status === "asked") ? { ...q, status: "answered" as const, answer: answer.trim() } : q)) };
+  return { spec: refreshQuestions(next), before, after };
+}
+
+/**
+ * The intake list's Remove. On an item's name it removes the item (an offering, a size/variant, an add-on or
+ * a supplier; an offering's last variant takes the offering with it); on any other field it forgets the
+ * value, which goes back to "not provided" and is asked again in the interview.
+ */
+export function removeAtPath(spec: BusinessSpec, path: string): { spec: BusinessSpec; removed: "item" | "value"; prefix: string } {
+  const fact = getFact(spec, path);
+  if (!fact) throw new AnswerError(`no field ${path}`);
+  const off = /^offerings\.([^.]+)\.name$/.exec(path);
+  const sub = /^offerings\.([^.]+)\.(variants|addOns)\.([^.]+)\.name$/.exec(path);
+  const sup = /^operations\.suppliers\.([^.]+)\.name$/.exec(path);
+  const drop = (offeringId: string): BusinessSpec => ({ ...spec, offerings: spec.offerings.filter((o) => o.id !== offeringId) });
+  let next: BusinessSpec | undefined;
+  let prefix = path;
+  if (off) {
+    next = drop(off[1]!);
+    prefix = `offerings.${off[1]}`;
+  } else if (sub) {
+    const [, oid, grp, eid] = sub;
+    const o = spec.offerings.find((x) => x.id === oid);
+    if (grp === "variants" && o && o.variants.length <= 1) {
+      next = drop(oid!);
+      prefix = `offerings.${oid}`;
+    } else {
+      next = { ...spec, offerings: spec.offerings.map((x) => (x.id !== oid ? x : { ...x, [grp!]: (x[grp as "variants" | "addOns"] as { id: string }[]).filter((e) => e.id !== eid) })) } as BusinessSpec;
+      prefix = `offerings.${oid}.${grp}.${eid}`;
+    }
+  } else if (sup) {
+    next = { ...spec, operations: { ...spec.operations, suppliers: spec.operations.suppliers.filter((s) => slugify(String(s.name.value)) !== sup[1]) } };
+    prefix = `operations.suppliers.${sup[1]}`;
+  }
+  if (next && next.offerings.length === 0) throw new AnswerError("that's your only item: add the right one first, or start over");
+  if (next) {
+    const under = (p: string) => p === prefix || p.startsWith(`${prefix}.`);
+    return { spec: refreshQuestions({ ...next, openQuestions: next.openQuestions.filter((q) => !under(q.fieldPath)) }), removed: "item", prefix };
+  }
+  if (isMissing(fact)) throw new AnswerError("there is nothing to remove there yet");
+  const OPTIONAL = new Set(["description", "initialStock", "stockUnits"]);
+  const cleared = OPTIONAL.has(path.split(".").at(-1)!) ? removeFact(spec, path) : setFact(spec, path, missingFact(fact.value));
+  return { spec: refreshQuestions({ ...cleared, openQuestions: cleared.openQuestions.filter((q) => q.fieldPath !== path) }), removed: "value", prefix: path };
 }
 
 function markAnswered(spec: BusinessSpec, q: OpenQuestion, answer: string): BusinessSpec {

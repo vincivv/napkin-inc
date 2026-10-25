@@ -97,6 +97,20 @@ export default function IntakePage() {
     });
   }
 
+  async function editFact(path: string, value: string): Promise<boolean> {
+    let ok = false;
+    await run("Saving", async () => {
+      const r = await brain.editFact(businessId, path, value);
+      ok = true;
+      return r;
+    });
+    return ok;
+  }
+  function removeFact(f: FactRow) {
+    if (!window.confirm(isItemName(f.path) ? `Remove ${f.display} and everything about it (prices, costs, stock)?` : `Forget ${f.label} (${f.display})? I'll ask you again in the interview.`)) return;
+    void run("Removing", () => brain.removeFact(businessId, f.path));
+  }
+
   /** Undo an accidental photo: the brain forgets it and every fact read only from it; typed and spoken facts stay. */
   function removePhoto() {
     if (!window.confirm("Remove this photo? Everything I read only from it is forgotten. What you typed or said stays.")) return;
@@ -219,7 +233,7 @@ export default function IntakePage() {
           actions={spec && <span className="text-[12px] text-muted">{spec.counts.paper} from paper · {spec.counts.owner_said} you said · {spec.counts.inferred} guesses · {spec.counts.missing} unknown</span>}
         >
           {loading ? <Loading /> : !spec ? <Empty title="Nothing yet" hint="Upload a photo or record your voice and the facts appear here." /> : (
-            <FactList facts={spec.facts} hover={hover} setHover={setHover} />
+            <FactList facts={spec.facts} hover={hover} setHover={setHover} actions={{ busy: !!busy, onEdit: editFact, onRemove: removeFact }} />
           )}
         </Card>
       </div>
@@ -227,9 +241,16 @@ export default function IntakePage() {
   );
 }
 
-function FactList({ facts, hover, setHover }: { facts: FactRow[]; hover: string | undefined; setHover(p: string | undefined): void }) {
+/** An item's name: removing it removes the whole item (or size / add-on / supplier), not just the name. */
+const isItemName = (path: string) => /^(offerings\.[^.]+(\.(variants|addOns)\.[^.]+)?|operations\.suppliers\.[^.]+)\.name$/.test(path);
+
+type FactActions = { busy: boolean; onEdit(path: string, value: string): Promise<boolean>; onRemove(f: FactRow): void };
+
+function FactList({ facts, hover, setHover, actions }: { facts: FactRow[]; hover: string | undefined; setHover(p: string | undefined): void; actions: FactActions }) {
+  const [editing, setEditing] = useState<string>();
   const known = facts.filter((f) => !f.missing);
   const unknown = facts.filter((f) => f.missing && f.moneyRelevant);
+  const editingUnknown = unknown.find((f) => f.path === editing);
   return (
     <div>
       <ul className="divide-y divide-line">
@@ -237,22 +258,69 @@ function FactList({ facts, hover, setHover }: { facts: FactRow[]; hover: string 
           <li key={f.path} onMouseEnter={() => setHover(f.path)} onMouseLeave={() => setHover(undefined)} className={cx("grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-4 py-2.5 transition-colors", hover === f.path && "bg-surface-2")}>
             <div className="min-w-0">
               <div className="truncate text-[12px] text-faint">{f.label}</div>
-              <div className="text-[13.5px] font-medium text-ink">{f.display || <span className="text-faint">(empty)</span>}</div>
-              {f.fact.source.quote && <div className="truncate text-[11.5px] italic text-faint">“{f.fact.source.quote}”</div>}
+              {editing === f.path ? (
+                <EditValue initial={f.display ?? ""} busy={actions.busy} onCancel={() => setEditing(undefined)} onSave={async (v) => (await actions.onEdit(f.path, v)) && setEditing(undefined)} />
+              ) : (
+                <div className="text-[13.5px] font-medium text-ink">{f.display || <span className="text-faint">(empty)</span>}</div>
+              )}
+              {f.fact.source.quote && editing !== f.path && <div className="truncate text-[11.5px] italic text-faint">“{f.fact.source.quote}”</div>}
             </div>
             <div className="flex flex-col items-end gap-1">
               <div className="flex gap-1"><ProvenanceBadge f={f} /><Confirmed f={f} /></div>
               <Confidence f={f} />
+              {editing !== f.path && (
+                <div className="flex gap-3 text-[12px]">
+                  <button type="button" disabled={actions.busy} onClick={() => setEditing(f.path)} className="text-muted hover:text-accent hover:underline disabled:opacity-50">Edit</button>
+                  <button type="button" disabled={actions.busy} onClick={() => actions.onRemove(f)} className="text-muted hover:text-neg hover:underline disabled:opacity-50">{isItemName(f.path) ? "Remove item" : "Remove"}</button>
+                </div>
+              )}
             </div>
           </li>
         ))}
       </ul>
       {unknown.length > 0 && (
         <div className="border-t border-line bg-surface-2 px-4 py-3">
-          <div className="text-[12px] font-medium text-muted">Nobody has told me yet ({unknown.length}) — I will ask in the interview, I won&apos;t guess</div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">{unknown.map((f) => <Badge key={f.path}>{f.label}</Badge>)}</div>
+          <div className="text-[12px] font-medium text-muted">Nobody has told me yet ({unknown.length}). I will ask in the interview and won&apos;t guess; tap one to answer now.</div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {unknown.map((f) => (
+              <button key={f.path} type="button" onClick={() => setEditing(f.path)} className={cx("rounded-full", editing === f.path && "ring-2 ring-accent")}>
+                <Badge>{f.label}</Badge>
+              </button>
+            ))}
+          </div>
+          {editingUnknown && (
+            <div className="mt-3 rounded-md border border-line bg-surface p-2.5">
+              <div className="mb-1.5 text-[12px] text-muted">{editingUnknown.label}</div>
+              <EditValue initial="" busy={actions.busy} onCancel={() => setEditing(undefined)} onSave={async (v) => (await actions.onEdit(editingUnknown.path, v)) && setEditing(undefined)} />
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function EditValue({ initial, busy, onSave, onCancel }: { initial: string; busy: boolean; onSave(v: string): void; onCancel(): void }) {
+  const [v, setV] = useState(initial);
+  return (
+    <form
+      className="mt-0.5 flex gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (v.trim()) onSave(v.trim());
+      }}
+    >
+      <input
+        autoFocus
+        onFocus={(e) => e.currentTarget.select()}
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && onCancel()}
+        aria-label="New value"
+        className="h-7 min-w-0 flex-1 rounded-md border border-line-strong bg-canvas px-2 text-[13px] text-ink outline-none focus:border-accent"
+      />
+      <Button size="sm" variant="primary" type="submit" disabled={busy || !v.trim()}>Save</Button>
+      <Button size="sm" variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
+    </form>
   );
 }

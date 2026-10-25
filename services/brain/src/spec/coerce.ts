@@ -67,10 +67,13 @@ export function decimalEquals(a: string, b: string): boolean {
 
 const NUM = /-?\d+(?:,\d{3})*(?:\.\d+)?|-?\.\d+/;
 
+/** The one number in a free-text answer ("about $4 each" -> 4). Two different numbers ("2 for $6", "$9$10") are ambiguous: ask, never pick. */
 function firstNumber(text: string): string {
-  const m = NUM.exec(text.replace(/\$/g, " "));
-  if (!m) throw new CoerceError(`no number found in "${text}"`);
-  return m[0].replace(/,/g, "");
+  const all = [...text.replace(/\$/g, " ").matchAll(new RegExp(NUM.source, "g"))].map((m) => m[0].replace(/,/g, ""));
+  if (all.length === 0) throw new CoerceError(`no number found in "${text}"`);
+  const distinct = [...new Set(all.map((n) => normDecimal(n)))];
+  if (distinct.length > 1) throw new CoerceError(`I see more than one number in "${text.trim()}" (${distinct.join(", ")}); which one did you mean?`);
+  return all[0]!;
 }
 
 function parseBool(text: string): boolean {

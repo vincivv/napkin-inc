@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { requestOwnerGrant, useAccount } from "@/data/account";
 import { useData } from "@/data/context";
+import { brain } from "@/lib/brain";
 import { Button, ErrorNote, cx, errText } from "./ui";
 
 function Brand() {
@@ -201,6 +202,7 @@ export function SetupShell({ children }: { children: ReactNode }) {
           <Brand />
           <span className="hidden truncate text-[13px] text-muted sm:inline">· setting up {account?.businessName}</span>
           <div className="flex-1" />
+          <StartOver businessId={account?.businessId ?? undefined} />
           <button onClick={() => void signOut()} className="text-[12.5px] text-faint hover:text-ink">
             Sign out
           </button>
@@ -227,6 +229,28 @@ export function SetupShell({ children }: { children: ReactNode }) {
       </header>
       <main className="mx-auto w-full max-w-[1100px] px-4 py-5">{children}</main>
     </div>
+  );
+}
+
+/** Throw the setup draft away (photo, notes, answers) and begin again at the napkin step. */
+function StartOver({ businessId }: { businessId: string | undefined }) {
+  const [busy, setBusy] = useState(false);
+  if (!businessId) return null;
+  const reset = async () => {
+    if (!window.confirm("Start over? Your photo, notes and answers are deleted and setup begins again at step 1. Your account and business name stay.")) return;
+    setBusy(true);
+    try {
+      await brain.resetSetup(businessId);
+      window.location.assign("/intake");
+    } catch (e) {
+      window.alert(`Could not start over: ${errText(e)}`);
+      setBusy(false);
+    }
+  };
+  return (
+    <button onClick={() => void reset()} disabled={busy} className="text-[12.5px] text-faint hover:text-neg disabled:opacity-50">
+      {busy ? "Starting over…" : "Start over"}
+    </button>
   );
 }
 

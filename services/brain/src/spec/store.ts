@@ -84,6 +84,17 @@ export class SpecStore {
     fs.writeFileSync(file, bytes);
     return { file: path.basename(file), mime };
   }
+  /** Start over: the draft spec and its photo are gone (waits for any in-flight update of this business). */
+  async remove(businessId: string): Promise<void> {
+    const prev = this.locks.get(businessId) ?? Promise.resolve();
+    const run = prev.catch(() => undefined).then(() => {
+      const cur = this.get(businessId);
+      if (cur) this.deletePhoto(cur);
+      fs.rmSync(this.file(businessId), { force: true });
+    });
+    this.locks.set(businessId, run);
+    return run;
+  }
   deletePhoto(rec: StoredSpec): void {
     if (rec.photo) fs.rmSync(path.join(this.dir, path.basename(rec.photo.file)), { force: true });
   }

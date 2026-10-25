@@ -5,10 +5,10 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { log } from "../log";
 import { checkBusinessId, HttpError, newRouter, requireLlm, requireSpec, sha, specView, type M2Deps } from "../m2deps";
-import { applyAnswer, batchConfirmable, confirmMany, dismissQuestion, labelFor, moneyReady, nextQuestion, refreshQuestions } from "./engine";
+import { applyAnswer, batchConfirmable, confirmMany, dismissQuestion, editFact, labelFor, moneyReady, nextQuestion, refreshQuestions, removeAtPath } from "./engine";
 import { phraseQuestion } from "./phrase";
 import { applyDiff, buildDiff, parseStatement, StaleDiff, type StatementDiff } from "./statement";
-import type { PendingStatement, StoredSpec } from "../spec/store";
+import type { Draft, PendingStatement, StoredSpec } from "../spec/store";
 import { getFact, isMissing } from "../spec/paths";
 import { showValue } from "../spec/coerce";
 
@@ -37,6 +37,8 @@ const ConfirmMany = z.object({ businessId: z.string(), questionIds: z.array(z.st
 const Answer = z.object({ businessId: z.string(), answer: z.string().max(500).optional(), confirm: z.boolean().optional() });
 const Statement = z.object({ businessId: z.string(), text: z.string().min(1).max(1000), channel: z.enum(["app", "phone"]) });
 const Decide = z.object({ businessId: z.string(), confirm: z.boolean() });
+const EditFact = z.object({ businessId: z.string(), path: z.string().min(1).max(300), value: z.string().max(500) });
+const RemoveFact = z.object({ businessId: z.string(), path: z.string().min(1).max(300) });
 
 /** Apply/reject phone statements the owner already decided in the platform (the authoritative confirmation). */
 async function syncStatements(d: M2Deps, businessId: string): Promise<StoredSpec | undefined> {
@@ -213,6 +215,67 @@ export function questionRoutes(d: M2Deps) {
     requireSpec(d, businessId);
     const rec = await d.store.update(businessId, (cur) => ({ ...cur!, spec: dismissQuestion(cur!.spec, c.req.param("id")) }));
     return c.json(specView(rec));
+  });
+
+  /** The intake list's Edit: the owner types the right value for any field. */
+  r.post("/intake/edit", async (c) => {
+    const body = EditFact.parse(await c.req.json());
+    const businessId = checkBusinessId(body.businessId);
+    requireSpec(d, businessId);
+    let res: ReturnType<typeof editFact> | undefined;
+    const rec = await d.store.update(businessId, (cur) => {
+      res = editFact(cur!.spec, body.path, body.value);
+      return { ...cur!, spec: res.spec };
+    });
+    const decisionRecorded = await recordDecision(d, businessId, {
+      action: "owner_confirmed_fact",
+      reason: `Owner edited ${body.path}: ${showValue(body.path, res!.after.value)} (was ${res!.before.provenance}, ${showValue(body.path, res!.before.value)})`,
+      evidence: [`spec:${businessId}@v${rec.version}`, body.path],
+      inputs: { path: body.path, before: res!.before, after: res!.after },
+      wouldChangeIf: "the owner states a different value",
+    });
+    return c.json({ ...specView(rec), decisionRecorded });
+  });
+
+  /** The intake list's Remove: an item goes (also from the stored drafts, so a re-merge can't bring it back); a value is forgotten. */
+  r.post("/intake/remove", async (c) => {
+    const body = RemoveFact.parse(await c.req.json());
+    const businessId = checkBusinessId(body.businessId);
+    requireSpec(d, businessId);
+    const rec = await d.store.update(businessId, (cur) => {
+      const res = removeAtPath(cur!.spec, body.path);
+      if (res.removed === "value") return { ...cur!, spec: res.spec, alternatives: Object.fromEntries(Object.entries(cur!.alternatives).filter(([p]) => p !== res.prefix)) };
+      const under = (p: string) => p === res.prefix || p.startsWith(`${res.prefix}.`);
+      const fromDraft = (dr: Draft | undefined): Draft | undefined => {
+        if (!dr) return dr;
+        try {
+          return { ...dr, spec: removeAtPath(dr.spec, body.path).spec };
+        } catch {
+          return dr; // the draft never had it
+        }
+      };
+      const photo = fromDraft(cur!.drafts.photo);
+      const voice = fromDraft(cur!.drafts.voice);
+      const offeringGone = /^offerings\.[^.]+$/.test(res.prefix) ? res.prefix.split(".")[1] : undefined;
+      return {
+        ...cur!,
+        spec: res.spec,
+        alternatives: Object.fromEntries(Object.entries(cur!.alternatives).filter(([p]) => !under(p))),
+        drafts: { ...(photo ? { photo } : {}), ...(voice ? { voice } : {}) },
+        ...(cur!.voiceItems ? { voiceItems: cur!.voiceItems.filter((id) => id !== offeringGone) } : {}),
+      };
+    });
+    return c.json(specView(rec));
+  });
+
+  /** Start over: before the business is live, the owner may throw the whole draft away (photo, notes, answers). */
+  r.post("/intake/reset", async (c) => {
+    const body = z.object({ businessId: z.string() }).parse(await c.req.json());
+    const businessId = checkBusinessId(body.businessId);
+    if (d.platform?.hasBusiness(businessId)) throw new HttpError(409, "this business is already live; change it from the back office instead");
+    await d.store.remove(businessId);
+    log.info("m2", `setup reset for ${businessId}`);
+    return c.json({ ok: true });
   });
 
   r.post("/owner/statement", async (c) => {

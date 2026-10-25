@@ -115,6 +115,12 @@ export const brain = {
   },
   /** Forget the photo and everything read only from it (typed and spoken facts stay). */
   removePhoto: (b: string) => req<SpecResponse>(`/intake/photo/${encodeURIComponent(b)}`, { method: "DELETE" }),
+  /** The owner types the right value for a fact (it becomes their own confirmed word). */
+  editFact: (businessId: string, path: string, value: string) => req<SpecResponse>("/intake/edit", json({ businessId, path, value })),
+  /** Remove an item (by its name's path) or forget a value. */
+  removeFact: (businessId: string, path: string) => req<SpecResponse>("/intake/remove", json({ businessId, path })),
+  /** Throw the whole setup draft away (only before the business is live). */
+  resetSetup: (businessId: string) => req<{ ok: true }>("/intake/reset", json({ businessId })),
   sendVoice(businessId: string, audio: Blob) {
     const fd = new FormData();
     fd.set("businessId", businessId);
