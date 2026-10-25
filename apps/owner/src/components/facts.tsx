@@ -1,6 +1,7 @@
 "use client";
 
-import { Badge, type Tone } from "./ui";
+import { useState } from "react";
+import { Badge, Button, type Tone } from "./ui";
 import { provenanceLabel, type FactRow, type FactView } from "@/lib/brain";
 
 const tone: Record<FactView["provenance"], Tone> = { owner_said: "pos", paper: "info", inferred: "warn" };
@@ -33,3 +34,29 @@ export function Confirmed({ f }: { f: FactRow }) {
 }
 
 export const regionColor: Record<FactView["provenance"], string> = { owner_said: "var(--pos)", paper: "var(--info)", inferred: "var(--warn)" };
+
+/** Inline value editor: the brain coerces and checks what is typed, exactly like an interview answer. */
+export function EditValue({ initial, busy, onSave, onCancel }: { initial: string; busy: boolean; onSave(v: string): void; onCancel(): void }) {
+  const [v, setV] = useState(initial);
+  return (
+    <form
+      className="mt-0.5 flex gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (v.trim()) onSave(v.trim());
+      }}
+    >
+      <input
+        autoFocus
+        onFocus={(e) => e.currentTarget.select()}
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && onCancel()}
+        aria-label="New value"
+        className="h-7 min-w-0 flex-1 rounded-md border border-line-strong bg-canvas px-2 text-[13px] text-ink outline-none focus:border-accent"
+      />
+      <Button size="sm" variant="primary" type="submit" disabled={busy || !v.trim()}>Save</Button>
+      <Button size="sm" variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
+    </form>
+  );
+}

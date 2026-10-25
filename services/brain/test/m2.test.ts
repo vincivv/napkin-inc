@@ -95,7 +95,7 @@ describe("labels", () => {
     const p = "offerings.chicken-burrito.variants.chicken-burrito";
     expect(labelFor(s, `${p}.cost`)).toBe("your ingredient cost to make one Chicken burrito");
     expect(labelFor(s, `${p}.price`)).toBe("the price of Chicken burrito");
-    expect(labelFor(s, `${p}.stockUnits`)).toBe("how many units of stock one Chicken burrito sale uses");
+    expect(labelFor(s, `${p}.stockUnits`)).toBe("how many Chicken burrito one sale takes off the shelf");
     expect(labelFor(photoSpec(), "offerings.chocolate-chip-cookie.variants.box-of-6.price")).toBe("the price of Chocolate chip cookie, Box of 6");
   });
 });
@@ -118,7 +118,7 @@ describe("one-size items and stock", () => {
     const box: Extracted = { offerings: [{ name: rf("Cookie"), variants: [{ name: rf("Box of 6"), price: rf("15") }], addOns: [] }] };
     const b = refreshQuestions(assembleSpec(box, { mode: "photo", ref: "x.png" }).spec);
     const q = b.openQuestions.find((x) => x.fieldPath.endsWith(".stockUnits"))!;
-    expect(q.question).toMatch(/When you sell one Box of 6, how many Cookie does it use up\? .*not how many you have/);
+    expect(q.question).toMatch(/How many Cookie go into one Box of 6\? .*not how many you have in stock/);
   });
 });
 

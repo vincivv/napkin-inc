@@ -77,7 +77,17 @@ export async function runCompile(businessId: string, deps: CompileRouteDeps, sen
     }
     const roleLimits = carriedRoleLimits(active);
 
-    const r = await compile(spec, { businessId, version, prover: deps.prover, ...(deps.proposer ? { proposer: deps.proposer } : {}), ...(roleLimits ? { roleLimits } : {}), onStep: (e) => void step(e) });
+    const specVersion = await deps.specs.version?.(businessId);
+    const r = await compile(spec, {
+      businessId,
+      version,
+      prover: deps.prover,
+      ...(deps.proposer ? { proposer: deps.proposer } : {}),
+      ...(roleLimits ? { roleLimits } : {}),
+      ...(specVersion ? { specVersion } : {}),
+      ...(active ? { previous: active } : {}),
+      onStep: (e) => void step(e),
+    });
 
     await step({ step: "submit", status: "running", message: `submitting configuration v${version}` });
     if (!biz) {

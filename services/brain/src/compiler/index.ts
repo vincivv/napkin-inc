@@ -11,7 +11,7 @@ import { CompileRefused, NeedsOwnerAnswer, ownerQuestion } from "./errors";
 import { checkMoneyFacts, unconfirmedDisplayPaths } from "./facts";
 import { docDef, dryRun, postingContext, saleInput, type DryRunReport } from "./dryrun";
 import { proofFailed, type ProverPort, type SpecExample } from "./prover-port";
-import { acceptProposal, type CopyProposer } from "./storefront";
+import { acceptProposal, type AcceptedCopy, type CopyProposer } from "./storefront";
 import * as T from "./templates/item_seller";
 import { coerceTimeZone } from "../spec/coerce";
 import { unitsPerSale } from "../spec/stock";
@@ -47,6 +47,10 @@ export interface CompileOptions {
   proposer?: CopyProposer;
   /** money limits per role, owner-approved (the route carries them over from the active configuration) */
   roleLimits?: T.RoleLimits;
+  /** the BusinessSpec version compiled (recorded in `source`, so the owner app can tell unapplied edits) */
+  specVersion?: number;
+  /** the active configuration: a recompile keeps its storefront look and wording and its staff goals */
+  previous?: Configuration;
   onStep?: (e: StepEvent) => void;
 }
 
@@ -94,7 +98,7 @@ export function moneyFingerprint(c: Configuration): string {
 }
 
 /** Template + confirmed facts -> catalogs, stock and policies. Deterministic; raises owner questions on conflicts. */
-export function fillTemplate(spec: BusinessSpec, opts: Pick<CompileOptions, "businessId" | "version" | "roleLimits">, log: string[]): Configuration {
+export function fillTemplate(spec: BusinessSpec, opts: Pick<CompileOptions, "businessId" | "version" | "roleLimits" | "specVersion">, log: string[]): Configuration {
   const questions: OpenQuestion[] = [];
   const products: Configuration["catalogs"][number]["entries"] = [];
   const stockItems: Configuration["catalogs"][number]["entries"] = [];
@@ -192,7 +196,7 @@ export function fillTemplate(spec: BusinessSpec, opts: Pick<CompileOptions, "bus
     businessId: opts.businessId,
     version: opts.version,
     pattern: "item_seller",
-    source: `compiled from BusinessSpec (template ${T.TEMPLATE_ID})`,
+    source: `compiled from BusinessSpec${opts.specVersion ? ` v${opts.specVersion}` : ""} (template ${T.TEMPLATE_ID})`,
     ...(unconfirmed.length
       ? { _unconfirmed: { note: "Display facts the owner has not confirmed yet (names, hours, places). Money facts are always confirmed before compiling.", paths: unconfirmed } }
       : {}),
@@ -364,6 +368,21 @@ export async function compile(spec: BusinessSpec, opts: CompileOptions): Promise
 
   // storefront + agents: optional LLM proposal, validated; failures fall back to deterministic defaults
   const copy = await run("storefront", async () => {
+    // A live shop changing a price must not get a reworded storefront: keep what is already showing.
+    const prev = opts.previous;
+    if (prev) {
+      const kept: AcceptedCopy = {
+        theme: prev.storefront.theme,
+        headline: prev.storefront.headline,
+        tagline: prev.storefront.tagline,
+        goals: Object.fromEntries(prev.agents.map((a) => [a.id, a.goals])) as AcceptedCopy["goals"],
+        rejected: [],
+        used: [],
+      };
+      cfg.storefront = { ...cfg.storefront, theme: kept.theme, headline: kept.headline, tagline: kept.tagline };
+      emit("storefront", "done", `kept the live storefront look and wording (headline "${kept.headline}")`);
+      return kept;
+    }
     let proposal;
     let note = "";
     if (opts.proposer) {

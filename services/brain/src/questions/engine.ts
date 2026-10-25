@@ -47,7 +47,7 @@ export function labelFor(spec: BusinessSpec, path: string): string {
     if (field === "cost" && grp === "addOns") return `your ingredient cost for the ${elName} add-on on one order of ${offName}`;
     if (field === "cost") return `your ingredient cost to make one ${grp && !oneName ? `${elName} of ${offName}` : offName}`;
     if (field === "price" && grp === "addOns") return `the price you charge for the ${elName} add-on`;
-    if (field === "stockUnits") return oneName ? `how many units of stock one ${offName} sale uses` : `how many ${offName} one ${elName} sale uses from stock`;
+    if (field === "stockUnits") return oneName ? `how many ${offName} one sale takes off the shelf` : `how many ${offName} go into one ${elName}`;
     if (field === "name" && oneName) return `the size name for ${offName}`;
     const what = { price: "the price of", stockUnits: "the stock units of", name: "the name of", initialStock: "the starting stock of", stockTracked: "whether you track stock for", description: "the description of" }[field!] ?? field;
     const target = grp && !oneName ? `${offName}, ${elName}` : offName;
@@ -78,7 +78,7 @@ function askMissing(spec: BusinessSpec, path: string, label: string): string {
     const vName = v && String(v.name.value) ? String(v.name.value) : "this size";
     if (m[3] === "stockTracked") return `Do you want to track stock for ${offName}?`;
     if (m[3] === "initialStock") return `How many ${offName} do you have in stock right now?`;
-    return `When you sell one ${vName}, how many ${offName} does it use up? (A box of 6 uses 6, a single uses 1. This is not how many you have.)`;
+    return `How many ${offName} go into one ${vName}? (A box of 6 holds 6, a single holds 1. This is not how many you have in stock.)`;
   }
   return `What is ${label}?`;
 }

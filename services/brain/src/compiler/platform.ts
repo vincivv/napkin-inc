@@ -27,6 +27,8 @@ export interface CompilePlatformPort {
 export interface SpecSource {
   /** the owner-confirmed spec for a business (written by the intake/question engine) */
   get(businessId: string): Promise<BusinessSpec | undefined>;
+  /** the stored spec's version (each owner edit bumps it) */
+  version?(businessId: string): Promise<number | undefined>;
 }
 
 /** The intake/question engine's spec store (src/spec/store.ts): .data/specs/<businessId>.json. */
@@ -34,6 +36,9 @@ export class SpecStoreSource implements SpecSource {
   constructor(private readonly store: Pick<SpecStore, "get">) {}
   async get(businessId: string): Promise<BusinessSpec | undefined> {
     return this.store.get(businessId)?.spec;
+  }
+  async version(businessId: string): Promise<number | undefined> {
+    return this.store.get(businessId)?.version;
   }
 }
 

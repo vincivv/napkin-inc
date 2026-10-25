@@ -80,6 +80,18 @@ describe("compile: TEST spec equivalent to the Maya fixture", () => {
     expect(order).toEqual(["facts", "template", "synthesis", "proofs", "configuration", "storefront", "agents"]);
   });
 
+  it("a recompile of a live shop keeps its storefront wording and staff goals, and records the spec version", async () => {
+    const live = (await compile(mayaTestSpec(), base)).config;
+    const previous = { ...live, storefront: { ...live.storefront, headline: "Fresh every morning", tagline: "Baked on Juniper St" }, agents: live.agents.map((x) => ({ ...x, goals: [`kept goal for ${x.id}`] })) };
+    let asked = false;
+    const proposer: CopyProposer = { name: "test", propose: async () => ((asked = true), { headline: "Something new" }) as never };
+    const r = await compile(mayaTestSpec(), { ...base, version: 3, specVersion: 17, previous, proposer });
+    expect(asked).toBe(false);
+    expect(r.config.storefront).toMatchObject({ headline: "Fresh every morning", tagline: "Baked on Juniper St", theme: previous.storefront.theme });
+    expect(r.config.agents.map((x) => x.goals)).toEqual(previous.agents.map((x) => x.goals));
+    expect(r.config.source).toMatch(/BusinessSpec v17 /);
+  });
+
   it("without owner-approved refund limits, agent refund limits are 0 (escalate), never invented", async () => {
     const r = await compile(mayaTestSpec(), { ...base, roleLimits: undefined });
     expect(r.config.roles.find((x) => x.id === "support")!.limits).toEqual({ maxRefundCents: 0 });
