@@ -143,8 +143,11 @@ type VisionType = (typeof VISION_TYPES)[number];
 const PICK_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  properties: { index: { type: "integer", minimum: -1, description: "0-based index of the best photo, or -1 if none is suitable" } },
-  required: ["index"],
+  properties: {
+    reason: { type: "string", description: "one short sentence: why this photo, or why none passes" },
+    index: { type: "integer", minimum: -1, description: "0-based index of the best photo, or -1 if none is suitable" },
+  },
+  required: ["reason", "index"],
 } as const;
 
 function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
@@ -196,13 +199,15 @@ export class OpenverseImages implements ImageResolver {
       {
         type: "text",
         text:
-          `Pick the photo for ${slot.topic}. Search query: "${slot.query}". Choose the most appetizing, professional-looking, on-topic photo. ` +
+          `Pick the photo for ${slot.topic}. Choose the most appetizing, professional-looking, on-topic photo. ` +
           (slot.aspect === "wide"
-            ? "This is a large banner on a premium storefront (think Warby Parker or a food magazine): only a well-lit, well-composed, professional-quality photo qualifies; a casual snapshot (paper towels, cluttered kitchen counters, flash photos) is a -1. "
+            ? "This is a large banner on a premium storefront (think Warby Parker or a food magazine): only a well-lit, well-composed, professional-quality photo qualifies; a casual snapshot (paper towels, cluttered kitchen counters, flash photos) is a -1. Any good photo of what the shop sells, or its materials or mood, fits; it does not have to match the search words. "
             : "") +
           "REJECT any photo with visible text of any kind: signage, shop or business names, brand logos, packaging labels, menus, watermarks or captions (a photo showing another business's name would look like impersonation), and any photo with a recognizable face. " +
           "REJECT holiday or seasonal scenes (Christmas, Halloween, Easter decorations or shapes): the store is open all year. " +
-          "For a product, the photo must clearly show exactly that product as named: a different variety, flavor or item (blondies or snickerdoodles for chocolate chip cookies, a jacket for a hoodie) is wrong. " +
+          (slot.key.startsWith("product:")
+            ? "The photo must show that kind of product: size, count, container and angle may differ, but a different item, variety or flavor (blondies or snickerdoodles for chocolate chip cookies, a jacket for a hoodie, a vase for a jar candle) is wrong. "
+            : "") +
           "If no photo passes, answer -1.",
       },
     ];
@@ -212,9 +217,12 @@ export class OpenverseImages implements ImageResolver {
         this.o.vision.tool({ model: VISION_MODEL, system: "You choose storefront photos for a small business.", content, toolName: "pick_photo", toolDescription: "Record the index of the best photo, or -1.", schema: PICK_SCHEMA as unknown as Record<string, unknown>, maxTokens: 2_000 }),
         this.o.visionTimeoutMs ?? 15_000,
         "vision pick",
-      )) as { index?: unknown };
+      )) as { index?: unknown; reason?: unknown };
       const n = raw?.index;
-      if (n === -1) return -1;
+      if (n === -1) {
+        log.info("design", `${slot.key}: no photo passes (${String(raw?.reason ?? "no reason given").slice(0, 200)})`);
+        return -1;
+      }
       if (typeof n === "number" && Number.isInteger(n) && n >= 0 && n < shown.length) return shown[n]!.i;
       return "unavailable";
     } catch (e) {
@@ -241,14 +249,18 @@ export class OpenverseImages implements ImageResolver {
 
   /** Ordered usable photos for one slot (best first); [] when nothing fits. */
   private async slotCandidates(slot: ImageSlot): Promise<DesignImage[]> {
-    // Round 1: the proposed query, relaxed until there is a choice (Openverse matches every word). Round 2,
-    // only if round 1 finds nothing the vision pick accepts: the plain product name, which usually works.
+    // Round 1: the proposed query, relaxed until there is a choice (Openverse matches every word). Later rounds
+    // run only if the earlier ones find nothing the vision pick accepts: the plain product name, which usually
+    // works, then its head noun alone (the pick still judges the photo against the full product name).
     const first = relaxedQueries(slot.query);
-    const rounds = [first, ...(slot.fallback && !first.includes(slot.fallback) ? [[slot.fallback]] : [])];
+    const tried = new Set(first);
+    const rounds = [first];
+    for (const q of [slot.fallback, slot.broad]) if (q && !tried.has(q)) (tried.add(q), rounds.push([q]));
     for (const queries of rounds) {
       const found = await this.round(slot, queries);
       if (found.length > 0) return found;
     }
+    log.info("design", `no usable photo for ${slot.key} (searched ${[...tried].map((q) => `"${q}"`).join(", ")})`);
     return [];
   }
 
@@ -268,7 +280,10 @@ export class OpenverseImages implements ImageResolver {
     }
     if (cands.length === 0) return [];
     const best = await this.pick(slot, cands);
-    if (best === -1) return [];
+    if (best === -1) {
+      log.info("design", `${slot.key}: the vision pick rejected all ${Math.min(cands.length, 8)} photos for "${queries.join('" / "')}"`);
+      return [];
+    }
     // without a vision verdict only text-free-looking candidates are eligible; with one, the pick goes first
     const ordered = best === "unavailable" ? withoutPlaces(cands) : [cands[best]!, ...withoutPlaces(cands.filter((_, i) => i !== best))];
     const imgs = ordered.map((r) => toDesignImage(r, slot.query)).filter((x): x is DesignImage => Boolean(x)).slice(0, 3);

@@ -278,6 +278,14 @@ describe("Openverse photos", () => {
     expect(out["hero"]!.url).toBe("https://live.staticflickr.com/1/good_b.jpg");
     expect(n).toBe(2);
   });
+  it("when the product name finds nothing either, a last round searches its head noun", async () => {
+    const net = fakeFetch({ "big jar candle": [result("pillar")], "candle@rawpixel,stocksnap": [result("jar")] });
+    let n = 0;
+    const vision: Llm = { tool: async () => ({ index: n++ < 1 ? -1 : 0 }), text: async () => "" };
+    const out = await new OpenverseImages({ fetch: net.fn, vision }).resolve([{ key: "product:big", query: "big jar candle", aspect: "any", topic: "t", fallback: "big jar candle", broad: "candle" }]);
+    expect(out["product:big"]!.url).toBe("https://live.staticflickr.com/1/jar_b.jpg");
+    expect(n).toBe(2); // the fallback equals the query, so it is not searched twice
+  });
   it("searches stock-photo providers first and falls back to the plain product name", async () => {
     const stock = result("stock1", { url: "https://images.rawpixel.com/editor_1024/stock1.jpg", source: "rawpixel", license: "cc0", license_version: "1.0" });
     const net = fakeFetch({ "chocolate chip cookies@rawpixel,stocksnap": [stock], "chocolate chip cookies": [result("flickr1")] });
@@ -318,6 +326,20 @@ describe("imageSlots", () => {
     expect(by("product:cookie_box6").fallback).toBe("chocolate chip cookie");
     expect(by("product:cookie_box6").topic).toContain(mayaInput().oneLiner);
     expect(by("product:sea_salt").query).toBe("sea-salt topping");
+  });
+  it("the proposal's shop subject is the broadest search for every slot; a bad one is ignored", () => {
+    const input = { ...mayaInput(), products: [{ ...mayaInput().products[0]!, id: "big", name: "Big jar" }] };
+    const slots = imageSlots({ imageQueries: { subject: "Candles", hero: "lit candle", banner: "candle on shelf", products: [] } }, input, []);
+    expect(slots.map((x) => x.broad)).toEqual(["candles", "candles", "candles"]);
+    const bad = imageSlots({ imageQueries: { subject: "candles & more!", hero: "lit candle", banner: "candle on shelf", products: [] } }, input, []);
+    expect(bad.find((x) => x.key === "product:big")!.broad).toBe("jar");
+  });
+  it("a multi-word product name gets its head noun as the broadest search", () => {
+    const input = { ...mayaInput(), products: [{ ...mayaInput().products[0]!, id: "big", name: "Big jar candle" }] };
+    const slot = imageSlots(undefined, input, []).find((x) => x.key === "product:big")!;
+    expect(slot.fallback).toBe("big jar candle");
+    expect(slot.broad).toBe("candle");
+    expect(imageSlots(undefined, { ...input, products: [{ ...input.products[0]!, name: "Candles" }] }, []).find((x) => x.key === "product:big")!.broad).toBeUndefined();
   });
 });
 

@@ -68,6 +68,7 @@ export const DESIGN_JSON_SCHEMA = {
       additionalProperties: false,
       description: "stock-photo search queries, 2-5 plain English words each, describing a photo with no people and no text",
       properties: {
+        subject: str("what the shop sells, in 1-2 plain words, plural: e.g. cookies, candles, hoodies, coffee", 24),
         hero: str("a wide, atmospheric photo of the product or its ingredients/materials, e.g. chocolate chip cookies on table"),
         banner: str("a wide mood photo for the pickup/visit section, e.g. cookie dough on wooden table, folded hoodies on shelf"),
         products: {
@@ -75,7 +76,7 @@ export const DESIGN_JSON_SCHEMA = {
           items: { type: "object", additionalProperties: false, properties: { productId: { type: "string" }, query: str("e.g. chocolate chip cookie close up") }, required: ["productId", "query"] },
         },
       },
-      required: ["hero", "banner", "products"],
+      required: ["subject", "hero", "banner", "products"],
     },
   },
   required: ["style", "corners", "palette", "fonts", "announcement", "hero", "collection", "banner", "imageQueries"],

@@ -195,6 +195,7 @@ export const DesignProposal = z.object({
   banner: z.object({ title: s }).optional().catch(undefined),
   imageQueries: z
     .object({
+      subject: s,
       hero: s,
       banner: s,
       products: z.array(z.object({ productId: s, query: s }).catch({})).optional().catch(undefined),
@@ -291,12 +292,20 @@ export interface ImageSlot {
   aspect: "wide" | "any";
   /** what the photo should show, for the vision pick */
   topic: string;
-  /** plain product-name query, tried last when the proposed query finds nothing usable */
+  /** plain product-name query, tried when the proposed query finds nothing usable */
   fallback?: string;
+  /** the broadest search, tried last: the shop's subject ("candles") or the product's head noun; the vision pick still judges the photo against the topic */
+  broad?: string;
 }
 
 /** Words that name a quantity or package rather than the product itself. */
-const PACK_WORDS = new Set(["box", "boxes", "pack", "packs", "set", "sets", "bundle", "bundles", "dozen", "half", "pair", "pairs", "bag", "bags", "the", "and", "for", "with", "single", "double", "triple", "small", "medium", "large", "one", "two", "three", "four", "five", "six", "twelve"]);
+const PACK_WORDS = new Set(["box", "boxes", "pack", "packs", "set", "sets", "bundle", "bundles", "dozen", "half", "pair", "pairs", "bag", "bags", "the", "and", "for", "with", "single", "double", "triple", "small", "medium", "large", "big", "little", "mini", "regular", "one", "two", "three", "four", "five", "six", "twelve"]);
+
+/** The last content word of a multi-word name ("big jar candle" -> "candle"), or undefined. */
+function headNoun(name: string): string | undefined {
+  const words = name.split(" ").filter((w) => w.length >= 3 && !PACK_WORDS.has(w));
+  return name.split(" ").length > 1 && words.length > 0 ? words.at(-1) : undefined;
+}
 
 /** The image searches for a design: the proposal's queries when valid, else queries from product names. */
 export function imageSlots(p: DesignProposal | undefined, input: DesignInput, notes: string[]): ImageSlot[] {
@@ -310,9 +319,13 @@ export function imageSlots(p: DesignProposal | undefined, input: DesignInput, no
     return fallback;
   };
   const first = input.products[0]?.name ?? input.businessName;
+  // the shop's subject ("candles") reaches photos that item names like "Big jar" never find
+  const subject = q?.subject && /^[A-Za-z][A-Za-z' -]{1,23}$/.test(q.subject.trim()) && q.subject.trim().split(/\s+/).length <= 2 ? q.subject.trim().toLowerCase() : undefined;
+  const firstNoun = subject ?? headNoun(fallbackQuery(first));
+  const broadFirst = firstNoun ? { broad: firstNoun } : {};
   const slots: ImageSlot[] = [
-    { key: "hero", query: pick(q?.hero, fallbackQuery(first), "hero"), aspect: "wide", topic: `a wide hero photo for ${input.businessName} (${input.oneLiner})`, fallback: fallbackQuery(first) },
-    { key: "banner", query: pick(q?.banner, `${fallbackQuery(first)} on table`.trim(), "banner"), aspect: "wide", topic: `a wide banner photo for ${input.businessName}'s ${input.fulfillment === "pickup" ? "pickup" : "visit"} section`, fallback: fallbackQuery(first) },
+    { key: "hero", query: pick(q?.hero, fallbackQuery(first), "hero"), aspect: "wide", topic: `a wide hero photo for ${input.businessName} (${input.oneLiner})`, fallback: fallbackQuery(first), ...broadFirst },
+    { key: "banner", query: pick(q?.banner, `${fallbackQuery(first)} on table`.trim(), "banner"), aspect: "wide", topic: `a wide banner photo for ${input.businessName}'s ${input.fulfillment === "pickup" ? "pickup" : "visit"} section`, fallback: fallbackQuery(first), ...broadFirst },
   ];
   for (const prod of input.products) {
     const proposed = q?.products?.find((x) => x.productId === prod.id)?.query;
@@ -325,6 +338,7 @@ export function imageSlots(p: DesignProposal | undefined, input: DesignInput, no
       aspect: "any",
       topic: `a product photo of "${prod.name}" sold by ${input.businessName} (${input.oneLiner})`,
       fallback: named,
+      ...((subject ?? headNoun(named)) ? { broad: (subject ?? headNoun(named))! } : {}),
     });
   }
   return slots.filter((x) => x.query.length > 0);
