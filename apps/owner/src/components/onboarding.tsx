@@ -10,11 +10,12 @@ import { requestOwnerGrant, useAccount } from "@/data/account";
 import { useData } from "@/data/context";
 import { brain } from "@/lib/brain";
 import { Button, ErrorNote, cx, errText } from "./ui";
+import { BrandMark } from "./BrandMark";
 
 function Brand() {
   return (
     <Link href="/" className="inline-flex items-center gap-2">
-      <span className="grid size-7 place-items-center rounded-md bg-ink text-[13px] font-bold text-canvas">N</span>
+      <BrandMark className="size-7" />
       <span className="text-[14px] font-semibold">Paper to Biz</span>
     </Link>
   );

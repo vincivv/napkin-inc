@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useData } from "@/data/context";
 import { useAccount } from "@/data/account";
 import { Badge, Button, cx } from "./ui";
+import { BrandMark } from "./BrandMark";
 import { booksCheck } from "@/lib/reports";
 import { stockAlerts } from "@/lib/stock";
 import { safeGet, safeSet } from "@/data/env";
@@ -87,7 +88,7 @@ export function Shell({ children }: { children: ReactNode }) {
       {/* sidebar */}
       <aside className={cx("fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-line bg-surface transition-transform md:translate-x-0", open ? "translate-x-0" : "-translate-x-full")}>
         <div className="flex h-14 items-center gap-2.5 border-b border-line px-4">
-          <div className="grid size-7 place-items-center rounded-md bg-ink text-[13px] font-bold text-canvas">N</div>
+          <BrandMark className="size-7" />
           <div className="min-w-0 truncate text-[15px] font-semibold tracking-tight">{data.snapshot.business?.name ?? data.config?.config?.business.name ?? data.snapshot.businessId}</div>
         </div>
         <nav className="flex-1 overflow-y-auto px-3 py-4">

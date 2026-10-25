@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import { BrandMark } from "../BrandMark";
 
 /*
  * Public marketing page for Paper to Biz (paperto.biz).
@@ -34,10 +35,7 @@ function Button({ onClick, children, variant = "solid", className }: { onClick()
 function Logo() {
   return (
     <span className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink">
-      <svg aria-hidden viewBox="0 0 20 20" className="size-5">
-        <path d="M3 3h14v9l-5 5H3z" fill="currentColor" />
-        <path d="M12 17v-5h5" fill="none" stroke="var(--canvas)" strokeWidth={1.4} strokeLinejoin="round" />
-      </svg>
+      <BrandMark className="size-6" />
       Paper to Biz
     </span>
   );
