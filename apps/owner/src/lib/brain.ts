@@ -135,6 +135,9 @@ export const brain = {
   statements: (b: string) => req<{ statements: PendingStatement[] }>(`/owner/statements?businessId=${encodeURIComponent(b)}`),
   decide: (businessId: string, id: string, confirm: boolean) => req<SpecResponse>(`/owner/statement/${id}/decide`, json({ businessId, confirm })),
 
+  /** The owner asks the Bookkeeper. `refs` are documents it cited that its tool results showed; `unverifiedRefs` it named without reading. */
+  ask: (businessId: string, question: string) => req<{ answer: string; refs: string[]; unverifiedRefs: string[] }>("/ask", json({ businessId, question })),
+
   // ---- storefront design (look only: never prices, stock or policies) ----
   design: (b: string) => req<StorefrontDesign>(`/storefront/${encodeURIComponent(b)}/design`, { cache: "no-store" }),
   /** Resolves with the new design. A slow generation answers 202; then this polls the status until it lands. */

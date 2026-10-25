@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { useData } from "@/data/context";
 import { Card, Loading, Money, PageHeader, Stat } from "@/components/ui";
+import { AskBooks } from "@/components/AskBooks";
 import { BooksBalance, DecisionFeed, OrdersTable, StockLevels } from "@/components/widgets";
 import { ACCOUNTS, balanceOf, dayIn, pnl } from "@/lib/reports";
 import { formatCents, pct } from "@/lib/money";
@@ -124,6 +125,12 @@ export default function DashboardPage() {
               </Card>
             </div>
           </div>
+
+          {snapshot.businessId && (
+            <Card title="Ask your books">
+              <AskBooks businessId={snapshot.businessId} />
+            </Card>
+          )}
 
           <Card
             title="Recent agent decisions"
