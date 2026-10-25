@@ -100,6 +100,21 @@ export function reviewFindings(books: BookSet, cfg: Configuration): ReviewFindin
         out.push({ key: `clearing:${d.id}`, docs: [d.id], text: `${cite(d.id)}${name(d.id)} changed the ${w.account("1010")} balance, which only Stripe itself should change; the books now differ from Stripe by ${money(facts.clearing1010.differenceCents)}.` });
       }
     }
+    // cash that is below zero: money was paid out of Cash but nothing coming in is recorded
+    const CASH = "1000";
+    const cashCents = books.documents.reduce((t, d) => t + d.journal.filter((j) => j.account === CASH).reduce((u, j) => u + j.debitCents - j.creditCents, 0), 0);
+    if (cashCents < 0) {
+      const paidOut = books.documents
+        .map((d) => ({ id: d.id, out: d.journal.filter((j) => j.account === CASH).reduce((u, j) => u + j.creditCents - j.debitCents, 0) }))
+        .filter((x) => x.out > 0)
+        .sort((a, b) => b.out - a.out)
+        .slice(0, 3);
+      out.push({
+        key: "cash:negative",
+        docs: paidOut.map((x) => x.id),
+        text: `${w.account(CASH)} is at ${money(cashCents)}: ${paidOut.map((x) => `${cite(x.id)}${name(x.id)} paid ${money(x.out)}`).join(", ")} out of it, but no money coming in is recorded. If you paid with your own money, record it as paid out of your own pocket; if you put money into the business, record that deposit.`,
+      });
+    }
     // stock that is below zero now (not stock that dipped and was restocked)
     for (const b of facts.stockBalances.filter((s) => s.qty < 0)) {
       const at = facts.stockWentNegativeAt.filter((x) => x.item === b.item);

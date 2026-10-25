@@ -191,3 +191,23 @@ describe("bookkeeper prompt", () => {
     expect(buildSystemPrompt(cfg, "shopkeeper", [])).not.toContain("Writing to the owner");
   });
 });
+
+describe("automatic review: cash below zero", () => {
+  it("reports Cash below zero once, naming the documents that paid out of it", async () => {
+    const { reviewFindings } = await import("../src/agents/review");
+    const books: BookSet = {
+      ...CLEAN,
+      documents: [
+        ...CLEAN.documents,
+        doc({ id: "15", docType: "expense", postedAt: "2026-10-05T00:00:00Z", journal: [{ account: "6000", debitCents: 90000, creditCents: 0 }, { account: "1000", debitCents: 0, creditCents: 90000 }] }),
+      ],
+    };
+    const fs = reviewFindings(books, cfg).filter((f) => f.key === "cash:negative");
+    expect(fs).toHaveLength(1);
+    expect(fs[0]!.docs).toEqual(["15"]);
+    expect(fs[0]!.text).toMatch(/-\$900\.00/);
+    expect(fs[0]!.text).not.toMatch(/1000/);
+    expect(reviewFindings(CLEAN, cfg).some((f) => f.key === "cash:negative")).toBe(false);
+  });
+});
+
