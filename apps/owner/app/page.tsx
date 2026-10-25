@@ -6,6 +6,7 @@ import { useData } from "@/data/context";
 import { Card, Loading, PageHeader, Stat } from "@/components/ui";
 import { AskBooks } from "@/components/AskBooks";
 import { PhoneLine } from "@/components/PhoneLine";
+import { SalesChart } from "@/components/SalesChart";
 import { OrdersTable, StockLevels } from "@/components/widgets";
 import { ACCOUNTS, balanceOf, dayIn, pnl } from "@/lib/reports";
 import { formatCents, pct } from "@/lib/money";
@@ -82,6 +83,8 @@ export default function DashboardPage() {
               href="/reports"
             />
           </div>
+
+          <SalesChart />
 
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
             <Card
