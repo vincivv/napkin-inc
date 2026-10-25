@@ -7,6 +7,7 @@ import { useData } from "@/data/context";
 import { useAccount } from "@/data/account";
 import { Badge, Button, cx, shortId } from "./ui";
 import { booksCheck } from "@/lib/reports";
+import { stockAlerts } from "@/lib/stock";
 import { safeGet, safeSet } from "@/data/env";
 
 interface NavItem {
@@ -20,6 +21,7 @@ interface NavItem {
 const I = {
   dash: <path d="M3 3h6v8H3zM11 3h6v5h-6zM11 10h6v7h-6zM3 13h6v4H3z" />,
   orders: <path d="M4 5h12M4 10h12M4 15h8" />,
+  stock: <path d="M10 2.5 17 6v8l-7 3.5L3 14V6zM3 6l7 3.5L17 6M10 9.5v8" />,
   docs: <path d="M6 2.5h6l3 3V17.5H6zM12 2.5v3h3M8.5 9.5h4M8.5 12.5h4" />,
   regs: <path d="M3 4h14v12H3zM3 8h14M8 8v8" />,
   expenses: <path d="M5 2.5h10v15l-2-1.3-1.7 1.3-1.3-1.3-1.3 1.3L7 16.2l-2 1.3zM7.5 6.5h5M7.5 9.5h5M7.5 12.5h3" />,
@@ -42,6 +44,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: "/storefront", label: "Storefront", icon: I.store },
       { href: "/orders", label: "Orders", icon: I.orders, badge: (d) => d.snapshot.orders.filter((o) => o.status === "paid").length },
+      { href: "/stock", label: "Stock", icon: I.stock, badge: (d) => stockAlerts(d.snapshot.registerBalances, d.config?.config) },
       { href: "/inbox", label: "Inbox", icon: I.inbox, badge: (d) => d.snapshot.inbox.filter((i) => i.status === "open").length + d.snapshot.ownerStatements.filter((s) => s.status === "queued").length },
       { href: "/decisions", label: "Decisions", icon: I.decisions },
     ],

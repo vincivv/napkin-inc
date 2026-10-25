@@ -110,8 +110,8 @@ export default function DashboardPage() {
                 title="Stock"
                 pad={false}
                 actions={
-                  <Link href="/registers" className="text-accent-ink hover:underline">
-                    Registers
+                  <Link href="/stock" className="text-accent-ink hover:underline">
+                    All stock
                   </Link>
                 }
               >
