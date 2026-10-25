@@ -273,3 +273,4 @@ export const parseDecisionRecord = validator("DecisionRecord", DecisionRecord);
 export const parseProofReport = validator("ProofReport", ProofReport);
 
 export * from "./semantic";
+export * from "./storefront-design";

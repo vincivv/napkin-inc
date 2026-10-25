@@ -507,7 +507,7 @@ describe("prompt injection never grants owner mode", () => {
       fc.asyncProperty(fc.array(step, { minLength: 1, maxLength: 12 }), async (steps) => {
         const h = await harness();
         for (const s of steps) {
-          const body: Record<string, unknown> = { caller_id: s.caller, conversation_id: s.conv, order_id: s.text || "MC-00001", summary: s.text || "x", pin: s.pin || "0", instruction: s.text || "x", customer_name: s.text.trim().slice(0, 40) || "Sam", items: [{ product_id: s.product, qty: s.qty }] };
+          const body: Record<string, unknown> = { caller_id: s.caller, conversation_id: s.conv, order_id: s.text || "MC-00001", summary: s.text || "x", pin: s.pin || "0", instruction: s.text.trim() || "x", customer_name: s.text.trim().slice(0, 40) || "Sam", items: [{ product_id: s.product, qty: s.qty }] };
           const r = await h.call(s.tool, body);
           if (OWNER_TOOLS.includes(s.tool)) expect(r.body).toMatchObject({ ok: false, owner_required: true });
           if (s.tool === "verify_owner") expect(r.body.verified).not.toBe(true);

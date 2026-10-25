@@ -196,11 +196,11 @@ function Banners() {
         <div className={cx("border-b px-4 py-2 text-[12.5px] md:px-6", session.status === "error" ? "border-neg/25 bg-neg-soft text-neg" : "border-line bg-surface-2 text-muted")}>
           {session.status === "error" ? (
             <>
-              Can’t reach SpacetimeDB at <code className="font-mono">{session.uri}</code> (database <code className="font-mono">{session.dbName}</code>). {session.error ?? ""} Start it with <code className="font-mono">spacetime start</code>, or open{" "}
-              <a className="underline" href="?preview=fixture">
-                preview mode
-              </a>
-              .
+              Can’t reach SpacetimeDB at <code className="font-mono">{session.uri}</code> (database <code className="font-mono">{session.dbName}</code>). {session.error ?? ""} It retries on its own;{" "}
+              <button className="underline" onClick={() => window.location.reload()}>
+                reload
+              </button>{" "}
+              to try now.
             </>
           ) : (
             <>

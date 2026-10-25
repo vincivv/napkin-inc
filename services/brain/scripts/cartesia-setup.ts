@@ -216,9 +216,15 @@ async function main(): Promise<void> {
   const agent = agents.find((x) => x.name === a.name);
   let agentId: string;
   if (agent) {
-    await api.req("PATCH", `/v1/agents/${encodeURIComponent(agent.id)}`, { ...body, version_description: "cartesia-setup.ts update" });
     agentId = agent.id;
-    console.log(`updated agent ${a.name} (${agentId})`);
+    try {
+      await api.req("PATCH", `/v1/agents/${encodeURIComponent(agent.id)}`, { ...body, version_description: "cartesia-setup.ts update" });
+      console.log(`updated agent ${a.name} (${agentId})`);
+    } catch (e) {
+      // Cartesia refuses a version_description when nothing in the agent changed (only the tool URLs did).
+      if (!/only allowed when the agent configuration changes/.test(String(e))) throw e;
+      console.log(`agent ${a.name} (${agentId}) unchanged`);
+    }
   } else {
     agentId = (await api.req<{ id: string }>("POST", "/v1/agents", body)).id;
     console.log(`created agent ${a.name} (${agentId})`);
