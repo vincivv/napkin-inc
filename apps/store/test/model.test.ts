@@ -63,11 +63,14 @@ describe("catalog", () => {
     expect(ps.map((p) => p.id)).toEqual(["cookie_box6", "sea_salt"]);
   });
 
-  it("takes theme and pickup text from the configuration as-is", () => {
+  it("takes theme and pickup text from the configuration, hiding placeholders", () => {
     const info = storeInfoFrom(config, "maya-cookies", "x");
     expect(info.theme.primary).toBe("#6b3410");
     expect(info.theme.font).toBe("Fraunces");
-    expect(info.pickupLocation).toBe("TBD (placeholder)");
+    // the fixture's location is "TBD (placeholder)": never shown to customers as if it were a fact
+    expect(info.pickupLocation).toBe("");
+    const real = { ...config, business: { ...(config.business as object), pickupLocation: "Mission Dolores Park, north gate" } };
+    expect(storeInfoFrom(real, "maya-cookies", "x").pickupLocation).toBe("Mission Dolores Park, north gate");
     expect(info.fulfillment).toBe("pickup");
   });
 
