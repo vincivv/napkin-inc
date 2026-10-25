@@ -301,28 +301,36 @@ export function businessGate(store: AccountStore): MiddlewareHandler {
     if (c.req.method === "OPTIONS") return next();
     const a = currentAccount(c, store);
     if (!a) return c.json({ error: "please sign in" }, 401);
-    // the path wins: the handler acts on its path param, so a ?businessId= of your own must not unlock another's path
-    let businessId: unknown = PATH_BUSINESS.exec(c.req.path)?.slice(1).find(Boolean) ?? c.req.query("businessId");
-    if (businessId === undefined && c.req.method === "POST") {
+    // Every place a route might read the business from (path, query, POST body) must name the same one,
+    // so a request can't pass the gate with its own id in one place and act on another id elsewhere.
+    const named: unknown[] = [];
+    const fromPath = PATH_BUSINESS.exec(c.req.path)?.slice(1).find(Boolean);
+    if (fromPath !== undefined) named.push(fromPath);
+    const fromQuery = c.req.query("businessId");
+    if (fromQuery !== undefined) named.push(fromQuery);
+    // a path-named route acts on its path param; reading its body here would consume uploads the handler streams
+    if (c.req.method === "POST" && fromPath === undefined) {
       const type = c.req.header("content-type") ?? "";
       try {
         const body = type.includes("multipart/form-data") || type.includes("application/x-www-form-urlencoded") ? await c.req.parseBody() : ((await c.req.json()) as Record<string, unknown>);
-        businessId = (body as Record<string, unknown>)["businessId"];
+        const fromBody = (body as Record<string, unknown> | null)?.["businessId"];
+        if (fromBody !== undefined) named.push(fromBody);
       } catch {
-        businessId = undefined;
+        /* no readable body */
       }
     }
+    const businessId = named[0];
     if (typeof businessId !== "string" || !businessId) return c.json({ error: "businessId is required" }, 400);
-    if (a.businessId !== businessId) return c.json({ error: "you can only change your own business" }, 403);
+    if (named.some((x) => x !== a.businessId)) return c.json({ error: "you can only change your own business" }, 403);
     return next();
   };
 }
 
-/** Routes that carry the business in the path (the storefront design routes mount the gate per route). */
-const PATH_BUSINESS = /^\/(?:intake\/photo|spec)\/([a-z0-9-]{1,64})$|^\/compile\/([a-z0-9-]{1,64})\/latest$|^\/storefront\/([a-z0-9-]{1,64})\/(?:design(?:\/regenerate|\/status)?|images\/[^/]+)$/;
+/** Routes that carry the business in the path (the setup GETs, every /legal/<businessId>/... route; the storefront design routes mount the gate per route). */
+const PATH_BUSINESS = /^\/(?:intake\/photo|spec)\/([a-z0-9-]{1,64})$|^\/compile\/([a-z0-9-]{1,64})\/latest$|^\/storefront\/([a-z0-9-]{1,64})\/(?:design(?:\/regenerate|\/status)?|images\/[^/]+)$|^\/legal\/([a-z0-9-]{1,64})(?:\/.*)?$/;
 
 /** The owner routes the gate protects (Hono path patterns). /expenses/* carries businessId in the query or form. */
-export const GATED_PATHS = ["/intake/*", "/spec/*", "/questions/*", "/owner/*", "/compile", "/compile/*", "/expenses/*"] as const;
+export const GATED_PATHS = ["/intake/*", "/spec/*", "/questions/*", "/owner/*", "/compile", "/compile/*", "/expenses/*", "/legal/*"] as const;
 
 /** Seeds an account for an existing business (e.g. the Maya demo) from env; idempotent. */
 export function ensureSeedAccount(store: AccountStore, seed: { email: string | undefined; password: string | undefined; businessId: string; businessName: string }): void {

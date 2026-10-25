@@ -100,6 +100,34 @@ export interface ReceiptResponse {
   read: ReceiptRead | null;
   readError?: string;
 }
+export type LegalStatus = "todo" | "done" | "not_needed";
+export interface LegalItem {
+  id: string;
+  title: string;
+  why: string;
+  who: string;
+  link?: string;
+  howToFind?: string;
+  appliesBecause?: string;
+  status: LegalStatus;
+  note?: string;
+  base: boolean;
+}
+export interface LegalView {
+  businessId: string;
+  disclaimer: string;
+  items: LegalItem[];
+  counts: { total: number; done: number; notNeeded: number; todo: number };
+  location: { city: string; state: string } | null;
+  locationText: string | null;
+  locationSource: "owner" | "business" | null;
+  needsLocation: boolean;
+  knowsBusiness: boolean;
+  generated: boolean;
+  generatedAt: string | null;
+  generatedFor: string | null;
+  aiAvailable: boolean;
+}
 
 export class BrainError extends Error {
   constructor(readonly status: number, message: string) {
@@ -207,6 +235,13 @@ export const brain = {
     if (!res.ok) throw new BrainError(res.status, `receipt unavailable (${res.status})`);
     return URL.createObjectURL(await res.blob());
   },
+
+  /** Getting-legal checklist (GET is the base list until tailored items are generated). */
+  legal: (b: string) => req<LegalView>(`/legal/${encodeURIComponent(b)}`),
+  legalLocation: (b: string, location: { city: string; state: string }) => req<LegalView>(`/legal/${encodeURIComponent(b)}/location`, json(location)),
+  legalGenerate: (b: string, location?: { city: string; state: string }) => req<LegalView>(`/legal/${encodeURIComponent(b)}/generate`, json(location ?? {})),
+  legalItem: (b: string, itemId: string, patch: { status?: LegalStatus; note?: string | null }) =>
+    req<LegalView>(`/legal/${encodeURIComponent(b)}/items/${encodeURIComponent(itemId)}`, { ...json(patch), method: "PATCH" }),
 };
 
 export type DesignPatch = Partial<Pick<StorefrontDesign, "style" | "corners" | "fonts" | "palette" | "announcement" | "collection">> & {

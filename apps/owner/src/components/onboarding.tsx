@@ -185,7 +185,8 @@ const STEPS = [
   { href: "/interview", n: 2, label: "Money questions", hint: "Confirm the facts" },
   { href: "/build", n: 3, label: "Go live", hint: "Proofs, store, staff" },
 ] as const;
-export const SETUP_PATHS: readonly string[] = STEPS.map((s) => s.href);
+/** Pages open during setup besides the steps (the getting-legal checklist is useful before going live). */
+export const SETUP_PATHS: readonly string[] = [...STEPS.map((s) => s.href), "/legal"];
 
 /** Layout while the business is being set up (not live yet): a three-step header instead of the back office. */
 export function SetupShell({ children }: { children: ReactNode }) {
@@ -202,6 +203,13 @@ export function SetupShell({ children }: { children: ReactNode }) {
           <Brand />
           <span className="hidden truncate text-[13px] text-muted sm:inline">· setting up {account?.businessName}</span>
           <div className="flex-1" />
+          <Link
+            href="/legal"
+            aria-current={pathname.startsWith("/legal") ? "page" : undefined}
+            className={cx("text-[12.5px] hover:text-ink", pathname.startsWith("/legal") ? "font-medium text-ink" : "text-muted")}
+          >
+            Getting legal
+          </Link>
           <StartOver businessId={account?.businessId ?? undefined} />
           <button onClick={() => void signOut()} className="text-[12.5px] text-faint hover:text-ink">
             Sign out

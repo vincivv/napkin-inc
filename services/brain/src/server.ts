@@ -24,6 +24,8 @@ import { StdbCompilePlatform } from "./compiler/platform";
 import { llmFromEnv } from "./llm";
 import { RateLimiter } from "./auth";
 import { mountExpenses, ReceiptStore } from "./expenses/routes";
+import { LegalStore, mountLegal, profileFromConfig, profileFromSpec } from "./legal";
+import { StdbGuardPlatform } from "./guards/platform";
 
 let env: Env;
 try {
@@ -169,6 +171,23 @@ mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePu
 });
 // Owner expenses: receipt photo -> pre-filled values. The owner app posts the expense itself (createDocument as the owner).
 mountExpenses(app, { llm: m2.llm, receipts: new ReceiptStore(env.dataDir) });
+// Getting-legal checklist (gated like the setup routes). What the business is comes from the draft spec
+// during setup, else from the live configuration; nothing else is assumed.
+const configs = new StdbGuardPlatform(hub);
+mountLegal(app, {
+  store: new LegalStore(env.dataDir),
+  llm: m2.llm,
+  profile: (businessId) => {
+    const rec = specs.get(businessId);
+    if (rec) return profileFromSpec(rec.spec);
+    try {
+      const active = configs.activeConfiguration(businessId);
+      return active ? profileFromConfig(active.config) : undefined;
+    } catch {
+      return undefined; // platform not connected yet
+    }
+  },
+});
 
 serve({ fetch: app.fetch, port: env.port }, (info) => log.info("brain", `listening on http://localhost:${info.port}`));
 void runBootstrap();
