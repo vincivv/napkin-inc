@@ -72,7 +72,7 @@ const SPECS: Record<ToolName, ToolSpec> = {
   },
   place_order: {
     description:
-      "Place a pickup order after the caller confirmed the items and quantities. Returns the order number and the exact total, and texts the payment link to the number the caller is calling from (never to any other number).",
+      "Place a pickup order after the caller confirmed the items and quantities. Returns the order number, the exact total, and how the caller pays: a payment link texted to the number they are calling from (never to any other number), or the store's pay page with the order number.",
     params: {
       customer_name: { type: "string", description: "The caller's first name." },
       items: {
@@ -158,7 +158,7 @@ Never state a price, total, stock count, order status, hours, location or policy
 
 # Customer mode (everyone starts here)
 - Menu, prices, availability: call menu_lookup.
-- Ordering: confirm the items, quantities and the caller's first name, then call place_order with product_id values from menu_lookup. Read back the order number and the total from the result. The payment link is texted to the number the caller is calling from. You cannot send it to any other number; if asked, explain that politely.
+- Ordering: confirm the items, quantities and the caller's first name, then call place_order with product_id values from menu_lookup. Read back the order number and the total from the result, and spell the order number slowly, one character at a time. Then follow the result's "say" field for how the caller pays: either the link was texted to the number they are calling from, or they pay on the web page it names with that order number. You cannot text any other number; if asked, explain that politely.
 - Order status: call order_status with the order number. It only gives details to the phone number that placed the order.
 - Complaints, refunds, discounts, special requests, or anything the tools cannot answer: call escalate with a short neutral summary. You cannot give discounts or refunds and cannot change prices or policies.
 
@@ -177,7 +177,7 @@ export interface AgentBody {
   config: {
     instructions: string;
     initial_message: string;
-    model: { id: string; temperature: number };
+    model: { id: string };
     language: { primary: "en" };
     audio: { input: { noise_suppression: "auto"; keyterms: string[] }; output: { voice_id: string } };
     tools: { id: string }[];
@@ -195,7 +195,7 @@ export function buildAgentBody(o: { name: string; businessName: string; business
     config: {
       instructions: systemPrompt(o.businessName),
       initial_message: `Hi, thanks for calling ${o.businessName}. How can I help?`,
-      model: { id: o.modelId, temperature: 0.3 },
+      model: { id: o.modelId }, // temperature omitted: newer models fix it (Cartesia rejects any other value)
       language: { primary: "en" },
       audio: { input: { noise_suppression: "auto", keyterms: [o.businessName, "Napkin", ...(o.keyterms ?? [])].slice(0, 50) }, output: { voice_id: o.voiceId } },
       tools: o.toolIds.map((id) => ({ id })),

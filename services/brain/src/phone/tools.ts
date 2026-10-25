@@ -178,13 +178,16 @@ const OWNER_REQUIRED = () =>
 
 type SmsState = "sent" | "simulated_not_sent" | "failed" | "queued";
 
+/** "https://napkin-store.vercel.app" -> "napkin-store.vercel.app/pay": the pay page, short enough to say aloud. */
+export const spokenPayPage = (storePublicUrl: string) => `${storePublicUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "")}/pay`;
+
 /** What the agent may say about the pay-link text. "sent" only when the platform row is done with a real send. */
-function smsSay(state: SmsState): { sms: SmsState; say: string } {
+function smsSay(state: SmsState, orderId: string, storePublicUrl: string): { sms: SmsState; say: string } {
+  const payByNumber = `To pay, go to ${spokenPayPage(storePublicUrl)} and enter order number ${orderId}.`;
   if (state === "sent") return { sms: "sent", say: "I've texted a payment link to the number you're calling from." };
-  if (state === "simulated_not_sent")
-    return { sms: "simulated_not_sent", say: "Text messages are not set up on this line yet, so no text was sent. The order is saved; the shop can send you the payment link." };
-  if (state === "failed") return { sms: "failed", say: "I couldn't text the payment link to this number. The order is saved; the shop will follow up." };
-  return { sms: "queued", say: "The payment link text is queued and should arrive shortly." };
+  if (state === "simulated_not_sent") return { sms: "simulated_not_sent", say: `Text messages are not set up on this line yet, so no text was sent. ${payByNumber}` };
+  if (state === "failed") return { sms: "failed", say: `I couldn't text the payment link to this number. ${payByNumber}` };
+  return { sms: "queued", say: `The payment link text is queued and should arrive shortly. If it doesn't, ${payByNumber.charAt(0).toLowerCase()}${payByNumber.slice(1)}` };
 }
 
 function smsState(d: PhoneDeps, key: string): SmsState {
@@ -350,7 +353,7 @@ async function placeOnce(
     log.error("phone", `enqueueOutbox ${smsKey} refused: ${e.message}`);
     state = "failed";
   }
-  const s = smsSay(state);
+  const s = smsSay(state, orderId, d.checkout.storePublicUrl);
   log.info("phone", `place_order ${orderId} ${total} for ${maskPhone(caller)} (${input.conversation_id})${duplicate ? " [retry: same order]" : ""}, sms ${s.sms}`);
   return ok({
     order_id: orderId,

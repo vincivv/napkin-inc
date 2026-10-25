@@ -216,6 +216,9 @@ describe("place_order", () => {
     const h = await harness();
     const r = await h.call("place_order", order());
     expect(r.body).toMatchObject({ ok: true, order_id: "MC-00001", total: "$6.00", total_cents: "600", sms: "simulated_not_sent" });
+    // no text was sent, so the caller is told where to pay by order number
+    expect(String(r.body["say"])).toMatch(/no text was sent/);
+    expect(String(r.body["say"])).toMatch(/\/pay and enter order number MC-00001\./);
     expect(h.core.orders.get("MC-00001")).toMatchObject({ channel: "phone", customerName: "Sam", totalCents: 600n });
     expect(h.core.calls).toEqual(["createOrder", "logPaymentIntent", "attachCheckoutSession", "enqueueOutbox:sms"]);
     // the text is a platform outbox row (key paylink:<orderId>); the worker drains it
