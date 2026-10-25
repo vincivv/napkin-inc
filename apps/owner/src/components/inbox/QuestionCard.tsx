@@ -67,7 +67,8 @@ export function QuestionCard({ item, earlier = [] }: { item: InboxItemRow; earli
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
   const box = useRef<HTMLTextAreaElement>(null);
-  const isList = parseQuestion(item.question).points.length > 0;
+  const parsedQ = parseQuestion(item.question);
+  const isList = parsedQ.points.length > 0;
   const who = roleShort(item.fromRole);
 
   const send = async () => {
@@ -123,7 +124,7 @@ export function QuestionCard({ item, earlier = [] }: { item: InboxItemRow; earli
 
       <div className="mt-4 rounded-lg bg-surface-2 px-4 py-3">
         <div className="text-[13px] font-medium text-ink">What we need from you</div>
-        <div className="mt-0.5 text-[13.5px] text-muted">{isList ? `Reply to confirm these are fine, or tell ${who} what's wrong.` : `Reply with your decision and ${who} will act on it.`}</div>
+        <div className="mt-0.5 text-[13.5px] text-muted">{parsedQ.todo ? parsedQ.todo.charAt(0).toUpperCase() + parsedQ.todo.slice(1) : (isList ? `Reply to confirm these are fine, or tell ${who} what's wrong.` : `Reply with your decision and ${who} will act on it.`)}</div>
 
         <div className="mt-3 flex flex-wrap gap-2">
           {QUICK.map((q) => (

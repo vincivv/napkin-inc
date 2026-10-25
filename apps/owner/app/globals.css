@@ -134,16 +134,27 @@ body {
 }
 
 /* ---- landing ---- */
-.landing-hand,
-.landing-hand-accent {
+.landing-hand {
   font-family: "Bradley Hand", "Segoe Print", "Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive;
 }
-.landing-hand-accent {
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--accent-ink);
-  background: linear-gradient(transparent 62%, var(--accent-soft) 62%);
-  padding: 0 0.08em;
+/* Hero backdrop: sky blue fading through warm napkin paper into the canvas. */
+.landing-sky {
+  --sky-a: #d6e6f2;
+  --sky-b: #eef0ec;
+  --sky-c: #f9e6d2;
+  background: linear-gradient(180deg, var(--sky-a) 0%, var(--sky-b) 38%, var(--sky-c) 72%, var(--canvas) 100%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .landing-sky {
+    --sky-a: #0b1a26;
+    --sky-b: #0d1216;
+    --sky-c: #1d140c;
+  }
+}
+:root[data-theme="dark"] .landing-sky {
+  --sky-a: #0b1a26;
+  --sky-b: #0d1216;
+  --sky-c: #1d140c;
 }
 .landing-napkin {
   background-color: #fbf8ef;
@@ -164,19 +175,6 @@ body {
     linear-gradient(90deg, transparent 49.6%, rgb(0 0 0 / 0.05) 50%, transparent 50.4%),
     linear-gradient(0deg, transparent 49.6%, rgb(0 0 0 / 0.05) 50%, transparent 50.4%);
   pointer-events: none;
-}
-.landing-grid {
-  background-image:
-    linear-gradient(var(--line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line) 1px, transparent 1px);
-  background-size: 32px 32px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
-  opacity: 0.55;
-}
-.landing-glow {
-  background: radial-gradient(closest-side, var(--accent-soft), transparent);
-  opacity: 0.9;
 }
 @keyframes landing-write {
   from {

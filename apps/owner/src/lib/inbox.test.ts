@@ -58,3 +58,13 @@ describe("similarityKey", () => {
     expect(similarityKey("shopkeeper", weekly)).not.toBe(similarityKey("bookkeeper", weekly));
   });
 });
+
+describe("automatic review format", () => {
+  it("one numbered point plus a What to do line", () => {
+    const q = parseQuestion("My automatic check of the books found one thing that needs your attention.\n1. Cash is at -$105.00: [doc 3] paid $105.00 out of it.\nWhat to do: open each document named above and reply here when done.");
+    expect(q.headline).toBe("My automatic check of the books found one thing that needs your attention.");
+    expect(q.points).toEqual(["Cash is at -$105.00: [doc 3] paid $105.00 out of it."]);
+    expect(q.todo).toBe("open each document named above and reply here when done.");
+  });
+});
+

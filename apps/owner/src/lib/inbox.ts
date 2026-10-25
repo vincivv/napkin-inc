@@ -9,6 +9,8 @@ export interface ParsedQuestion {
   points: string[];
   /** remaining prose when the question is not a list (or extra text the headline could not hold) */
   body: string;
+  /** the agent's own "What to do: …" line, shown in the page's "What we need from you" box */
+  todo?: string;
 }
 
 export const FALLBACK_HEADLINE = "A few things in your books need a look";
@@ -26,14 +28,22 @@ function tidyHeadline(s: string): string {
 
 /** Splits "Intro. (1) a (2) b" or "Intro\n1. a\n2. b" into headline + points; other text into headline + body. */
 export function parseQuestion(raw: string): ParsedQuestion {
-  const text = (raw ?? "").replace(/\r\n?/g, "\n").trim();
+  let text = (raw ?? "").replace(/\r\n?/g, "\n").trim();
+  const todoMatch = /(?:^|\n|\s)What to do:\s*([\s\S]+)$/i.exec(text);
+  if (todoMatch) text = text.slice(0, todoMatch.index).trim();
+  const todo = todoMatch?.[1]?.replace(/\s+/g, " ").trim();
+  const parsed = parseBody(text);
+  return todo ? { ...parsed, todo } : parsed;
+}
+
+function parseBody(text: string): ParsedQuestion {
   if (!text) return { headline: FALLBACK_HEADLINE, points: [], body: "" };
 
   // Newline list: lines starting with "1." / "1)" / "-" / "•".
   const lines = text.split("\n");
   const isItem = (l: string) => /^\s*(?:\d{1,2}[.)]|[-•*])\s+/.test(l);
   const firstItem = lines.findIndex(isItem);
-  if (firstItem >= 0 && lines.filter(isItem).length >= 2) {
+  if (firstItem >= 0 && (lines.filter(isItem).length >= 2 || firstItem > 0)) {
     const head = lines.slice(0, firstItem).join(" ").trim();
     const points: string[] = [];
     for (const l of lines.slice(firstItem)) {
