@@ -128,7 +128,7 @@ describe("proposal validation (bad fields fall back to the default, with a note)
       ["hero", "chocolate chip cookie"],
       ["banner", "cookie dough on table"],
       ["product:cookie_single", "chocolate chip cookie"],
-      ["product:cookie_box6", "box of"],
+      ["product:cookie_box6", "chocolate chip cookie"],
       ["product:sea_salt", "sea-salt topping"],
     ]);
     expect(notes.join()).toMatch(/hero: asks for a place/);
@@ -307,6 +307,17 @@ describe("Openverse photos", () => {
     const t0 = Date.now();
     expect(await new OpenverseImages({ fetch: hang, timeoutMs: 50 }).resolve([{ key: "hero", query: "a b", aspect: "wide", topic: "t" }])).toEqual({});
     expect(Date.now() - t0).toBeLessThan(2_000);
+  });
+});
+
+describe("imageSlots", () => {
+  it("a pack name (\"Box of 6\") searches for the shop's main product; real names search for themselves", () => {
+    const slots = imageSlots(undefined, mayaInput(), []);
+    const by = (k: string) => slots.find((x) => x.key === k)!;
+    expect(by("product:cookie_box6").query).toBe("chocolate chip cookie");
+    expect(by("product:cookie_box6").fallback).toBe("chocolate chip cookie");
+    expect(by("product:cookie_box6").topic).toContain(mayaInput().oneLiner);
+    expect(by("product:sea_salt").query).toBe("sea-salt topping");
   });
 });
 

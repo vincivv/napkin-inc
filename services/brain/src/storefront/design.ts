@@ -295,6 +295,9 @@ export interface ImageSlot {
   fallback?: string;
 }
 
+/** Words that name a quantity or package rather than the product itself. */
+const PACK_WORDS = new Set(["box", "boxes", "pack", "packs", "set", "sets", "bundle", "bundles", "dozen", "half", "pair", "pairs", "bag", "bags", "the", "and", "for", "with", "single", "double", "triple", "small", "medium", "large", "one", "two", "three", "four", "five", "six", "twelve"]);
+
 /** The image searches for a design: the proposal's queries when valid, else queries from product names. */
 export function imageSlots(p: DesignProposal | undefined, input: DesignInput, notes: string[]): ImageSlot[] {
   const q = p?.imageQueries;
@@ -313,7 +316,16 @@ export function imageSlots(p: DesignProposal | undefined, input: DesignInput, no
   ];
   for (const prod of input.products) {
     const proposed = q?.products?.find((x) => x.productId === prod.id)?.query;
-    slots.push({ key: `product:${prod.id}`, query: pick(proposed, fallbackQuery(prod.name), `product ${prod.id}`), aspect: "any", topic: `a product photo of "${prod.name}" sold by ${input.businessName}`, fallback: fallbackQuery(prod.name) });
+    // "Box of 6" names a pack, not a thing: search for the shop's main product instead
+    const own = fallbackQuery(prod.name);
+    const named = own.split(" ").some((w) => w.length >= 3 && !PACK_WORDS.has(w)) ? own : fallbackQuery(first);
+    slots.push({
+      key: `product:${prod.id}`,
+      query: pick(proposed, named, `product ${prod.id}`),
+      aspect: "any",
+      topic: `a product photo of "${prod.name}" sold by ${input.businessName} (${input.oneLiner})`,
+      fallback: named,
+    });
   }
   return slots.filter((x) => x.query.length > 0);
 }
