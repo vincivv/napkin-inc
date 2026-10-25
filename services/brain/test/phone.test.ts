@@ -12,8 +12,8 @@ import type { CatalogRowView, PhoneOrderView, PhonePlatform, StockBalanceView } 
 import { bearerOk, phoneRoutes } from "../src/phone/routes";
 import { MAX_SMS_ATTEMPTS, PermanentSmsError, SimulatorSms, SmsExecutor, TransientSmsError, TwilioSms, type SmsSender } from "../src/phone/sms";
 import { OutboxWorker } from "../src/payments/outbox";
-import { ConversationShops, FailureLimiter, MemoryPhoneOrderBackend, OwnerSessions, PhoneOrderStore } from "../src/phone/state";
-import { CUSTOMER_TOOLS, OWNER_TOOLS, shopMatchScore, TOOL_INPUTS, TOOL_NAMES, type PhoneDeps } from "../src/phone/tools";
+import { ConversationShops, FailureLimiter, MemoryPhoneCodesBackend, MemoryPhoneOrderBackend, OwnerSessions, PhoneCodes, PhoneOrderStore } from "../src/phone/state";
+import { CUSTOMER_TOOLS, OWNER_TOOLS, shopMatchScore, spokenCode, TOOL_INPUTS, TOOL_NAMES, type PhoneDeps } from "../src/phone/tools";
 import { formatCents, normalizeE164, normalizeOrderId, normalizePin } from "../src/phone/util";
 import { getFact } from "../src/spec/paths";
 import { SpecStore } from "../src/spec/store";
@@ -134,6 +134,7 @@ async function harness(o: HarnessOpts = {}) {
     orders: new PhoneOrderStore(new MemoryPhoneOrderBackend()),
     sessions: new OwnerSessions(30 * 60_000, now),
     shops: new ConversationShops(2 * 60 * 60_000, now),
+    codes: new PhoneCodes(new MemoryPhoneCodesBackend()),
     failures: new FailureLimiter(3, 15 * 60_000, now),
     businessId: BIZ,
     ownerPhone: "ownerPhone" in o ? o.ownerPhone : "+1 (415) 555-0100",
@@ -673,7 +674,7 @@ describe("Cartesia agent definition", () => {
     const b = buildAgentBody({ name: "n", lineName: "Napkin", modelId: "m", voiceId: "v", toolIds: ["a", "b"], keyterms: ["Juniper Candles"] });
     expect(b.config.tools).toEqual([{ id: "a" }, { id: "b" }]);
     expect(b.config.instructions).toBe(systemPrompt("Napkin"));
-    expect(b.config.initial_message).toMatch(/Which shop/);
+    expect(b.config.initial_message).toMatch(/four-digit code/);
     expect(b.config.instructions).toMatch(/find_shop/);
     expect(b.config.audio.input.keyterms).toContain("Juniper Candles");
     expect(b.config.instructions).toMatch(/Customer mode/);
@@ -711,8 +712,8 @@ describe("shared line: find_shop", () => {
   it("binds the call to the shop; later tools act for it and an order goes to that shop", async () => {
     const h = await harness();
     const f = await call(h, "find_shop", { shop_name: "maya's cookies please" });
-    expect(f.body).toMatchObject({ ok: true, shop_name: "Maya's Cookies" });
-    expect(f.body.say).toMatch(/through to Maya's Cookies/);
+    expect(f.body).toMatchObject({ ok: true, shop_name: "Maya's Cookies", matched_by: "name" });
+    expect(f.body.say).toMatch(/That's Maya's Cookies\. Check with the caller/);
     expect((await call(h, "menu_lookup", {})).body.ok).toBe(true);
     const o = await call(h, "place_order", { customer_name: "Sam", items: [{ product_id: "cookie_single", qty: 2 }] });
     expect(o.body.ok).toBe(true);
@@ -756,5 +757,60 @@ describe("shared line: find_shop", () => {
     expect((await h.app.request("/phone/shops")).status).toBe(401);
     const r = await h.app.request("/phone/shops", { headers: { authorization: `Bearer ${SECRET}` } });
     expect(await r.json()).toEqual({ ok: true, shops: ["Maya's Cookies", "Juniper Candles", "Maya's Bakery"] });
+  });
+});
+
+describe("shared line: shop codes", () => {
+  const call = async (h: Awaited<ReturnType<typeof harness>>, tool: string, body: Record<string, unknown>, conv = "code-1") => {
+    const res = await h.app.request(`/phone/tools/${tool}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      body: JSON.stringify({ conversation_id: conv, caller_id: CUSTOMER, ...body }),
+    });
+    return (await res.json()) as Record<string, any>;
+  };
+
+  it("each live shop gets one stable, unique 4-digit code from the public route; unknown shops get none", async () => {
+    const h = await harness();
+    const get = async (id: string) => (await h.app.request(`/phone/code/${id}`)).json() as Promise<Record<string, any>>;
+    const a = await get(BIZ);
+    const b = await get("juniper-candles");
+    expect(a.code).toMatch(/^\d{4}$/);
+    expect(b.code).not.toBe(a.code);
+    expect((await get(BIZ)).code).toBe(a.code);
+    expect((await h.app.request("/phone/code/maya-cookies-baseline")).status).toBe(404);
+  });
+
+  it("codes never repeat even when the random source does", () => {
+    let n = 0;
+    const seq = [1111, 1111, 2222];
+    const codes = new PhoneCodes(new MemoryPhoneCodesBackend(), () => seq[Math.min(n++, seq.length - 1)]!);
+    expect(codes.codeFor("a")).toBe("1111");
+    expect(codes.codeFor("b")).toBe("2222");
+    expect(codes.businessFor("2222")).toBe("b");
+  });
+
+  it("reads spoken codes", () => {
+    expect(spokenCode("four two one seven")).toBe("4217");
+    expect(spokenCode("42 17")).toBe("4217");
+    expect(spokenCode("4-2-1-7.")).toBe("4217");
+    expect(spokenCode("oh nine one two")).toBe("0912");
+    expect(spokenCode("421")).toBeUndefined();
+    expect(spokenCode("one two three four five")).toBeUndefined();
+  });
+
+  it("the code connects the call to exactly that shop; a wrong or partial code connects nothing", async () => {
+    const h = await harness();
+    const code = h.deps.codes.codeFor("juniper-candles");
+    expect(await call(h, "find_shop", { shop_code: "1" })).toMatchObject({ ok: false, reason: "bad_code" });
+    const other = code === "9999" ? "9998" : "9999";
+    expect(await call(h, "find_shop", { shop_code: other })).toMatchObject({ ok: false, reason: "unknown_code" });
+    expect((await call(h, "menu_lookup", {})).reason).toBe("shop_required");
+    const spoken = code.split("").map((c) => ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"][Number(c)]).join(" ");
+    const f = await call(h, "find_shop", { shop_code: spoken, shop_name: "Maya's Cookies" }); // the code wins
+    expect(f).toMatchObject({ ok: true, shop_name: "Juniper Candles", matched_by: "code" });
+    h.phonePlatform.liveShops = h.phonePlatform.liveShops.filter((x) => x.id !== "juniper-candles");
+    expect(await call(h, "find_shop", { shop_code: code }, "code-2")).toMatchObject({ ok: false, reason: "unknown_code" }); // offline shop
+    expect(await call(h, "find_shop", {}, "code-3")).toMatchObject({ ok: false, reason: "nothing_said" });
   });
 });

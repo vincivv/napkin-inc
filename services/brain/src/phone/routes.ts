@@ -1,4 +1,4 @@
-// POST /phone/tools/:name — Cartesia webhook tools (and GET /phone/shops for the setup script). Every call needs `Authorization: Bearer <PHONE_TOOL_SECRET>`
+// POST /phone/tools/:name — Cartesia webhook tools (and GET /phone/shops for the setup script, public GET /phone/code/:businessId). Every call needs `Authorization: Bearer <PHONE_TOOL_SECRET>`
 // (Cartesia's webhook `authentication: {mode: "bearer"}`). No secret configured = every call refused.
 
 import { Hono } from "hono";
@@ -25,6 +25,17 @@ export function phoneRoutes(d: PhoneDeps, secret: string | undefined): Hono {
     if (!bearerOk(c.req.header("authorization"), secret)) return c.json({ ok: false, error: "unauthorized" }, 401);
     await d.platform.ready();
     return c.json({ ok: true, shops: d.platform.shops().map((x) => x.name) });
+  });
+
+  // public: a live shop's 4-digit phone code, shown on its store and dashboard (assigned on first ask)
+  r.get("/phone/code/:businessId", async (c) => {
+    await d.platform.ready();
+    const id = c.req.param("businessId");
+    const shops = d.platform.shops();
+    // just after a restart the shop list is still loading: say so, so pages retry instead of giving up
+    if (shops.length === 0) return c.json({ ok: false, error: "the brain is starting; try again shortly" }, 503);
+    if (!shops.some((x) => x.id === id)) return c.json({ ok: false, error: "no live shop with that id" }, 404);
+    return c.json({ ok: true, code: d.codes.codeFor(id) });
   });
 
   r.post("/phone/tools/:name", async (c) => {

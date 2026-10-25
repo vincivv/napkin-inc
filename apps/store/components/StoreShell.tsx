@@ -6,6 +6,7 @@ import { createContext, Suspense, useContext, useEffect, type ReactNode } from "
 import { CartProvider, useCart } from "@/lib/cart";
 import { fallbackDesign, designStyle, photoCredits, useDesign, type StorefrontDesign } from "@/lib/design";
 import { formatPhone, PHONE_LINE } from "@/lib/env";
+import { spacedCode, usePhoneCode } from "@/lib/phone";
 import { cartCount, type StoreInfo } from "@/lib/model";
 import { StoreDataProvider, useStore, useStoreHref, type StoreState } from "@/lib/store-data";
 import { CartBar, CartSheet } from "./Cart";
@@ -150,6 +151,7 @@ function Header() {
 
 function Footer({ info, design }: { info: StoreInfo; design: StorefrontDesign }) {
   const href = useStoreHref();
+  const code = usePhoneCode(info.businessId);
   const credits = photoCredits(design);
   const bold = design.style === "bold";
   return (
@@ -164,7 +166,11 @@ function Footer({ info, design }: { info: StoreInfo; design: StorefrontDesign })
           <Link href={href("/qr")}>QR codes</Link>
         </FooterCol>
         <FooterCol title="Help">
-          {PHONE_LINE ? <a href={`tel:${PHONE_LINE}`}>Order by phone: {formatPhone(PHONE_LINE)}</a> : null}
+          {PHONE_LINE && code ? (
+            <a href={`tel:${PHONE_LINE}`}>
+              Order by phone: {formatPhone(PHONE_LINE)}, code {spacedCode(code)}
+            </a>
+          ) : null}
           <Link href="/pay">Pay for a phone order</Link>
           <span className="opacity-75">Card payments by Stripe</span>
         </FooterCol>

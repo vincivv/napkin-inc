@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { useData } from "@/data/context";
 import { Card, Loading, Money, PageHeader, Stat } from "@/components/ui";
 import { AskBooks } from "@/components/AskBooks";
+import { PhoneLine } from "@/components/PhoneLine";
 import { BooksBalance, DecisionFeed, OrdersTable, StockLevels } from "@/components/widgets";
 import { ACCOUNTS, balanceOf, dayIn, pnl } from "@/lib/reports";
 import { formatCents, pct } from "@/lib/money";
@@ -123,6 +124,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="mt-1 text-[12px] text-faint">Sales posted on payment, so this is normally zero.</div>
               </Card>
+              <PhoneLine businessId={snapshot.businessId} />
             </div>
           </div>
 

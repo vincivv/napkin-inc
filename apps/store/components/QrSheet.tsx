@@ -2,7 +2,8 @@
 
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
-import { STORE_URL } from "@/lib/env";
+import { formatPhone, PHONE_LINE, STORE_URL } from "@/lib/env";
+import { spacedCode, usePhoneCode } from "@/lib/phone";
 import { StoreGate } from "./StoreShell";
 import { priceLabel } from "./Products";
 
@@ -26,6 +27,18 @@ function Qr({ url, dark, label }: { url: string; dark: string; label: string }) 
     <div role="img" aria-label={`QR code for ${label}`} className="aspect-square w-full [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: svg }} />
   ) : (
     <div className="aspect-square w-full animate-pulse rounded-xl bg-ink/8" />
+  );
+}
+
+/** "Or call ... and say code ..." under the main QR, once the shop's code has loaded. */
+function PhoneLine({ businessId }: { businessId: string }) {
+  const code = usePhoneCode(businessId);
+  if (!PHONE_LINE || !code) return null;
+  return (
+    <p className="mt-4 border-t border-line pt-4 text-ink/80">
+      Or call <span className="font-semibold">{formatPhone(PHONE_LINE)}</span> and say shop code{" "}
+      <span className="ds-display text-2xl font-black tabular-nums text-brand">{spacedCode(code)}</span>
+    </p>
   );
 }
 
@@ -58,6 +71,7 @@ export function QrSheet() {
               </div>
               <p className="mt-3 ds-display text-xl font-semibold">Scan to order</p>
               <p className="mt-1 break-all font-mono text-xs text-muted">{storeUrl}</p>
+              <PhoneLine businessId={info.businessId} />
             </section>
 
             <h2 className="no-print mb-3 mt-8 px-1 ds-display text-xl font-semibold text-brand">One per item</h2>

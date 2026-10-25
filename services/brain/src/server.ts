@@ -61,6 +61,7 @@ async function runBootstrap(): Promise<void> {
     const r = await bootstrap(hub);
     state.bootstrapped = true;
     state.steps = r.steps;
+    for (const shop of phone.deps.platform.shops()) phone.deps.codes.codeFor(shop.id); // every live shop has its phone code
     delete state.error;
     worker.start();
     log.info("brain", "bootstrap complete; outbox worker running");
@@ -147,12 +148,18 @@ for (const p of GATED_PATHS) app.use(p, gate);
 const m2 = registerM2Routes(app, hub, env.dataDir); // M2: intake + question engine
 // Storefront designs: public GET for the store, owner edits/uploads behind the same account gate.
 const designs = mountStorefront(app, { dataDir: env.dataDir, mediaBaseUrl: env.brainUrl, gate, activeConfig: activeConfigReader(new StdbCompilePlatform(hub)), llm: llmFromEnv() });
-// M2: compiler (POST /compile, SSE). After a successful compile, a business with no saved design gets one
-// generated in the background (Claude + Openverse); the compile stream never waits for it.
-mountCompiler(app, hub, env.dataDir, { afterCompile: ({ config }) => designs.ensureInBackground(designInputFromConfig(config)) });
 // M3-K: phone line webhook tools. Orders go through the same createCheckout path as the storefront.
 const phone = registerPhoneRoutes(app, { env, hub, m2, checkout: { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront } });
 executors.push(phone.smsExecutor); // drains the platform outbox rows of kind "sms" queued by place_order
+// M2: compiler (POST /compile, SSE). After a successful compile the business gets its phone code right away
+// (the store, dashboard and phone agent all read this one saved code), and, if it has no saved design, one
+// generated in the background (Claude + Openverse); the compile stream never waits for it.
+mountCompiler(app, hub, env.dataDir, {
+  afterCompile: ({ businessId, config }) => {
+    log.info("phone", `${businessId}: phone code ${phone.deps.codes.codeFor(businessId)}`);
+    designs.ensureInBackground(designInputFromConfig(config));
+  },
+});
 // M3: AI staff. Bookkeeper and /ask are owner-only; the storefront chat (Shopkeeper, Support) is public but
 // rate-limited: 40 turns per caller per 15 minutes, 600 per hour overall.
 mountAgents(app, hub, { platform, gateway, sessions, storePublicUrl: env.storePublicUrl, hasStorefront }, {

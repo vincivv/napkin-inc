@@ -59,9 +59,13 @@ interface ToolSpec {
 
 const SPECS: Record<ToolName, ToolSpec> = {
   find_shop: {
-    description: "Connect this call to the shop the caller wants, by the name they said. Call it before any other tool, and again if the caller wants a different shop.",
-    params: { shop_name: { type: "string", description: "The shop name as the caller said it, e.g. Maya's Cookies." } },
-    required: ["shop_name"],
+    description:
+      "Connect this call to the shop the caller wants. Pass the shop's 4-digit code (shown on the shop's page) when the caller gives it; otherwise the shop name as they said it. Call it before any other tool, and again if the caller wants a different shop.",
+    params: {
+      shop_code: { type: "string", description: "The 4-digit shop code exactly as the caller said it, e.g. 4217." },
+      shop_name: { type: "string", description: "Only if the caller has no code: the shop name as they said it, e.g. Maya's Cookies." },
+    },
+    required: [],
     pre_tool_speech: "off",
   },
   menu_lookup: {
@@ -160,7 +164,8 @@ export function systemPrompt(lineName: string): string {
 You answer the ${lineName} phone line, one number shared by many small shops. Be warm and brief. Use short sentences and ask one question at a time.
 
 # Which shop
-- Every call starts by finding the shop. If the caller has not named one, ask which shop they are calling. Then call find_shop with the name as they said it.
+- Every call starts by finding the shop. Ask for the shop's 4-digit code, which is on the shop's page, and call find_shop with shop_code.
+- If the caller doesn't have the code, ask for the shop's name and call find_shop with shop_name. When it matched by name, say the shop's name back and make sure it is the one they mean.
 - Until find_shop succeeds you are not any shop: do not answer questions about menus, prices or orders. If it cannot find the shop, follow its "say" field and ask again.
 - Once connected, you speak for that shop. If the caller wants a different shop, call find_shop again.
 
@@ -205,7 +210,7 @@ export function buildAgentBody(o: { name: string; lineName: string; modelId: str
     description: "Napkin Inc. shared phone line for every live shop. Logic lives in the brain's /phone/tools webhooks.",
     config: {
       instructions: systemPrompt(o.lineName),
-      initial_message: `Hi, thanks for calling ${o.lineName}. Which shop are you calling today?`,
+      initial_message: `Hi, thanks for calling ${o.lineName}. What's the four-digit code of the shop you're calling?`,
       model: { id: o.modelId }, // temperature omitted: newer models fix it (Cartesia rejects any other value)
       language: { primary: "en" },
       audio: { input: { noise_suppression: "auto", keyterms: [o.lineName, "Napkin", ...(o.keyterms ?? [])].slice(0, 50) }, output: { voice_id: o.voiceId } },

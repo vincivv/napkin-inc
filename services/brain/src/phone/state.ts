@@ -8,10 +8,14 @@
 // (default 3 per 15 min). Once either key reaches the limit, verification is locked for that key until the
 // oldest failure leaves the window, even with the right PIN.
 //
+// PhoneCodes: each shop's 4-digit phone code (businessId -> code), assigned once on first use and kept in
+// phone-codes.json, so the code printed on a store never changes. Callers say it to reach that shop.
+//
 // PhoneOrderStore: which caller placed which phone order (orderId -> caller E.164), plus the place_order
 // idempotency index. The platform's customer_order row has no phone column, so the brain keeps this in
 // .data/phone-orders.json (gitignored, mode 0600). Orders not placed by phone have no phone on record.
 
+import { randomInt } from "node:crypto";
 import path from "node:path";
 import { JsonFileStore } from "../store";
 
@@ -172,5 +176,64 @@ export class PhoneOrderStore {
       d.orders[rec.orderId] = rec;
       d.placements[placementKey] = rec.orderId;
     });
+  }
+}
+
+// ---------- shop phone codes ----------
+
+export interface PhoneCodesData {
+  /** businessId -> 4-digit code */
+  codes: Record<string, string>;
+}
+
+export interface PhoneCodesBackend {
+  read(): PhoneCodesData;
+  update(fn: (d: PhoneCodesData) => void): PhoneCodesData;
+}
+
+const emptyCodes = (): PhoneCodesData => ({ codes: {} });
+
+export class FilePhoneCodesBackend extends JsonFileStore<PhoneCodesData> implements PhoneCodesBackend {
+  constructor(dataDir: string) {
+    super(path.join(dataDir, "phone-codes.json"), emptyCodes);
+  }
+}
+
+export class MemoryPhoneCodesBackend implements PhoneCodesBackend {
+  private d = emptyCodes();
+  read() {
+    return structuredClone(this.d);
+  }
+  update(fn: (d: PhoneCodesData) => void) {
+    const next = structuredClone(this.d);
+    fn(next);
+    this.d = next;
+    return structuredClone(next);
+  }
+}
+
+export class PhoneCodes {
+  constructor(
+    private readonly backend: PhoneCodesBackend,
+    private readonly random: () => number = () => randomInt(1000, 10000),
+  ) {}
+
+  /** The shop's code, assigning a fresh unique one the first time. */
+  codeFor(businessId: string): string {
+    const have = this.backend.read().codes[businessId];
+    if (have) return have;
+    let code = "";
+    this.backend.update((d) => {
+      if (d.codes[businessId]) return void (code = d.codes[businessId]);
+      const taken = new Set(Object.values(d.codes));
+      for (let i = 0; i < 1000 && (!code || taken.has(code)); i++) code = String(this.random());
+      if (taken.has(code)) throw new Error("no free phone code");
+      d.codes[businessId] = code;
+    });
+    return code;
+  }
+
+  businessFor(code: string): string | undefined {
+    return Object.entries(this.backend.read().codes).find(([, c]) => c === code)?.[0];
   }
 }

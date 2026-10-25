@@ -4,6 +4,7 @@
 // over SSE), compare it with the active configuration, read its proof report, and activate it. The
 // compile only SUBMITS a pending version; activation is an owner action here (invariant 6).
 
+import { PhoneLine } from "@/components/PhoneLine";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useData } from "@/data/context";
@@ -119,6 +120,9 @@ export default function BuildPage() {
             <div className="min-w-0 flex-1">
               <div className="text-[14px] font-semibold text-pos">Your business is live</div>
               <div className="text-[12.5px] text-muted">Configuration v{active.row.version} is active. Customers can order from your storefront now.</div>
+              <div className="text-[12.5px] text-muted">
+                <PhoneLine businessId={biz} compact />
+              </div>
             </div>
             <Link href="/">
               <Button size="sm">Dashboard</Button>

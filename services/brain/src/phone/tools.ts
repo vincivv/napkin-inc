@@ -1,6 +1,7 @@
 // The phone line's webhook tools (Cartesia Managed Agent -> POST /phone/tools/<name>). All logic lives here;
-// the voice agent only talks. One shared number serves every live shop: find_shop ties the call (its
-// conversation id) to one shop server-side, and every other tool then acts for that shop only. Two modes:
+// the voice agent only talks. One shared number serves every live shop: the caller says the shop's 4-digit
+// code (or, failing that, its name), find_shop ties the call (its conversation id) to that shop server-side,
+// and every other tool then acts for that shop only. Two modes:
 //   customer: find_shop, menu_lookup, order_status (own orders only), place_order, escalate, verify_owner
 //   owner:    owner_report, owner_instruction, available ONLY when this conversation was verified server-side by
 //             verify_owner (caller ID == OWNER_PHONE and PIN == OWNER_PIN). No parameter can grant owner mode.
@@ -16,7 +17,7 @@ import { decimalToCents } from "../payments/ids";
 import { submitOwnerStatement } from "../questions/routes";
 import { PlatformUnavailable, ReducerRefused } from "../stdb";
 import type { PhonePlatform } from "./platform";
-import type { ConversationShops, FailureLimiter, OwnerSessions, PhoneOrderStore } from "./state";
+import type { ConversationShops, FailureLimiter, OwnerSessions, PhoneCodes, PhoneOrderStore } from "./state";
 import { constantTimeEqual, formatCents, localDay, maskPhone, normalizeE164, normalizeOrderId, normalizePin, sha256 } from "./util";
 
 export interface PhoneDeps {
@@ -31,6 +32,8 @@ export interface PhoneDeps {
   failures: FailureLimiter;
   /** Which shop each call is talking to (find_shop). */
   shops: ConversationShops;
+  /** Each shop's 4-digit phone code. */
+  codes: PhoneCodes;
   /** The business OWNER_PHONE / OWNER_PIN belong to: owner mode exists for this shop only. */
   businessId: string;
   /** Raw OWNER_PHONE / OWNER_PIN from the environment. Either missing = owner mode disabled for everyone. */
@@ -60,7 +63,8 @@ const Base = z.object({
 });
 
 export const TOOL_INPUTS = {
-  find_shop: Base.extend({ shop_name: z.string().trim().min(1).max(80) }),
+  /** at least one of the two; the code wins when both are given */
+  find_shop: Base.extend({ shop_code: z.string().trim().max(40).optional(), shop_name: z.string().trim().max(80).optional() }),
   menu_lookup: Base,
   order_status: Base.extend({ order_id: z.string().trim().min(1).max(40) }),
   place_order: Base.extend({
@@ -260,9 +264,33 @@ function liveShop(d: PhoneDeps, id: string): { id: string; name: string } | unde
   return d.platform.shops().find((x) => x.id === id);
 }
 
+const DIGIT_WORDS: Record<string, string> = { zero: "0", oh: "0", o: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9" };
+
+/** "four two one seven", "42 17", "4-2-1-7" -> "4217"; undefined unless exactly 4 digits. */
+export function spokenCode(said: string): string | undefined {
+  const digits = said
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((w) => (/^\d+$/.test(w) ? w : (DIGIT_WORDS[w] ?? "")))
+    .join("");
+  return /^\d{4}$/.test(digits) ? digits : undefined;
+}
+
 async function findShop(d: PhoneDeps, input: In<"find_shop">): Promise<ToolResult> {
+  if (input.shop_code) {
+    const code = spokenCode(input.shop_code);
+    if (!code) return refuse("A shop code has 4 digits. Ask the caller to say it again, one digit at a time.", { found: false, reason: "bad_code" });
+    const id = d.codes.businessFor(code);
+    const shop = id ? liveShop(d, id) : undefined;
+    if (!shop) return refuse(`No shop on this line has the code ${code.split("").join(" ")}. Ask the caller to check the code on the shop's page, or for the shop's name.`, { found: false, reason: "unknown_code" });
+    d.shops.bind(input.conversation_id, shop.id);
+    log.info("phone", `${input.conversation_id} is calling ${shop.id} (code ${code})`);
+    return ok({ shop_name: shop.name, matched_by: "code", say: `You're through to ${shop.name}. How can I help?` });
+  }
+  const said = input.shop_name;
+  if (!said) return refuse("Ask the caller for the shop's 4-digit code, or its name if they don't have the code.", { found: false, reason: "nothing_said" });
   const shops = d.platform.shops();
-  const ranked = shops.map((x) => ({ x, score: shopMatchScore(input.shop_name, x) })).sort((p, q) => q.score - p.score);
+  const ranked = shops.map((x) => ({ x, score: shopMatchScore(said, x) })).sort((p, q) => q.score - p.score);
   const top = ranked[0];
   const names = shops.map((x) => x.name).sort((p, q) => p.localeCompare(q));
   const someNames = names.slice(0, 6).join(", ");
@@ -270,7 +298,7 @@ async function findShop(d: PhoneDeps, input: In<"find_shop">): Promise<ToolResul
     return refuse(
       shops.length === 0
         ? "No shops are taking phone orders right now."
-        : `I couldn't find a shop called ${input.shop_name} on this line. Shops here include ${someNames}. Ask the caller to say the shop name again.`,
+        : `I couldn't find a shop called ${input.shop_name} on this line. Shops here include ${someNames}. Ask the caller for the shop's 4-digit code, or to say the name again.`,
       { found: false, shops: names.slice(0, 6) },
     );
   }
@@ -281,7 +309,7 @@ async function findShop(d: PhoneDeps, input: In<"find_shop">): Promise<ToolResul
   }
   d.shops.bind(input.conversation_id, top.x.id);
   log.info("phone", `${input.conversation_id} is calling ${top.x.id} ("${input.shop_name}")`);
-  return ok({ shop_name: top.x.name, say: `You're through to ${top.x.name}. How can I help?` });
+  return ok({ shop_name: top.x.name, matched_by: "name", say: `That's ${top.x.name}. Check with the caller that this is the shop they mean, then ask how you can help.` });
 }
 
 // ---------- tools ----------

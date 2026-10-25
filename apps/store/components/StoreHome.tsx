@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { StorefrontDesign } from "@/lib/design";
 import { formatPhone, PHONE_LINE } from "@/lib/env";
+import { spacedCode, usePhoneCode } from "@/lib/phone";
 import { available, type Product, type StockMap, type StoreInfo } from "@/lib/model";
 import { useStoreHref } from "@/lib/store-data";
 import { AddonCard, priceLabel, ProductCard } from "./Products";
@@ -230,6 +231,7 @@ function ValueProps({ info }: { info: StoreInfo }) {
 
 function VisitBanner({ info, design }: { info: StoreInfo; design: StorefrontDesign }) {
   const href = useStoreHref();
+  const code = usePhoneCode(info.businessId);
   const pickup = info.fulfillment === "pickup";
   const steps = pickup
     ? ["Add what you want to your bag", "Pay by card in a few taps", "Pick up with your first name"]
@@ -263,7 +265,7 @@ function VisitBanner({ info, design }: { info: StoreInfo; design: StorefrontDesi
                   <dd className="font-medium">{info.hours}</dd>
                 </div>
               ) : null}
-              {PHONE_LINE ? (
+              {PHONE_LINE && code ? (
                 <div className="flex gap-3">
                   <dt className="text-muted">
                     <PropIcon kind="phone" />
@@ -273,7 +275,9 @@ function VisitBanner({ info, design }: { info: StoreInfo; design: StorefrontDesi
                     <span className="font-medium">
                       Order by phone: <a href={`tel:${PHONE_LINE}`} className="underline underline-offset-4">{formatPhone(PHONE_LINE)}</a>
                     </span>
-                    <span className="block text-sm text-muted">Ask for {info.name}. You pay with the order number at /pay.</span>
+                    <span className="block text-sm text-muted">
+                      Shop code <span className="font-semibold tabular-nums text-ink">{spacedCode(code)}</span>: say it when the call starts. You pay with the order number at /pay.
+                    </span>
                   </dd>
                 </div>
               ) : null}
