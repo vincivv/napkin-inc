@@ -93,3 +93,11 @@ export function normalizeState(input: string): string | undefined {
   const hit = Object.entries(STATES).find(([, name]) => name.toLowerCase() === s.toLowerCase());
   return hit?.[0];
 }
+
+/** Whether free text names a US state ("Austin, TX", "Santa Fe, New Mexico"); a bare street address does not. */
+export function namesState(text: string): boolean {
+  const code = /(?:^|,\s*|\s)([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?\s*$/.exec(text.trim())?.[1];
+  if (code && STATES[code]) return true;
+  const lower = ` ${text.toLowerCase().replace(/[^a-z]+/g, " ")} `;
+  return Object.values(STATES).some((name) => lower.includes(` ${name.toLowerCase()} `));
+}

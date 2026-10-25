@@ -140,6 +140,17 @@ export default function BuildPage() {
             </a>
           </div>
         )}
+        {active && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold">Next: getting legal</div>
+              <div className="text-[12.5px] text-muted">The registrations a business like yours usually needs (tax ID, licenses, a sales tax permit) with official links, tailored to your city. Napkin never files anything for you.</div>
+            </div>
+            <Link href="/legal">
+              <Button size="sm" variant="primary">Open checklist</Button>
+            </Link>
+          </div>
+        )}
         <Card title="Build progress" actions={<span className="normal-case text-faint">{biz}</span>}>
           {startError && <ErrorNote error={startError} />}
           {events.length === 0 && !running && !startError ? (

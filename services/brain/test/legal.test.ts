@@ -269,3 +269,14 @@ describe("legal checklist: helpers", () => {
     expect(c.offerings.length).toBeGreaterThan(0);
   });
 });
+
+describe("legal checklist: business location", () => {
+  it("only trusts a location that names a state", async () => {
+    const { namesState } = await import("../src/legal/base");
+    expect(namesState("12 Market St")).toBe(false);
+    expect(namesState("Austin, TX")).toBe(true);
+    expect(namesState("Austin, TX 78701")).toBe(true);
+    expect(namesState("downtown Santa Fe, New Mexico")).toBe(true);
+    expect(namesState("Main St, Portland")).toBe(false);
+  });
+});

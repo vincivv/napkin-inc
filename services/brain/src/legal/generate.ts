@@ -4,7 +4,7 @@
 
 import { z, ZodError } from "zod";
 import { MODELS, type Llm } from "../llm";
-import { BASE_IDS, baseItems, stateName } from "./base";
+import { BASE_IDS, baseItems, namesState, stateName } from "./base";
 import { linkWorks, officialUrl, type FetchLike } from "./links";
 import type { LegalItem, LegalLocation, LegalProfile } from "./types";
 
@@ -77,7 +77,8 @@ function profileText(p: LegalProfile, location: string): string {
 
 export function locationText(loc: LegalLocation | undefined, profile: LegalProfile | undefined): string | undefined {
   if (loc) return `${loc.city}, ${stateName(loc.state)}`;
-  return profile?.location;
+  // the business's own location only counts when it says which state: licenses and tax are per state
+  return profile?.location && namesState(profile.location) ? profile.location : undefined;
 }
 
 /** kebab-case, a-z0-9, max 60 chars. */
