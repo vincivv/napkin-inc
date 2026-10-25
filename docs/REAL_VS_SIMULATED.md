@@ -88,7 +88,8 @@ the code, the code wins; tell us.
   open accounting decision for the owner).
 - Napkin does **not** file or pay sales tax, apply for permits or licenses, or give legal or tax advice. It
   shows the totals and the checklist; the owner (or their accountant) files.
-- Refunds book their tax to Refunds 4200 instead of Sales tax payable 2100 (the tax report corrects for it;
-  the trial balance does not yet).
-- Maya's hosted configuration predates expenses: her Expenses page asks for a recompile.
+- Refunds posted before 2026-10-25 (or by shops compiled before then) booked their tax to Refunds 4200; newer
+  ones hand it back from Sales tax payable 2100. The sales tax report handles both.
+- Maya's hosted configuration is still v1, from before expenses and owner stock changes. The upgrade
+  (`scripts/maya-submit-fixture.mts`) waits on the owner's OK.
 - Other open owner decisions are listed in `docs/HANDOFF.md` section 11 and `docs/MORNING.md`.

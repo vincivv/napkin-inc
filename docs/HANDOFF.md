@@ -663,9 +663,15 @@ on Build to get expenses; **ask the owner before recompiling hosted Maya**.
      the two readings; the owner resolves them in the interview, but it adds questions.
    - When no photo passes the vision pick for an item, the store shows a label tile instead.
    - The quick tunnel is fragile; the watchdog recovers in about 2 minutes, a named tunnel would avoid it.
-   - **Refunds book their tax to Refunds 4200**, not back out of Sales tax payable 2100, so the trial balance
-     overstates tax owed after a refund. The sales tax report already backs it out (from the refund's
-     saleTotal/saleNet); the real fix is a third refund posting rule, and it must pass the Z3 balance proof.
+   - Fixed 2026-10-25: refunds now debit Sales tax payable 2100 for their tax share (`taxBack`, rounded on the
+     running refunded total so split refunds return exactly the tax charged); Z3-proved. Refunds posted
+     before that, and shops compiled before it, still book the whole refund to 4200; the sales tax report
+     handles both.
+   - **Hosted Maya is still on v1** (no expenses, owner stock changes or refund tax split). The updated
+     fixture is purely additive against her live v1. `scripts/maya-submit-fixture.mts` proves it and checks
+     she has only v1; with `--submit` it adds it as pending v2 (needs the owner's OK; it writes to the hosted
+     database). Her owner then activates v2 on Build. Don't compile Maya from a spec: that would replace
+     the hand-written M1 configuration.
    - Recompiling regenerates the storefront tagline (the owner didn't ask for that).
    - No document pays off an "owed" expense yet, so Payables 2000 only grows; receipts uploaded without
      saving an expense stay in `dataDir/receipts/`.
